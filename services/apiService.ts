@@ -15,8 +15,8 @@ export const apiService = {
     const data = localStorage.getItem(DB_KEYS.USERS);
     if (!data) {
       const defaults = [
-        { id: '1', name: 'Admin User', username: 'admin', password: 'password', role: UserRole.ADMIN },
-        { id: '2', name: 'Field Tech', username: 'crew', password: 'password', role: UserRole.CREW }
+        { id: '1', name: 'Admin User', username: 'admin', password: 'admin123', role: UserRole.ADMIN },
+        { id: '2', name: 'Field Tech', username: 'crew', password: 'crew123', role: UserRole.CREW }
       ];
       localStorage.setItem(DB_KEYS.USERS, JSON.stringify(defaults));
       return defaults;

@@ -12,19 +12,22 @@
     <style>
         body { font-family: 'Inter', sans-serif; -webkit-font-smoothing: antialiased; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
+        /* Add tailwindcss-animate support for CDN */
+        @keyframes-in{from{opacity:0;transform:translate(-50%,-48%) scale(.96)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}@keyframes-out{from{opacity:1;transform:translate(-50%,-50%) scale(1)}to{opacity:0;transform:translate(-50%,-48%) scale(.96)}}@keyframes-enter{from{opacity:0;transform:translate(var(--tw-translate-x),var(--tw-translate-y)) scale(var(--tw-scale-x),var(--tw-scale-y))}to{opacity:1;transform:translate(0) scale(1)}}@keyframes-exit{from{opacity:1;transform:translate(0) scale(1)}to{opacity:0;transform:translate(var(--tw-translate-x),var(--tw-translate-y)) scale(var(--tw-scale-x),var(--tw-scale-y))}}@keyframes-slide-in-from-top{from{transform:translateY(-100%)}to{transform:translateY(0)}}@keyframes-slide-out-to-top{from{transform:translateY(0)}to{transform:translateY(-100%)}}@keyframes-slide-in-from-bottom{from{transform:translateY(100%)}to{transform:translateY(0)}}@keyframes-slide-out-to-bottom{from{transform:translateY(0)}to{transform:translateY(100%)}}@keyframes-slide-in-from-left{from{transform:translateX(-100%)}to{transform:translateX(0)}}@keyframes-slide-out-to-left{from{transform:translateX(0)}to{transform:translateX(-100%)}}@keyframes-slide-in-from-right{from{transform:translateX(100%)}to{transform:translateX(0)}}@keyframes-slide-out-to-right{from{transform:translateX(0)}to{transform:translateX(100%)}}@keyframes-zoom-in{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}@keyframes-zoom-out{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(.95)}}@keyframes-fade-in{from{opacity:0}to{opacity:1}}@keyframes-fade-out{from{opacity:1}to{opacity:0}}.animate-in{animation-name:enter;animation-duration:150ms;--tw-enter-opacity:0;--tw-enter-transform:translate(var(--tw-enter-translate-x),var(--tw-enter-translate-y)) scale(var(--tw-enter-scale-x),var(--tw-enter-scale-y))}.fade-in{--tw-enter-opacity:initial}.zoom-in{--tw-enter-scale-x:0.95;--tw-enter-scale-y:0.95}.slide-in-from-top{--tw-enter-translate-y:-100%}.slide-in-from-bottom{--tw-enter-translate-y:100%}.slide-in-from-left{--tw-enter-translate-x:-100%}.slide-in-from-right{--tw-enter-translate-x:100%}
     </style>
 <script type="importmap">
 {
   "imports": {
     "@google/genai": "https://esm.sh/@google/genai@^1.34.0",
-    "react": "https://esm.sh/react@^19.2.3",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "react/": "https://esm.sh/react@^19.2.3/"
+    "react": "https://esm.sh/react@19.2.3",
+    "react-dom/client": "https://esm.sh/react-dom@19.2.3/client",
+    "react/jsx-runtime": "https://esm.sh/react@19.2.3/jsx-runtime"
   }
 }
 </script>
 </head>
 <body class="bg-slate-50 text-slate-900 selection:bg-blue-100 selection:text-blue-900">
     <div id="root"></div>
+    <script type="module" src="./index.tsx"></script>
 </body>
 </html>
