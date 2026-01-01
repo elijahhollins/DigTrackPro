@@ -1,0 +1,7 @@
+{
+  "name": "DigTrack Pro",
+  "description": "Professional construction locate ticket manager with AI scanning.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
