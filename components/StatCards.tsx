@@ -11,16 +11,16 @@ export default ({ tickets }: { tickets: DigTicket[] }) => {
   }, {} as Record<string, number>);
 
   const items = [
-    { label: 'Live Tickets', value: tickets.length, color: 'border-slate-200 text-slate-800' },
-    { label: 'Active (Valid)', value: stats[TicketStatus.VALID] || 0, color: 'border-emerald-100 text-emerald-600' },
-    { label: 'Requires Renewal', value: stats[TicketStatus.EXTENDABLE] || 0, color: 'border-amber-100 text-amber-600' },
-    { label: 'Expired', value: stats[TicketStatus.EXPIRED] || 0, color: 'border-rose-100 text-rose-600' },
+    { label: 'Total Records', value: tickets.length, color: 'border-slate-100 text-slate-800' },
+    { label: 'Safe to Dig', value: stats[TicketStatus.VALID] || 0, color: 'border-emerald-100 text-emerald-600' },
+    { label: 'Expires Soon', value: stats[TicketStatus.EXTENDABLE] || 0, color: 'border-orange-100 text-orange-600' },
+    { label: 'Stop Work (Expired)', value: stats[TicketStatus.EXPIRED] || 0, color: 'border-rose-100 text-rose-600' },
   ];
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
       {items.map((it, idx) => (
-        <div key={idx} className={`bg-white p-8 rounded-[2rem] border-2 ${it.color.split(' ')[0]} shadow-sm hover:shadow-md transition-shadow`}>
+        <div key={idx} className={`bg-white p-8 rounded-[2rem] border-2 ${it.color.split(' ')[0]} shadow-sm hover:shadow-orange-100/30 transition-all`}>
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">{it.label}</p>
           <p className={`text-4xl font-black tracking-tighter ${it.color.split(' ')[1]}`}>{it.value}</p>
         </div>
