@@ -127,16 +127,16 @@ const App: React.FC = () => {
   
   if (isLoading) return (
     <div className="min-h-screen bg-white flex flex-col items-center justify-center">
-      <div className="w-14 h-14 border-4 border-orange-100 border-t-orange-500 rounded-full animate-spin mb-6" />
-      <p className="text-slate-400 font-black uppercase tracking-[0.4em] text-[10px]">Loading Project Data</p>
+      <div className="w-14 h-14 border-4 border-orange-100 border-t-orange-600 rounded-full animate-spin mb-6" />
+      <p className="text-slate-400 font-black uppercase tracking-[0.4em] text-[10px]">Syncing Data</p>
     </div>
   );
 
   const isAdmin = currentUser.role === UserRole.ADMIN;
 
   const NavigationBar = () => (
-    <div className="fixed bottom-0 left-0 right-0 z-50 px-4 pb-4 md:pb-6">
-      <div className="max-w-2xl mx-auto bg-white/90 backdrop-blur-xl border border-slate-200/50 shadow-[0_20px_50px_rgba(0,0,0,0.1)] rounded-[2.5rem] p-2 flex items-center justify-between">
+    <div className="fixed bottom-0 left-0 right-0 z-[100] px-4 pb-6 md:pb-8 flex justify-center pointer-events-none">
+      <div className="bg-white/95 backdrop-blur-xl border border-slate-200/50 shadow-[0_15px_40px_rgba(0,0,0,0.12)] rounded-[2.5rem] p-2 flex items-center gap-1 pointer-events-auto">
         {[
           { id: 'dashboard', label: 'Dashboard', icon: 'M4 6h16M4 12h16M4 18h16' },
           { id: 'calendar', label: 'Calendar', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
@@ -147,7 +147,7 @@ const App: React.FC = () => {
           <button 
             key={v.id}
             onClick={() => setActiveView(v.id as AppView)}
-            className={`flex-1 flex flex-col items-center gap-1.5 py-3 px-2 rounded-[2rem] transition-all group ${activeView === v.id ? 'bg-orange-500 text-white shadow-lg shadow-orange-200' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}
+            className={`flex flex-col items-center gap-1 py-3 px-5 md:px-8 rounded-[2rem] transition-all group ${activeView === v.id ? 'bg-orange-600 text-white shadow-lg shadow-orange-100' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d={v.icon} /></svg>
             <span className={`text-[8px] font-black uppercase tracking-widest ${activeView === v.id ? 'text-white' : 'text-slate-400'}`}>{v.label}</span>
@@ -158,12 +158,12 @@ const App: React.FC = () => {
   );
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col relative pb-32">
+    <div className="min-h-screen bg-slate-50 flex flex-col relative">
       <header className="bg-white border-b border-slate-100 sticky top-0 z-40">
         <div className="max-w-[1600px] mx-auto px-4">
           <div className="h-20 flex items-center justify-between gap-6">
             <div className="flex items-center gap-3 shrink-0">
-              <div className="bg-orange-500 p-2.5 rounded-2xl shadow-lg shadow-orange-100">
+              <div className="bg-orange-600 p-2.5 rounded-2xl shadow-lg shadow-orange-100">
                 <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
               </div>
               <div>
@@ -179,8 +179,8 @@ const App: React.FC = () => {
             <div className="flex-1 max-w-xl relative hidden md:block">
               <input
                 type="text"
-                placeholder="Search database..."
-                className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-semibold outline-none focus:bg-white focus:ring-4 focus:ring-orange-500/10 focus:border-orange-500 transition-all placeholder:text-slate-400"
+                placeholder="Search locate tickets..."
+                className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-semibold outline-none focus:bg-white focus:ring-4 focus:ring-orange-600/10 focus:border-orange-600 transition-all placeholder:text-slate-400"
                 value={globalSearch}
                 onChange={e => setGlobalSearch(e.target.value)}
               />
@@ -191,7 +191,7 @@ const App: React.FC = () => {
               {isAdmin && (
                 <button
                   onClick={() => { setEditingTicket(null); setShowForm(true); }}
-                  className="bg-orange-500 text-white px-5 py-3 rounded-2xl font-black uppercase tracking-widest hover:bg-orange-600 transition-all flex items-center gap-2 shadow-xl shadow-orange-100 text-[10px]"
+                  className="bg-orange-600 text-white px-5 py-3 rounded-2xl font-black uppercase tracking-widest hover:bg-orange-700 transition-all flex items-center gap-2 shadow-xl shadow-orange-100 text-[10px]"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
                   <span className="hidden sm:inline">New Ticket</span>
@@ -209,7 +209,7 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      <main className="max-w-[1600px] mx-auto px-4 py-8 flex-1 w-full animate-in fade-in slide-in-from-bottom-2 duration-700">
+      <main className="max-w-[1600px] mx-auto px-4 py-8 flex-1 w-full animate-in fade-in slide-in-from-bottom-2 duration-700 pb-44">
         {activeView === 'dashboard' && (
           <div className="space-y-6">
             <StatCards tickets={tickets} />
