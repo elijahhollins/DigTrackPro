@@ -1,11 +1,10 @@
-
-import React, { useState, useMemo, useCallback } from 'react';
-import { JobPhoto } from '../types';
+import React, { useState, useMemo } from 'react';
+import { JobPhoto } from '../types.ts';
 
 interface PhotoManagerProps {
   photos: JobPhoto[];
   initialSearch?: string;
-  onAddPhoto: (photo: JobPhoto) => void;
+  onAddPhoto: (photo: Omit<JobPhoto, 'id' | 'dataUrl'>, file: File) => void;
   onDeletePhoto: (id: string) => void;
 }
 
@@ -37,26 +36,21 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({ photos, initialSearch = '',
       }
     };
 
-    reader.onload = (event) => {
-      // Small delay to ensure the progress bar hits 100% and looks natural
+    reader.onload = () => {
       setTimeout(() => {
-        const dataUrl = event.target?.result as string;
-        const newPhoto: JobPhoto = {
-          id: crypto.randomUUID(),
+        const photoMetadata: Omit<JobPhoto, 'id' | 'dataUrl'> = {
           jobNumber: uploadingJobNum.trim(),
-          dataUrl,
           timestamp: Date.now(),
           caption: caption.trim() || 'Site Photo'
         };
         
-        onAddPhoto(newPhoto);
+        onAddPhoto(photoMetadata, file);
         
         setIsUploading(false);
         setUploadProgress(0);
         setShowSuccess(true);
         setCaption('');
         
-        // Reset success message after 2.5 seconds
         setTimeout(() => setShowSuccess(false), 2500);
       }, 300);
     };
@@ -73,7 +67,7 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({ photos, initialSearch = '',
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) processFile(file);
-    e.target.value = ''; // Reset input
+    e.target.value = '';
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -94,7 +88,6 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({ photos, initialSearch = '',
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
-      {/* Refined Upload Section */}
       <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden">
         <div className="p-8 border-b border-slate-50 flex items-center justify-between bg-slate-50/30">
           <div className="flex items-center gap-4">
@@ -198,7 +191,6 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({ photos, initialSearch = '',
         </div>
       </div>
 
-      {/* Gallery Section */}
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>

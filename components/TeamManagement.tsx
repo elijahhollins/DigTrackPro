@@ -1,15 +1,15 @@
-
 import React, { useState } from 'react';
-import { UserRole, UserRecord } from '../types';
+import { UserRole, UserRecord } from '../types.ts';
 
 interface TeamManagementProps {
   users: UserRecord[];
   currentUserId: string;
   onAddUser: (user: Omit<UserRecord, 'id'>) => void;
   onDeleteUser: (id: string) => void;
+  onThemeChange?: (color: string) => void;
 }
 
-const TeamManagement: React.FC<TeamManagementProps> = ({ users, currentUserId, onAddUser, onDeleteUser }) => {
+const TeamManagement: React.FC<TeamManagementProps> = ({ users, currentUserId, onAddUser, onDeleteUser, onThemeChange }) => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
@@ -17,6 +17,15 @@ const TeamManagement: React.FC<TeamManagementProps> = ({ users, currentUserId, o
     password: '',
     role: UserRole.CREW
   });
+
+  const themes = [
+    { name: 'Safety Orange', color: '#ea580c' },
+    { name: 'Utility Blue', color: '#2563eb' },
+    { name: 'Gas Yellow', color: '#eab308' },
+    { name: 'Water Green', color: '#10b981' },
+    { name: 'Power Red', color: '#e11d48' },
+    { name: 'Slate Gray', color: '#475569' }
+  ];
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,7 +36,28 @@ const TeamManagement: React.FC<TeamManagementProps> = ({ users, currentUserId, o
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
+    <div className="space-y-8 animate-in fade-in duration-500">
+      <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
+        <h2 className="text-xl font-black text-slate-900 tracking-tight uppercase">Visual Branding</h2>
+        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Select your organization's primary color</p>
+        
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4 mt-6">
+          {themes.map(t => (
+            <button
+              key={t.name}
+              onClick={() => onThemeChange?.(t.color)}
+              className="group flex flex-col items-center gap-3 p-4 rounded-3xl border border-slate-50 hover:bg-slate-50 transition-all"
+            >
+              <div 
+                className="w-10 h-10 rounded-2xl shadow-lg transition-transform group-hover:scale-110" 
+                style={{ backgroundColor: t.color }}
+              />
+              <span className="text-[9px] font-black text-slate-500 uppercase tracking-tighter">{t.name}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-xl font-black text-slate-900 tracking-tight uppercase">Team Management</h2>
@@ -35,20 +65,20 @@ const TeamManagement: React.FC<TeamManagementProps> = ({ users, currentUserId, o
         </div>
         <button 
           onClick={() => setShowAddForm(!showAddForm)}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all ${showAddForm ? 'bg-slate-100 text-slate-600' : 'bg-blue-600 text-white shadow-lg shadow-blue-100 hover:bg-blue-700'}`}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all ${showAddForm ? 'bg-slate-100 text-slate-600' : 'bg-brand text-white shadow-lg shadow-brand hover:brightness-110'}`}
         >
           {showAddForm ? 'Close Panel' : 'Add New Member'}
         </button>
       </div>
 
       {showAddForm && (
-        <div className="bg-white p-8 rounded-3xl border border-blue-100 shadow-xl shadow-blue-50/50 animate-in slide-in-from-top-4 duration-300">
+        <div className="bg-white p-8 rounded-3xl border border-brand/20 shadow-xl shadow-brand/5 animate-in slide-in-from-top-4 duration-300">
           <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
             <div className="space-y-1.5">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Full Name</label>
               <input 
                 required
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-brand transition-all"
                 value={formData.name}
                 onChange={e => setFormData({...formData, name: e.target.value})}
               />
@@ -57,7 +87,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({ users, currentUserId, o
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Username</label>
               <input 
                 required
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-brand transition-all"
                 value={formData.username}
                 onChange={e => setFormData({...formData, username: e.target.value})}
               />
@@ -67,7 +97,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({ users, currentUserId, o
               <input 
                 required
                 type="text"
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-brand transition-all"
                 value={formData.password}
                 onChange={e => setFormData({...formData, password: e.target.value})}
               />
@@ -76,7 +106,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({ users, currentUserId, o
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Role</label>
               <div className="flex gap-2">
                 <select 
-                  className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-blue-500 transition-all appearance-none cursor-pointer"
+                  className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-brand transition-all appearance-none cursor-pointer"
                   value={formData.role}
                   onChange={e => setFormData({...formData, role: e.target.value as UserRole})}
                 >
@@ -118,7 +148,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({ users, currentUserId, o
                   <span className="text-xs font-mono font-bold text-slate-400 lowercase">{user.username}</span>
                 </td>
                 <td className="px-8 py-5">
-                  <span className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${user.role === UserRole.ADMIN ? 'bg-blue-100 text-blue-700 border border-blue-200' : 'bg-slate-100 text-slate-700 border border-slate-200'}`}>
+                  <span className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${user.role === UserRole.ADMIN ? 'bg-brand/10 text-brand border border-brand/20' : 'bg-slate-100 text-slate-700 border border-slate-200'}`}>
                     {user.role}
                   </span>
                 </td>

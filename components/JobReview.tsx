@@ -1,7 +1,6 @@
-
 import React, { useState, useMemo } from 'react';
-import { DigTicket, TicketStatus, JobNote, Job } from '../types';
-import { getTicketStatus, getStatusColor, getStatusDotColor } from '../utils/dateUtils';
+import { DigTicket, TicketStatus, JobNote, Job } from '../types.ts';
+import { getTicketStatus, getStatusColor, getStatusDotColor } from '../utils/dateUtils.ts';
 
 interface JobReviewProps {
   tickets: DigTicket[];
@@ -85,7 +84,6 @@ const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, notes, isAdmin, on
 
       <div className="grid grid-cols-1 gap-8">
         {allJobNumbers.map(jobNum => {
-          // Fix: Simplified the find logic and used the correct scope variable 'jobNum'
           const jobEntity = jobs.find(j => j.jobNumber === jobNum);
           const isComplete = jobEntity?.isComplete || false;
           const jobTickets = (groupedTickets[jobNum] || []);

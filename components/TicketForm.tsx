@@ -1,7 +1,6 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { DigTicket, UserRecord, UserRole } from '../types';
-import { parseTicketData } from '../services/geminiService';
+import { DigTicket, UserRecord, UserRole } from '../types.ts';
+import { parseTicketData } from '../services/geminiService.ts';
 
 interface TicketFormProps {
   onAdd: (ticket: Omit<DigTicket, 'id' | 'createdAt'>) => void;

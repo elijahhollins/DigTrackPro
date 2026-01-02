@@ -1,5 +1,4 @@
-
-import { TicketStatus, DigTicket } from '../types';
+import { TicketStatus, DigTicket } from '../types.ts';
 
 export const getTicketStatus = (ticket: DigTicket): TicketStatus => {
   const now = new Date();
