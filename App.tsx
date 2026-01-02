@@ -34,19 +34,20 @@ const App: React.FC = () => {
     order: 'desc'
   });
 
-  useEffect(() => {
-    const savedColor = localStorage.getItem('dig_theme_color') || '#ea580c';
-    document.documentElement.style.setProperty('--brand-primary', savedColor);
-    document.documentElement.style.setProperty('--brand-ring', `${savedColor}1a`);
-    document.documentElement.style.setProperty('--brand-shadow', `${savedColor}33`);
-  }, []);
-
   const setThemeColor = (color: string) => {
     localStorage.setItem('dig_theme_color', color);
     document.documentElement.style.setProperty('--brand-primary', color);
-    document.documentElement.style.setProperty('--brand-ring', `${color}1a`);
-    document.documentElement.style.setProperty('--brand-shadow', `${color}33`);
+    const r = parseInt(color.slice(1, 3), 16);
+    const g = parseInt(color.slice(3, 5), 16);
+    const b = parseInt(color.slice(5, 7), 16);
+    document.documentElement.style.setProperty('--brand-ring', `rgba(${r}, ${g}, ${b}, 0.1)`);
+    document.documentElement.style.setProperty('--brand-shadow', `rgba(${r}, ${g}, ${b}, 0.2)`);
   };
+
+  useEffect(() => {
+    const savedColor = localStorage.getItem('dig_theme_color') || '#ea580c';
+    setThemeColor(savedColor);
+  }, []);
 
   useEffect(() => {
     const initApp = async () => {
@@ -59,6 +60,11 @@ const App: React.FC = () => {
         setIsLoading(false);
         return;
       }
+
+      const timeoutId = setTimeout(() => {
+        setInitError("Network requests are taking too long. Please check your connection.");
+        setIsLoading(false);
+      }, 15000);
 
       try {
         const savedUser = localStorage.getItem('dig_auth_user');
@@ -78,14 +84,15 @@ const App: React.FC = () => {
           apiService.getUsers().catch(() => [])
         ]);
 
+        clearTimeout(timeoutId);
         setTickets(t);
         setJobs(j);
         setPhotos(p);
         setNotes(n);
         setUsers(u);
       } catch (error: any) {
+        clearTimeout(timeoutId);
         const msg = typeof error === 'string' ? error : (error?.message || "Critical connection error.");
-        console.error("Initialization Error:", msg);
         setInitError(msg);
       } finally {
         setIsLoading(false);
@@ -94,42 +101,6 @@ const App: React.FC = () => {
 
     initApp();
   }, []);
-
-  if (isConfigMissing) return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-8 text-center">
-      <div className="bg-white p-10 md:p-16 rounded-[3rem] shadow-2xl border border-slate-100 max-w-2xl animate-in zoom-in duration-500">
-        <div className="bg-brand/10 text-brand w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-xl shadow-brand/5 rotate-3">
-          <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" /></svg>
-        </div>
-        <h2 className="text-3xl font-black text-slate-800 tracking-tight">Configuration Required</h2>
-        <p className="text-slate-500 mt-6 leading-relaxed font-medium">
-          DigTrack Pro needs your Supabase API keys to connect to the database.
-        </p>
-        
-        <div className="mt-10 space-y-4 text-left">
-          <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 group">
-            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">1. SUPABASE_URL</h4>
-            <p className="text-xs text-slate-600 leading-relaxed">
-              Find this in <b>Project Settings > API</b>. It should look like <code className="bg-white px-1.5 py-0.5 rounded border text-brand font-bold">https://xyz...supabase.co</code>.
-            </p>
-          </div>
-          <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
-            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">2. SUPABASE_ANON_KEY</h4>
-            <p className="text-xs text-slate-600 leading-relaxed">
-              Copy the <b>'anon' 'public'</b> key from the same API settings page.
-            </p>
-          </div>
-        </div>
-
-        <button 
-          onClick={() => window.location.reload()}
-          className="w-full mt-10 bg-brand text-white py-5 rounded-[1.5rem] font-black text-xs uppercase tracking-[0.2em] hover:brightness-110 transition-all shadow-xl shadow-brand/20 active:scale-[0.98]"
-        >
-          Check Settings Again
-        </button>
-      </div>
-    </div>
-  );
 
   const handleLogin = (user: User) => {
     setCurrentUser(user);
@@ -263,7 +234,30 @@ const App: React.FC = () => {
     return result;
   }, [activeTickets, globalSearch, sortConfig]);
 
-  if (!currentUser) return <Login onLogin={handleLogin} />;
+  if (isConfigMissing) return (
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-8 text-center">
+      <div className="bg-white p-10 md:p-16 rounded-[3rem] shadow-2xl border border-slate-100 max-w-2xl animate-in zoom-in duration-500">
+        <div className="bg-brand/10 text-brand w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-xl shadow-brand/5 rotate-3">
+          <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" /></svg>
+        </div>
+        <h2 className="text-3xl font-black text-slate-800 tracking-tight">Configuration Required</h2>
+        <p className="text-slate-500 mt-6 leading-relaxed font-medium">DigTrack Pro needs your Supabase API keys.</p>
+        <div className="mt-10 space-y-4 text-left">
+          <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 group">
+            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">1. SUPABASE_URL</h4>
+            <p className="text-xs text-slate-600 leading-relaxed">Find this in <b>Project Settings &gt; API</b>.</p>
+          </div>
+          <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
+            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">2. SUPABASE_ANON_KEY</h4>
+            <p className="text-xs text-slate-600 leading-relaxed">Copy the <b>'anon' 'public'</b> key from API settings.</p>
+          </div>
+        </div>
+        <button onClick={() => window.location.reload()} className="w-full mt-10 bg-brand text-white py-5 rounded-[1.5rem] font-black text-xs uppercase tracking-[0.2em] hover:brightness-110 transition-all shadow-xl shadow-brand/20 active:scale-[0.98]">Check Settings Again</button>
+      </div>
+    </div>
+  );
+
+  if (!currentUser && !isLoading) return <Login onLogin={handleLogin} />;
   
   if (isLoading) return (
     <div className="min-h-screen bg-white flex flex-col items-center justify-center">
@@ -275,21 +269,9 @@ const App: React.FC = () => {
   if (initError) return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-8 text-center">
       <div className="bg-white p-12 rounded-[3rem] shadow-xl border border-slate-100 max-w-lg">
-        <div className="bg-rose-50 text-rose-500 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6">
-          <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-        </div>
         <h2 className="text-2xl font-black text-slate-800 tracking-tight">System Offline</h2>
-        <p className="text-slate-500 mt-4 leading-relaxed font-medium">We encountered a problem connecting to the database.</p>
-        <div className="mt-6 bg-slate-50 p-4 rounded-2xl border border-slate-100">
-          <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest text-left mb-1">Error Message</p>
-          <p className="text-xs font-mono text-slate-600 break-all text-left">{initError}</p>
-        </div>
-        <button 
-          onClick={() => window.location.reload()}
-          className="w-full mt-8 bg-brand text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:brightness-110 transition-all shadow-lg shadow-brand/20"
-        >
-          Attempt Reconnect
-        </button>
+        <p className="text-slate-500 mt-4 leading-relaxed font-medium">{initError}</p>
+        <button onClick={() => window.location.reload()} className="w-full mt-8 bg-brand text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:brightness-110 transition-all shadow-lg shadow-brand/20">Attempt Reconnect</button>
       </div>
     </div>
   );
@@ -323,12 +305,7 @@ const App: React.FC = () => {
     const isActive = sortConfig.field === field;
     return (
       <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
-        <button 
-          onClick={() => handleSort(field)}
-          className={`flex items-center gap-1.5 hover:text-slate-600 transition-colors ${isActive ? 'text-slate-800' : ''}`}
-        >
-          {label}
-        </button>
+        <button onClick={() => handleSort(field)} className={`flex items-center gap-1.5 hover:text-slate-600 transition-colors ${isActive ? 'text-slate-800' : ''}`}>{label}</button>
       </th>
     );
   };
@@ -345,49 +322,22 @@ const App: React.FC = () => {
               <div>
                 <h1 className="text-lg font-black text-slate-800 tracking-tight leading-none">DigTrack Pro</h1>
                 <div className="flex items-center gap-2 mt-1">
-                  <span className={`text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md ${isAdmin ? 'bg-orange-100 text-brand' : 'bg-slate-100 text-slate-500'}`}>
-                    {currentUser.role}
-                  </span>
+                  <span className={`text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md ${isAdmin ? 'bg-orange-100 text-brand' : 'bg-slate-100 text-slate-500'}`}>{currentUser.role}</span>
                 </div>
               </div>
             </div>
-
             <div className="flex-1 max-w-xl relative hidden md:block">
-              <input
-                type="text"
-                placeholder="Search database..."
-                className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-semibold outline-none focus:bg-white focus:ring-4 focus:ring-brand/10 focus:border-brand transition-all placeholder:text-slate-400"
-                value={globalSearch}
-                onChange={e => setGlobalSearch(e.target.value)}
-              />
+              <input type="text" placeholder="Search database..." className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-semibold outline-none focus:bg-white focus:ring-4 focus:ring-brand/10 focus:border-brand transition-all" value={globalSearch} onChange={e => setGlobalSearch(e.target.value)} />
               <svg className="w-4 h-4 text-slate-300 absolute left-3.5 top-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
             </div>
-
             <div className="flex items-center gap-4 ml-auto">
               {isAdmin && activeView === 'jobs' && (
-                <button
-                  onClick={() => { setEditingJob(null); setShowJobForm(true); }}
-                  className="bg-slate-900 text-white px-5 py-3 rounded-2xl font-black uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center gap-2 shadow-xl shadow-slate-100 text-[10px]"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
-                  <span>New Job</span>
-                </button>
+                <button onClick={() => { setEditingJob(null); setShowJobForm(true); }} className="bg-slate-900 text-white px-5 py-3 rounded-2xl font-black uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center gap-2 shadow-xl shadow-slate-100 text-[10px]">New Job</button>
               )}
               {isAdmin && (
-                <button
-                  onClick={() => { setEditingTicket(null); setShowTicketForm(true); }}
-                  className="bg-brand text-white px-5 py-3 rounded-2xl font-black uppercase tracking-widest hover:brightness-110 transition-all flex items-center gap-2 shadow-xl shadow-brand text-[10px]"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
-                  <span className="hidden sm:inline">New Ticket</span>
-                </button>
+                <button onClick={() => { setEditingTicket(null); setShowTicketForm(true); }} className="bg-brand text-white px-5 py-3 rounded-2xl font-black uppercase tracking-widest hover:brightness-110 transition-all flex items-center gap-2 shadow-xl shadow-brand text-[10px]">New Ticket</button>
               )}
-              <button
-                onClick={handleLogout}
-                className="p-3 bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-500 rounded-xl transition-all border border-slate-100"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
-              </button>
+              <button onClick={handleLogout} className="p-3 bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-500 rounded-xl transition-all border border-slate-100"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg></button>
             </div>
           </div>
         </div>
@@ -414,27 +364,15 @@ const App: React.FC = () => {
                     {filteredAndSortedTickets.map(ticket => {
                       const status = getTicketStatus(ticket);
                       return (
-                        <tr 
-                          key={ticket.id} 
-                          onClick={() => isAdmin && handleEditTicket(ticket)} 
-                          className={`transition-all group ${isAdmin ? 'cursor-pointer' : ''} ${getRowBgColor(status)}`}
-                        >
+                        <tr key={ticket.id} onClick={() => isAdmin && handleEditTicket(ticket)} className={`transition-all group ${isAdmin ? 'cursor-pointer' : ''} ${getRowBgColor(status)}`}>
                           <td className="px-6 py-6 text-xs font-black text-slate-700">{ticket.jobNumber}</td>
                           <td className="px-6 py-6 text-xs font-mono font-bold text-slate-400">{ticket.ticketNo}</td>
                           <td className="px-6 py-6 text-xs font-bold text-slate-500 truncate max-w-[250px]">{ticket.address}</td>
-                          <td className="px-6 py-6">
-                            <span className={`inline-flex items-center px-3 py-1 rounded-full text-[9px] font-black border uppercase tracking-widest ${getStatusColor(status)} shadow-sm`}>
-                              {status}
-                            </span>
-                          </td>
-                          <td className="px-6 py-6 text-[11px] font-black text-slate-500">
-                            {new Date(ticket.expirationDate).toLocaleDateString()}
-                          </td>
+                          <td className="px-6 py-6"><span className={`inline-flex items-center px-3 py-1 rounded-full text-[9px] font-black border uppercase tracking-widest ${getStatusColor(status)} shadow-sm`}>{status}</span></td>
+                          <td className="px-6 py-6 text-[11px] font-black text-slate-500">{new Date(ticket.expirationDate).toLocaleDateString()}</td>
                           <td className="px-6 py-6 text-right">
                             {isAdmin && (
-                              <button onClick={(e) => deleteTicket(ticket.id, e)} className="p-2 text-slate-200 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100">
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                              </button>
+                              <button onClick={(e) => deleteTicket(ticket.id, e)} className="p-2 text-slate-200 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
                             )}
                           </td>
                         </tr>
@@ -446,92 +384,15 @@ const App: React.FC = () => {
             </div>
           </div>
         )}
-
         {activeView === 'calendar' && <CalendarView tickets={activeTickets} onEditTicket={handleEditTicket} />}
-        {activeView === 'jobs' && (
-          <JobReview 
-            tickets={tickets} 
-            jobs={jobs}
-            notes={notes} 
-            isAdmin={isAdmin}
-            onEditJob={handleEditJob}
-            onToggleComplete={handleToggleJobCompletion}
-            onAddNote={async (note) => {
-              try {
-                const n = await apiService.addNote({...note, id: crypto.randomUUID(), timestamp: Date.now(), author: currentUser.name});
-                setNotes(prev => [n, ...prev]);
-              } catch (error: any) {
-                alert(`Note save failed: ${error.message || error}`);
-              }
-            }} 
-            onViewPhotos={(j) => { setGlobalSearch(j); setActiveView('photos'); }} 
-          />
-        )}
-        {activeView === 'photos' && (
-          <PhotoManager 
-            photos={photos} 
-            initialSearch={globalSearch} 
-            onAddPhoto={async (metadata, file) => {
-              try {
-                const saved = await apiService.addPhoto(metadata, file);
-                setPhotos(prev => [saved, ...prev]);
-              } catch (error: any) {
-                alert(`Upload failed: ${error.message || error}`);
-              }
-            }} 
-            onDeletePhoto={async (id) => {
-              try {
-                await apiService.deletePhoto(id);
-                setPhotos(prev => prev.filter(p => p.id !== id));
-              } catch (error: any) {
-                alert(`Delete failed: ${error.message || error}`);
-              }
-            }} 
-          />
-        )}
-        {activeView === 'team' && isAdmin && (
-          <TeamManagement 
-            users={users} 
-            currentUserId={currentUser.id} 
-            onAddUser={async (u) => {
-              try {
-                const newUser = await apiService.addUser({...u, id: crypto.randomUUID()});
-                setUsers(prev => [...prev, newUser]);
-              } catch (error: any) {
-                alert(`User creation failed: ${error.message || error}`);
-              }
-            }} 
-            onDeleteUser={async (id) => {
-              try {
-                await apiService.deleteUser(id);
-                setUsers(prev => prev.filter(u => u.id !== id));
-              } catch (error: any) {
-                alert(`User deletion failed: ${error.message || error}`);
-              }
-            }} 
-            onThemeChange={setThemeColor}
-          />
-        )}
+        {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} notes={notes} isAdmin={isAdmin} onEditJob={handleEditJob} onToggleComplete={handleToggleJobCompletion} onAddNote={async (note) => { try { const n = await apiService.addNote({...note, id: crypto.randomUUID(), timestamp: Date.now(), author: currentUser!.name}); setNotes(prev => [n, ...prev]); } catch (error: any) { alert(`Note save failed: ${error.message || error}`); } }} onViewPhotos={(j) => { setGlobalSearch(j); setActiveView('photos'); }} />}
+        {activeView === 'photos' && <PhotoManager photos={photos} initialSearch={globalSearch} onAddPhoto={async (metadata, file) => { try { const saved = await apiService.addPhoto(metadata, file); setPhotos(prev => [saved, ...prev]); } catch (error: any) { alert(`Upload failed: ${error.message || error}`); } }} onDeletePhoto={async (id) => { try { await apiService.deletePhoto(id); setPhotos(prev => prev.filter(p => p.id !== id)); } catch (error: any) { alert(`Delete failed: ${error.message || error}`); } }} />}
+        {activeView === 'team' && isAdmin && <TeamManagement users={users} currentUserId={currentUser!.id} onAddUser={async (u) => { try { const newUser = await apiService.addUser({...u, id: crypto.randomUUID()}); setUsers(prev => [...prev, newUser]); } catch (error: any) { alert(`User creation failed: ${error.message || error}`); } }} onDeleteUser={async (id) => { try { await apiService.deleteUser(id); setUsers(prev => prev.filter(u => u.id !== id)); } catch (error: any) { alert(`User deletion failed: ${error.message || error}`); } }} onThemeChange={setThemeColor} />}
       </main>
 
       <NavigationBar />
-
-      {showTicketForm && isAdmin && (
-        <TicketForm 
-          onAdd={handleSaveTicket} 
-          onClose={() => { setShowTicketForm(false); setEditingTicket(null); }} 
-          initialData={editingTicket || undefined} 
-          users={users}
-        />
-      )}
-
-      {showJobForm && isAdmin && (
-        <JobForm 
-          onSave={handleSaveJob}
-          onClose={() => { setShowJobForm(false); setEditingJob(null); }}
-          initialData={editingJob || undefined}
-        />
-      )}
+      {showTicketForm && isAdmin && <TicketForm onAdd={handleSaveTicket} onClose={() => { setShowTicketForm(false); setEditingTicket(null); }} initialData={editingTicket || undefined} users={users} />}
+      {showJobForm && isAdmin && <JobForm onSave={handleSaveJob} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} />}
     </div>
   );
 };
