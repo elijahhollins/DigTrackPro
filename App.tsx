@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, User, UserRole, JobNote, UserRecord } from './types';
+import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, User, UserRole, JobNote, UserRecord, Job } from './types';
 import { getTicketStatus, getStatusColor, getStatusDotColor, getRowBgColor } from './utils/dateUtils';
 import { apiService } from './services/apiService';
 import TicketForm from './components/TicketForm';
+import JobForm from './components/JobForm';
 import StatCards from './components/StatCards';
 import JobReview from './components/JobReview';
 import PhotoManager from './components/PhotoManager';
@@ -15,13 +16,16 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [activeView, setActiveView] = useState<AppView>('dashboard');
   const [tickets, setTickets] = useState<DigTicket[]>([]);
+  const [jobs, setJobs] = useState<Job[]>([]);
   const [photos, setPhotos] = useState<JobPhoto[]>([]);
   const [notes, setNotes] = useState<JobNote[]>([]);
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
-  const [showForm, setShowForm] = useState(false);
+  const [showTicketForm, setShowTicketForm] = useState(false);
+  const [showJobForm, setShowJobForm] = useState(false);
   const [editingTicket, setEditingTicket] = useState<DigTicket | null>(null);
+  const [editingJob, setEditingJob] = useState<Job | null>(null);
   const [globalSearch, setGlobalSearch] = useState('');
   const [sortConfig, setSortConfig] = useState<{ field: SortField; order: SortOrder }>({
     field: 'createdAt',
@@ -35,14 +39,16 @@ const App: React.FC = () => {
         const savedUser = localStorage.getItem('dig_auth_user');
         if (savedUser) setCurrentUser(JSON.parse(savedUser));
 
-        const [t, p, n, u] = await Promise.all([
+        const [t, j, p, n, u] = await Promise.all([
           apiService.getTickets(),
+          apiService.getJobs(),
           apiService.getPhotos(),
           apiService.getNotes(),
           apiService.getUsers()
         ]);
 
         setTickets(t);
+        setJobs(j);
         setPhotos(p);
         setNotes(n);
         setUsers(u);
@@ -70,6 +76,8 @@ const App: React.FC = () => {
   };
 
   const handleSaveTicket = async (data: Omit<DigTicket, 'id' | 'createdAt'>) => {
+    if (currentUser?.role !== UserRole.ADMIN) return;
+
     const ticket: DigTicket = editingTicket 
       ? { ...editingTicket, ...data }
       : { ...data, id: crypto.randomUUID(), createdAt: Date.now() };
@@ -80,26 +88,74 @@ const App: React.FC = () => {
       if (index > -1) return prev.map(t => t.id === ticket.id ? ticket : t);
       return [ticket, ...prev];
     });
-    setShowForm(false);
+    setShowTicketForm(false);
     setEditingTicket(null);
   };
 
-  const handleEdit = (ticket: DigTicket) => {
+  const handleSaveJob = async (data: Omit<Job, 'id' | 'createdAt'>) => {
+    if (currentUser?.role !== UserRole.ADMIN) return;
+
+    const job: Job = editingJob 
+      ? { ...editingJob, ...data }
+      : { ...data, id: crypto.randomUUID(), createdAt: Date.now() };
+    
+    await apiService.saveJob(job);
+    setJobs(prev => {
+      const index = prev.findIndex(j => j.id === job.id);
+      if (index > -1) return prev.map(j => j.id === job.id ? job : j);
+      return [job, ...prev];
+    });
+    setShowJobForm(false);
+    setEditingJob(null);
+  };
+
+  const handleToggleJobCompletion = async (job: Job) => {
+    if (currentUser?.role !== UserRole.ADMIN) return;
+    const updatedJob = { ...job, isComplete: !job.isComplete };
+    await apiService.saveJob(updatedJob);
+    setJobs(prev => prev.map(j => j.id === job.id ? updatedJob : j));
+  };
+
+  const handleEditTicket = (ticket: DigTicket) => {
     if (currentUser?.role !== UserRole.ADMIN) return;
     setEditingTicket(ticket);
-    setShowForm(true);
+    setShowTicketForm(true);
+  };
+
+  const handleEditJob = (job: Job) => {
+    if (currentUser?.role !== UserRole.ADMIN) return;
+    setEditingJob(job);
+    setShowJobForm(true);
+  };
+
+  const handleSort = (field: SortField) => {
+    setSortConfig(prev => ({
+      field,
+      order: prev.field === field && prev.order === 'asc' ? 'desc' : 'asc'
+    }));
   };
 
   const deleteTicket = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (currentUser?.role !== UserRole.ADMIN) return;
+
     if (window.confirm("Delete ticket? This cannot be undone.")) {
       await apiService.deleteTicket(id);
       setTickets(prev => prev.filter(t => t.id !== id));
     }
   };
 
+  // Identify jobs that are marked complete for filtering active views
+  const completedJobNumbers = useMemo(() => {
+    return new Set(jobs.filter(j => j.isComplete).map(j => j.jobNumber));
+  }, [jobs]);
+
+  const activeTickets = useMemo(() => {
+    return tickets.filter(t => !completedJobNumbers.has(t.jobNumber));
+  }, [tickets, completedJobNumbers]);
+
   const filteredAndSortedTickets = useMemo(() => {
-    let result = tickets.filter(t => {
+    let result = activeTickets.filter(t => {
       const s = globalSearch.toLowerCase().trim();
       if (!s) return true;
       const status = getTicketStatus(t);
@@ -117,11 +173,14 @@ const App: React.FC = () => {
       const valA = a[sortConfig.field] ?? '';
       const valB = b[sortConfig.field] ?? '';
       const factor = sortConfig.order === 'asc' ? 1 : -1;
-      if (typeof valA === 'string' && typeof valB === 'string') return factor * valA.localeCompare(valB);
+      
+      if (typeof valA === 'string' && typeof valB === 'string') {
+        return factor * valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' });
+      }
       return factor * ((valA as number) - (valB as number));
     });
     return result;
-  }, [tickets, globalSearch, sortConfig]);
+  }, [activeTickets, globalSearch, sortConfig]);
 
   if (!currentUser) return <Login onLogin={handleLogin} />;
   
@@ -139,7 +198,7 @@ const App: React.FC = () => {
       <div className="bg-white/95 backdrop-blur-xl border border-slate-200/50 shadow-[0_15px_40px_rgba(0,0,0,0.12)] rounded-[2.5rem] p-2 flex items-center gap-1 pointer-events-auto">
         {[
           { id: 'dashboard', label: 'Dashboard', icon: 'M4 6h16M4 12h16M4 18h16' },
-          { id: 'calendar', label: 'Calendar', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
+          { id: 'calendar', label: 'Calendar', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
           { id: 'jobs', label: 'Jobs', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16' },
           { id: 'photos', label: 'Photos', icon: 'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z' },
           ...(isAdmin ? [{ id: 'team', label: 'Team', icon: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197' }] : [])
@@ -156,6 +215,34 @@ const App: React.FC = () => {
       </div>
     </div>
   );
+
+  const SortHeader: React.FC<{ field: SortField, label: string }> = ({ field, label }) => {
+    const isActive = sortConfig.field === field;
+    return (
+      <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+        <button 
+          onClick={() => handleSort(field)}
+          className={`flex items-center gap-1.5 hover:text-slate-600 transition-colors ${isActive ? 'text-slate-800' : ''}`}
+        >
+          {label}
+          <div className="flex flex-col -space-y-1">
+            <svg 
+              className={`w-2 h-2 ${isActive && sortConfig.order === 'asc' ? 'text-orange-600' : 'text-slate-300'}`} 
+              fill="currentColor" viewBox="0 0 20 20"
+            >
+              <path fillRule="evenodd" d="M14.707 12.707a1 1 0 01-1.414 0L10 9.414l-3.293 3.293a1 1 0 01-1.414-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 010 1.414z" clipRule="evenodd" />
+            </svg>
+            <svg 
+              className={`w-2 h-2 ${isActive && sortConfig.order === 'desc' ? 'text-orange-600' : 'text-slate-300'}`} 
+              fill="currentColor" viewBox="0 0 20 20"
+            >
+              <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+            </svg>
+          </div>
+        </button>
+      </th>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col relative">
@@ -179,7 +266,7 @@ const App: React.FC = () => {
             <div className="flex-1 max-w-xl relative hidden md:block">
               <input
                 type="text"
-                placeholder="Search locate tickets..."
+                placeholder="Search database..."
                 className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-semibold outline-none focus:bg-white focus:ring-4 focus:ring-orange-600/10 focus:border-orange-600 transition-all placeholder:text-slate-400"
                 value={globalSearch}
                 onChange={e => setGlobalSearch(e.target.value)}
@@ -188,9 +275,18 @@ const App: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-4 ml-auto">
+              {isAdmin && activeView === 'jobs' && (
+                <button
+                  onClick={() => { setEditingJob(null); setShowJobForm(true); }}
+                  className="bg-slate-900 text-white px-5 py-3 rounded-2xl font-black uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center gap-2 shadow-xl shadow-slate-100 text-[10px]"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
+                  <span>New Job</span>
+                </button>
+              )}
               {isAdmin && (
                 <button
-                  onClick={() => { setEditingTicket(null); setShowForm(true); }}
+                  onClick={() => { setEditingTicket(null); setShowTicketForm(true); }}
                   className="bg-orange-600 text-white px-5 py-3 rounded-2xl font-black uppercase tracking-widest hover:bg-orange-700 transition-all flex items-center gap-2 shadow-xl shadow-orange-100 text-[10px]"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
@@ -212,15 +308,18 @@ const App: React.FC = () => {
       <main className="max-w-[1600px] mx-auto px-4 py-8 flex-1 w-full animate-in fade-in slide-in-from-bottom-2 duration-700 pb-44">
         {activeView === 'dashboard' && (
           <div className="space-y-6">
-            <StatCards tickets={tickets} />
+            <StatCards tickets={activeTickets} />
             <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-left">
                   <thead className="bg-slate-50/30 border-b border-slate-50">
                     <tr>
-                      {['Job #', 'Ticket #', 'Address', 'Status', 'Expires', ''].map((label, idx) => (
-                        <th key={idx} className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{label}</th>
-                      ))}
+                      <SortHeader field="jobNumber" label="Job #" />
+                      <SortHeader field="ticketNo" label="Ticket #" />
+                      <SortHeader field="address" label="Address" />
+                      <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Status</th>
+                      <SortHeader field="expirationDate" label="Expires" />
+                      <th className="px-6 py-6"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
@@ -229,8 +328,8 @@ const App: React.FC = () => {
                       return (
                         <tr 
                           key={ticket.id} 
-                          onClick={() => handleEdit(ticket)} 
-                          className={`transition-all group cursor-pointer ${getRowBgColor(status)}`}
+                          onClick={() => isAdmin && handleEditTicket(ticket)} 
+                          className={`transition-all group ${isAdmin ? 'cursor-pointer' : ''} ${getRowBgColor(status)}`}
                         >
                           <td className="px-6 py-6 text-xs font-black text-slate-700">{ticket.jobNumber}</td>
                           <td className="px-6 py-6 text-xs font-mono font-bold text-slate-400">{ticket.ticketNo}</td>
@@ -261,11 +360,15 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {activeView === 'calendar' && <CalendarView tickets={tickets} onEditTicket={handleEdit} />}
+        {activeView === 'calendar' && <CalendarView tickets={activeTickets} onEditTicket={handleEditTicket} />}
         {activeView === 'jobs' && (
           <JobReview 
             tickets={tickets} 
+            jobs={jobs}
             notes={notes} 
+            isAdmin={isAdmin}
+            onEditJob={handleEditJob}
+            onToggleComplete={handleToggleJobCompletion}
             onAddNote={async (note) => {
               const n = await apiService.addNote({...note, id: crypto.randomUUID(), timestamp: Date.now(), author: currentUser.name});
               setNotes(prev => [n, ...prev]);
@@ -305,11 +408,20 @@ const App: React.FC = () => {
 
       <NavigationBar />
 
-      {showForm && isAdmin && (
+      {showTicketForm && isAdmin && (
         <TicketForm 
           onAdd={handleSaveTicket} 
-          onClose={() => { setShowForm(false); setEditingTicket(null); }} 
+          onClose={() => { setShowTicketForm(false); setEditingTicket(null); }} 
           initialData={editingTicket || undefined} 
+          users={users}
+        />
+      )}
+
+      {showJobForm && isAdmin && (
+        <JobForm 
+          onSave={handleSaveJob}
+          onClose={() => { setShowJobForm(false); setEditingJob(null); }}
+          initialData={editingJob || undefined}
         />
       )}
     </div>

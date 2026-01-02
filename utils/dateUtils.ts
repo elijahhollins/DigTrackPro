@@ -19,16 +19,16 @@ export const getTicketStatus = (ticket: DigTicket): TicketStatus => {
 export const getStatusColor = (status: TicketStatus): string => {
   switch (status) {
     case TicketStatus.VALID: return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-    case TicketStatus.EXTENDABLE: return 'bg-orange-50 text-orange-700 border-orange-200';
-    case TicketStatus.EXPIRED: return 'bg-rose-50 text-rose-700 border-rose-200';
+    case TicketStatus.EXTENDABLE: return 'bg-orange-100 text-orange-900 border-orange-300';
+    case TicketStatus.EXPIRED: return 'bg-rose-100 text-rose-900 border-rose-300';
     default: return 'bg-slate-100 text-slate-600 border-slate-200';
   }
 };
 
 export const getRowBgColor = (status: TicketStatus): string => {
   switch (status) {
-    case TicketStatus.EXTENDABLE: return 'bg-orange-50/40 hover:bg-orange-50/60';
-    case TicketStatus.EXPIRED: return 'bg-rose-50/40 hover:bg-rose-50/60';
+    case TicketStatus.EXTENDABLE: return 'bg-orange-100/40 hover:bg-orange-100/60';
+    case TicketStatus.EXPIRED: return 'bg-rose-100/40 hover:bg-rose-100/60';
     default: return 'hover:bg-slate-50';
   }
 };
@@ -36,8 +36,8 @@ export const getRowBgColor = (status: TicketStatus): string => {
 export const getStatusDotColor = (status: TicketStatus): string => {
   switch (status) {
     case TicketStatus.VALID: return 'bg-emerald-500';
-    case TicketStatus.EXTENDABLE: return 'bg-orange-500';
-    case TicketStatus.EXPIRED: return 'bg-rose-500';
+    case TicketStatus.EXTENDABLE: return 'bg-orange-600';
+    case TicketStatus.EXPIRED: return 'bg-rose-600';
     default: return 'bg-slate-400';
   }
 };

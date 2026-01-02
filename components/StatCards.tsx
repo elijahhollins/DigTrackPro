@@ -13,8 +13,8 @@ export default ({ tickets }: { tickets: DigTicket[] }) => {
   const items = [
     { label: 'Total Tickets', value: tickets.length, color: 'border-slate-100 text-slate-800' },
     { label: 'Safe Work Sites', value: stats[TicketStatus.VALID] || 0, color: 'border-emerald-100 text-emerald-600' },
-    { label: 'Renewal Needed', value: stats[TicketStatus.EXTENDABLE] || 0, color: 'border-orange-100 text-orange-600' },
-    { label: 'Stop Work (Expired)', value: stats[TicketStatus.EXPIRED] || 0, color: 'border-rose-100 text-rose-600' },
+    { label: 'Renewal Needed', value: stats[TicketStatus.EXTENDABLE] || 0, color: 'border-orange-200 text-orange-800' },
+    { label: 'Stop Work (Expired)', value: stats[TicketStatus.EXPIRED] || 0, color: 'border-rose-200 text-rose-800' },
   ];
 
   return (

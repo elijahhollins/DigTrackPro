@@ -23,6 +23,18 @@ export interface UserRecord extends User {
   password?: string;
 }
 
+export interface Job {
+  id: string;
+  jobNumber: string;
+  customer: string;
+  address: string;
+  city: string;
+  state: string;
+  county: string;
+  createdAt: number;
+  isComplete?: boolean;
+}
+
 export interface DigTicket {
   id: string;
   jobNumber: string;
