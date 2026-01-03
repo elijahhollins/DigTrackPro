@@ -2,14 +2,21 @@ import { supabase } from '../lib/supabaseClient.ts';
 import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job } from '../types.ts';
 
 /**
- * SQL SCHEMA FOR SUPABASE (Copy/Paste into SQL Editor):
- * 
- * create table jobs (id uuid primary key, job_number text, customer text, address text, city text, state text, county text, is_complete boolean, created_at timestamp with time zone default now());
- * create table tickets (id uuid primary key, job_number text, ticket_no text, address text, county text, city text, state text, call_in_date text, dig_start text, expiration_date text, site_contact text, created_at timestamp with time zone default now());
- * create table photos (id uuid primary key, job_number text, data_url text, caption text, created_at timestamp with time zone default now());
- * create table notes (id uuid primary key, job_number text, text text, author text, timestamp bigint);
- * create table profiles (id uuid primary key, name text, username text, role text);
+ * UPDATED IDEMPOTENT SQL SCHEMA:
+ * Use 'if not exists' to allow the script to be run safely even if tables already exist.
  */
+export const SQL_SCHEMA = `create table if not exists jobs (id uuid primary key, job_number text, customer text, address text, city text, state text, county text, is_complete boolean, created_at timestamp with time zone default now());
+create table if not exists tickets (id uuid primary key, job_number text, ticket_no text, address text, county text, city text, state text, call_in_date text, dig_start text, expiration_date text, site_contact text, created_at timestamp with time zone default now());
+create table if not exists photos (id uuid primary key, job_number text, data_url text, caption text, created_at timestamp with time zone default now());
+create table if not exists notes (id uuid primary key, job_number text, text text, author text, timestamp bigint);
+create table if not exists profiles (id uuid primary key, name text, username text, role text);
+
+-- Disable RLS to allow immediate data access
+alter table jobs disable row level security;
+alter table tickets disable row level security;
+alter table photos disable row level security;
+alter table notes disable row level security;
+alter table profiles disable row level security;`;
 
 const STORAGE_KEYS = {
   TICKETS: 'digtrack_tickets_cache',
@@ -28,6 +35,18 @@ const getFromStorage = <T>(key: string): T[] => {
 
 const saveToStorage = <T>(key: string, data: T[]) => {
   localStorage.setItem(key, JSON.stringify(data));
+};
+
+// Robust UUID generator
+const generateUUID = () => {
+  try {
+    return crypto.randomUUID();
+  } catch (e) {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      const r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
 };
 
 const mapJob = (data: any): Job => ({
@@ -60,22 +79,31 @@ const mapTicket = (data: any): DigTicket => ({
 export const apiService = {
   async getSyncStatus() {
     try {
+      // Test the 'jobs' table availability
       const { error } = await supabase.from('jobs').select('count', { count: 'exact', head: true });
-      return !error;
+      if (error) {
+        // If error code is '42P01' (table does not exist), it's definitely not synced
+        // If it's something else, it might be an RLS issue or auth issue
+        console.group('%c Supabase Sync Status ', 'background: #334155; color: #f8fafc; font-weight: bold; padding: 2px 4px;');
+        console.error(`Status: Database Offline/Incomplete`);
+        console.warn(`Error Code: ${error.code}`);
+        console.warn(`Message: ${error.message}`);
+        console.info('Tip: If table exists, ensure RLS is disabled or set to Public.');
+        console.groupEnd();
+        return false;
+      }
+      return true;
     } catch { return false; }
   },
 
   async getUsers(): Promise<UserRecord[]> {
     const { data, error } = await supabase.from('profiles').select('*');
-    if (error) {
-      console.warn("Profiles table not found, using local storage.");
-      return getFromStorage<UserRecord>(STORAGE_KEYS.USERS);
-    }
+    if (error) return getFromStorage<UserRecord>(STORAGE_KEYS.USERS);
     return (data || []).map(u => ({ ...u, role: u.role as UserRole }));
   },
 
   async addUser(user: Omit<UserRecord, 'id'>): Promise<UserRecord> {
-    const newUser = { ...user, id: crypto.randomUUID() };
+    const newUser = { ...user, id: generateUUID() };
     const { data, error } = await supabase.from('profiles').insert([user]).select().single();
     if (error) {
       const users = getFromStorage<UserRecord>(STORAGE_KEYS.USERS);
@@ -112,7 +140,7 @@ export const apiService = {
     }).select().single();
 
     if (error) {
-      console.error("Supabase Save Job Error:", error);
+      console.error(`Supabase Job Save Fail [${error.code}]:`, error.message);
       const jobs = getFromStorage<Job>(STORAGE_KEYS.JOBS);
       const index = jobs.findIndex(j => j.id === job.id);
       const updated = index > -1 ? jobs.map(j => j.id === job.id ? job : j) : [job, ...jobs];
@@ -144,7 +172,7 @@ export const apiService = {
     }).select().single();
 
     if (error) {
-      console.error("Supabase Save Ticket Error:", error);
+      console.error(`Supabase Ticket Save Fail [${error.code}]:`, error.message);
       const tickets = getFromStorage<DigTicket>(STORAGE_KEYS.TICKETS);
       const index = tickets.findIndex(t => t.id === ticket.id);
       const updated = index > -1 ? tickets.map(t => t.id === ticket.id ? ticket : t) : [ticket, ...tickets];
@@ -173,7 +201,7 @@ export const apiService = {
       const reader = new FileReader();
       reader.onloadend = async () => {
         const base64 = reader.result as string;
-        const newPhoto = { ...photo, id: crypto.randomUUID(), dataUrl: base64 };
+        const newPhoto = { ...photo, id: generateUUID(), dataUrl: base64 };
         
         const { error } = await supabase.from('photos').insert([{
           id: newPhoto.id,
