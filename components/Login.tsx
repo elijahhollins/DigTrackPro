@@ -23,24 +23,47 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         password,
       });
 
-      if (authError) throw authError;
+      if (authError) {
+        throw new Error(authError.message || 'Login failed. Please check your email and password.');
+      }
 
+      if (!authData.user) {
+        throw new Error('Authentication succeeded but no user data was returned.');
+      }
+
+      // Attempt to fetch profile
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', authData.user.id)
-        .single();
+        .maybeSingle();
 
-      if (profileError) throw profileError;
+      if (profileError) {
+        console.error('Profile fetch error:', profileError);
+        throw new Error(`Profile access error: ${profileError.message}. Check database permissions.`);
+      }
 
-      onLogin({
-        id: profile.id,
-        name: profile.name,
-        username: profile.username,
-        role: profile.role as UserRole
-      });
+      if (!profile) {
+        // Fallback for cases where auth user exists but profile record is missing
+        // In a production app, you might auto-create this record or redirect to onboarding
+        console.warn('User has no profile record. Using default values.');
+        onLogin({
+          id: authData.user.id,
+          name: authData.user.email?.split('@')[0] || 'Unknown User',
+          username: authData.user.email?.split('@')[0] || 'unknown',
+          role: UserRole.CREW // Default role
+        });
+      } else {
+        onLogin({
+          id: profile.id,
+          name: profile.name,
+          username: profile.username,
+          role: profile.role as UserRole
+        });
+      }
     } catch (err: any) {
-      setError(err.message || 'Invalid login credentials.');
+      console.error('Login detailed error:', err);
+      setError(err.message || 'An unexpected error occurred during login.');
     } finally {
       setIsSubmitting(false);
     }

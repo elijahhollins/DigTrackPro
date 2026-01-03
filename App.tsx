@@ -56,6 +56,12 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const initApp = async () => {
+      // If no user, we don't need to fetch data yet
+      if (!currentUser) {
+        setIsLoading(false);
+        return;
+      }
+
       setIsLoading(true);
       setInitError(null);
       
@@ -67,26 +73,18 @@ const App: React.FC = () => {
       }
 
       const timeoutId = setTimeout(() => {
-        setInitError("Network sync is slower than expected. Please check your project status.");
+        setInitError("Sync timeout. The Supabase service might be unreachable or the table structure is missing.");
         setIsLoading(false);
       }, 15000);
 
       try {
-        const savedUser = localStorage.getItem('dig_auth_user');
-        if (savedUser) {
-          try {
-            setCurrentUser(JSON.parse(savedUser));
-          } catch (e) {
-            localStorage.removeItem('dig_auth_user');
-          }
-        }
-
+        // Fetch all necessary data
         const [t, j, p, n, u] = await Promise.all([
-          apiService.getTickets().catch(() => []),
-          apiService.getJobs().catch(() => []),
-          apiService.getPhotos().catch(() => []),
-          apiService.getNotes().catch(() => []),
-          apiService.getUsers().catch(() => [])
+          apiService.getTickets().catch(err => { console.error('Tickets fetch fail:', err); return []; }),
+          apiService.getJobs().catch(err => { console.error('Jobs fetch fail:', err); return []; }),
+          apiService.getPhotos().catch(err => { console.error('Photos fetch fail:', err); return []; }),
+          apiService.getNotes().catch(err => { console.error('Notes fetch fail:', err); return []; }),
+          apiService.getUsers().catch(err => { console.error('Users fetch fail:', err); return []; })
         ]);
 
         clearTimeout(timeoutId);
@@ -97,7 +95,7 @@ const App: React.FC = () => {
         setUsers(u);
       } catch (error: any) {
         clearTimeout(timeoutId);
-        const msg = typeof error === 'string' ? error : (error?.message || "Critical connection error.");
+        const msg = typeof error === 'string' ? error : (error?.message || "Data synchronization failed.");
         setInitError(msg);
       } finally {
         setIsLoading(false);
@@ -105,6 +103,18 @@ const App: React.FC = () => {
     };
 
     initApp();
+  }, [currentUser]);
+
+  // Handle session persistence
+  useEffect(() => {
+    const savedUser = localStorage.getItem('dig_auth_user');
+    if (savedUser) {
+      try {
+        setCurrentUser(JSON.parse(savedUser));
+      } catch (e) {
+        localStorage.removeItem('dig_auth_user');
+      }
+    }
   }, []);
 
   const handleLogin = (user: User) => {
@@ -257,21 +267,24 @@ const App: React.FC = () => {
   if (isLoading) return (
     <div className="min-h-screen bg-white flex flex-col items-center justify-center">
       <div className="w-14 h-14 border-4 border-slate-100 border-t-brand rounded-full animate-spin mb-6" />
-      <p className="text-slate-400 font-black uppercase tracking-[0.4em] text-[10px]">Connecting to project...</p>
+      <p className="text-slate-400 font-black uppercase tracking-[0.4em] text-[10px]">Loading Project Data...</p>
     </div>
   );
 
   if (initError) return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-8 text-center">
       <div className="bg-white p-12 rounded-[3rem] shadow-xl border border-slate-100 max-w-lg">
-        <h2 className="text-2xl font-black text-slate-800 tracking-tight">Sync Delayed</h2>
+        <h2 className="text-2xl font-black text-slate-800 tracking-tight">Sync Failure</h2>
         <p className="text-slate-500 mt-4 leading-relaxed font-medium">{initError}</p>
-        <button onClick={() => window.location.reload()} className="w-full mt-8 bg-brand text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:brightness-110 transition-all shadow-lg shadow-brand/20">Retry Connection</button>
+        <div className="flex flex-col gap-3 mt-8">
+          <button onClick={() => window.location.reload()} className="w-full bg-brand text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:brightness-110 transition-all shadow-lg shadow-brand/20">Retry Connection</button>
+          <button onClick={() => { localStorage.removeItem('dig_auth_user'); window.location.reload(); }} className="w-full bg-slate-100 text-slate-500 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-200 transition-all">Sign Out & Reset</button>
+        </div>
       </div>
     </div>
   );
 
-  const isAdmin = currentUser.role === UserRole.ADMIN;
+  const isAdmin = currentUser!.role === UserRole.ADMIN;
 
   const NavigationBar = () => (
     <div className="fixed bottom-0 left-0 right-0 z-[100] px-4 pb-6 md:pb-8 flex justify-center pointer-events-none">
@@ -317,7 +330,7 @@ const App: React.FC = () => {
               <div>
                 <h1 className="text-lg font-black text-slate-800 tracking-tight leading-none">DigTrack Pro</h1>
                 <div className="flex items-center gap-2 mt-1">
-                  <span className={`text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md ${isAdmin ? 'bg-orange-100 text-brand' : 'bg-slate-100 text-slate-500'}`}>{currentUser.role}</span>
+                  <span className={`text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md ${isAdmin ? 'bg-orange-100 text-brand' : 'bg-slate-100 text-slate-500'}`}>{currentUser!.role}</span>
                 </div>
               </div>
             </div>
