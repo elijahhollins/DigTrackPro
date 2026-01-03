@@ -1,17 +1,27 @@
 import { supabase } from '../lib/supabaseClient.ts';
 import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job } from '../types.ts';
 
-/**
- * UPDATED IDEMPOTENT SQL SCHEMA:
- * Use 'if not exists' to allow the script to be run safely even if tables already exist.
- */
 export const SQL_SCHEMA = `create table if not exists jobs (id uuid primary key, job_number text, customer text, address text, city text, state text, county text, is_complete boolean, created_at timestamp with time zone default now());
 create table if not exists tickets (id uuid primary key, job_number text, ticket_no text, address text, county text, city text, state text, call_in_date text, dig_start text, expiration_date text, site_contact text, created_at timestamp with time zone default now());
 create table if not exists photos (id uuid primary key, job_number text, data_url text, caption text, created_at timestamp with time zone default now());
 create table if not exists notes (id uuid primary key, job_number text, text text, author text, timestamp bigint);
 create table if not exists profiles (id uuid primary key, name text, username text, role text);
 
--- Disable RLS to allow immediate data access
+alter table jobs disable row level security;
+alter table tickets disable row level security;
+alter table photos disable row level security;
+alter table notes disable row level security;
+alter table profiles disable row level security;`;
+
+export const RESET_SQL_SCHEMA = `-- WARNING: THIS WIPES ALL EXISTING DATA
+drop table if exists jobs, tickets, photos, notes, profiles cascade;
+
+create table jobs (id uuid primary key, job_number text, customer text, address text, city text, state text, county text, is_complete boolean, created_at timestamp with time zone default now());
+create table tickets (id uuid primary key, job_number text, ticket_no text, address text, county text, city text, state text, call_in_date text, dig_start text, expiration_date text, site_contact text, created_at timestamp with time zone default now());
+create table photos (id uuid primary key, job_number text, data_url text, caption text, created_at timestamp with time zone default now());
+create table notes (id uuid primary key, job_number text, text text, author text, timestamp bigint);
+create table profiles (id uuid primary key, name text, username text, role text);
+
 alter table jobs disable row level security;
 alter table tickets disable row level security;
 alter table photos disable row level security;
@@ -37,7 +47,6 @@ const saveToStorage = <T>(key: string, data: T[]) => {
   localStorage.setItem(key, JSON.stringify(data));
 };
 
-// Robust UUID generator
 const generateUUID = () => {
   try {
     return crypto.randomUUID();
@@ -79,16 +88,11 @@ const mapTicket = (data: any): DigTicket => ({
 export const apiService = {
   async getSyncStatus() {
     try {
-      // Test the 'jobs' table availability
       const { error } = await supabase.from('jobs').select('count', { count: 'exact', head: true });
       if (error) {
-        // If error code is '42P01' (table does not exist), it's definitely not synced
-        // If it's something else, it might be an RLS issue or auth issue
-        console.group('%c Supabase Sync Status ', 'background: #334155; color: #f8fafc; font-weight: bold; padding: 2px 4px;');
-        console.error(`Status: Database Offline/Incomplete`);
-        console.warn(`Error Code: ${error.code}`);
+        console.group('%c Supabase Sync Info ', 'background: #334155; color: white;');
+        console.warn(`Sync Issue Code: ${error.code}`);
         console.warn(`Message: ${error.message}`);
-        console.info('Tip: If table exists, ensure RLS is disabled or set to Public.');
         console.groupEnd();
         return false;
       }
@@ -140,7 +144,6 @@ export const apiService = {
     }).select().single();
 
     if (error) {
-      console.error(`Supabase Job Save Fail [${error.code}]:`, error.message);
       const jobs = getFromStorage<Job>(STORAGE_KEYS.JOBS);
       const index = jobs.findIndex(j => j.id === job.id);
       const updated = index > -1 ? jobs.map(j => j.id === job.id ? job : j) : [job, ...jobs];
@@ -172,7 +175,6 @@ export const apiService = {
     }).select().single();
 
     if (error) {
-      console.error(`Supabase Ticket Save Fail [${error.code}]:`, error.message);
       const tickets = getFromStorage<DigTicket>(STORAGE_KEYS.TICKETS);
       const index = tickets.findIndex(t => t.id === ticket.id);
       const updated = index > -1 ? tickets.map(t => t.id === ticket.id ? ticket : t) : [ticket, ...tickets];

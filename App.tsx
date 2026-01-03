@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, User, UserRole, JobNote, UserRecord, Job } from './types.ts';
 import { getTicketStatus, getStatusColor, getStatusDotColor, getRowBgColor } from './utils/dateUtils.ts';
-import { apiService, SQL_SCHEMA } from './services/apiService.ts';
+import { apiService, SQL_SCHEMA, RESET_SQL_SCHEMA } from './services/apiService.ts';
 import TicketForm from './components/TicketForm.tsx';
 import JobForm from './components/JobForm.tsx';
 import StatCards from './components/StatCards.tsx';
@@ -26,7 +26,7 @@ const App: React.FC = () => {
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSynced, setIsSynced] = useState<boolean | null>(null);
-  const [copying, setCopying] = useState(false);
+  const [copying, setCopying] = useState<'standard' | 'reset' | null>(null);
   
   const [showTicketForm, setShowTicketForm] = useState(false);
   const [showJobForm, setShowJobForm] = useState(false);
@@ -164,15 +164,16 @@ const App: React.FC = () => {
     }
   };
 
-  const handleCopySQL = async () => {
-    setCopying(true);
+  const handleCopySQL = async (mode: 'standard' | 'reset') => {
+    setCopying(mode);
     try {
-      await navigator.clipboard.writeText(SQL_SCHEMA);
-      alert("SQL Code Copied! Paste this into your Supabase SQL Editor.");
+      const sql = mode === 'standard' ? SQL_SCHEMA : RESET_SQL_SCHEMA;
+      await navigator.clipboard.writeText(sql);
+      alert(mode === 'standard' ? "Standard SQL Copied!" : "RESET & REBUILD SQL Copied! Warning: This drops existing tables.");
     } catch (err) {
       console.error("Copy fail:", err);
     } finally {
-      setCopying(false);
+      setCopying(null);
     }
   };
 
@@ -267,15 +268,23 @@ const App: React.FC = () => {
             </div>
             <div className="flex-1 text-center md:text-left">
               <p className="text-sm font-black text-rose-800 uppercase tracking-widest">Database Sync Required</p>
-              <p className="text-xs text-rose-500 font-bold mt-1 leading-relaxed">The cloud tables are missing. To sync your data, paste our setup code into your Supabase SQL Editor.</p>
+              <p className="text-xs text-rose-500 font-bold mt-1 leading-relaxed">The cloud tables are missing. If you want a fresh start, use the Rebuild option.</p>
             </div>
-            <button 
-              onClick={handleCopySQL}
-              className="px-6 py-4 bg-rose-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-lg shadow-rose-200 hover:brightness-110 active:scale-95 transition-all flex items-center gap-3"
-            >
-              {copying ? 'Copying...' : 'Copy SQL Setup Code'}
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
-            </button>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <button 
+                onClick={() => handleCopySQL('standard')}
+                className="px-5 py-3.5 bg-white border border-rose-200 text-rose-600 rounded-2xl font-black text-[9px] uppercase tracking-widest hover:bg-rose-50 transition-all flex items-center gap-2 shadow-sm"
+              >
+                {copying === 'standard' ? 'Copying...' : 'Standard Setup'}
+              </button>
+              <button 
+                onClick={() => handleCopySQL('reset')}
+                className="px-5 py-3.5 bg-rose-600 text-white rounded-2xl font-black text-[9px] uppercase tracking-widest shadow-lg shadow-rose-200 hover:brightness-110 transition-all flex items-center gap-2"
+              >
+                {copying === 'reset' ? 'Copying...' : 'Nuclear Rebuild'}
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+              </button>
+            </div>
           </div>
         )}
 
