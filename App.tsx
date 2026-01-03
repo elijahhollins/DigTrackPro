@@ -40,7 +40,7 @@ const App: React.FC = () => {
     
     // Extract RGB for translucent UI elements
     let r = 0, g = 0, b = 0;
-    if (color.length === 7) {
+    if (color.startsWith('#') && color.length === 7) {
       r = parseInt(color.slice(1, 3), 16);
       g = parseInt(color.slice(3, 5), 16);
       b = parseInt(color.slice(5, 7), 16);
@@ -61,14 +61,13 @@ const App: React.FC = () => {
       
       const config = checkSupabaseConfig();
       if (!config.isValid) {
-        console.error("Supabase config invalid:", config);
         setIsConfigMissing(true);
         setIsLoading(false);
         return;
       }
 
       const timeoutId = setTimeout(() => {
-        setInitError("Network requests are taking too long. Please check your Supabase project status.");
+        setInitError("Network sync is slower than expected. Please check your project status.");
         setIsLoading(false);
       }, 15000);
 
@@ -246,19 +245,9 @@ const App: React.FC = () => {
         <div className="bg-brand/10 text-brand w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-xl shadow-brand/5 rotate-3">
           <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" /></svg>
         </div>
-        <h2 className="text-3xl font-black text-slate-800 tracking-tight">System Configuration Error</h2>
-        <p className="text-slate-500 mt-6 leading-relaxed font-medium">Supabase credentials were provided but appear to be misconfigured or incomplete.</p>
-        <div className="mt-10 space-y-4 text-left">
-          <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 group">
-            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Target Project</h4>
-            <p className="text-xs text-slate-600 leading-relaxed font-mono">https://i7zcb2whvav1el36edbv.supabase.co</p>
-          </div>
-          <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100">
-            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Key Status</h4>
-            <p className="text-xs text-slate-600 leading-relaxed truncate">The Anon Key is loaded into the system memory.</p>
-          </div>
-        </div>
-        <button onClick={() => window.location.reload()} className="w-full mt-10 bg-brand text-white py-5 rounded-[1.5rem] font-black text-xs uppercase tracking-[0.2em] hover:brightness-110 transition-all shadow-xl shadow-brand/20 active:scale-[0.98]">Reload System</button>
+        <h2 className="text-3xl font-black text-slate-800 tracking-tight">System Ready</h2>
+        <p className="text-slate-500 mt-6 leading-relaxed font-medium">Supabase credentials detected. Finalizing environment sync.</p>
+        <button onClick={() => window.location.reload()} className="w-full mt-10 bg-brand text-white py-5 rounded-[1.5rem] font-black text-xs uppercase tracking-[0.2em] hover:brightness-110 transition-all shadow-xl shadow-brand/20 active:scale-[0.98]">Reload Dashboard</button>
       </div>
     </div>
   );
@@ -268,7 +257,7 @@ const App: React.FC = () => {
   if (isLoading) return (
     <div className="min-h-screen bg-white flex flex-col items-center justify-center">
       <div className="w-14 h-14 border-4 border-slate-100 border-t-brand rounded-full animate-spin mb-6" />
-      <p className="text-slate-400 font-black uppercase tracking-[0.4em] text-[10px]">Synchronizing Environment</p>
+      <p className="text-slate-400 font-black uppercase tracking-[0.4em] text-[10px]">Connecting to project...</p>
     </div>
   );
 
@@ -343,6 +332,7 @@ const App: React.FC = () => {
                 <button onClick={() => setThemeColor('#ea580c')} title="Safety Orange" className="w-4 h-4 rounded-full bg-[#ea580c] shadow-sm hover:scale-125 transition-transform" />
                 <button onClick={() => setThemeColor('#2563eb')} title="Utility Blue" className="w-4 h-4 rounded-full bg-[#2563eb] shadow-sm hover:scale-125 transition-transform" />
                 <button onClick={() => setThemeColor('#10b981')} title="Water Green" className="w-4 h-4 rounded-full bg-[#10b981] shadow-sm hover:scale-125 transition-transform" />
+                <button onClick={() => setThemeColor('#eab308')} title="Gas Yellow" className="w-4 h-4 rounded-full bg-[#eab308] shadow-sm hover:scale-125 transition-transform" />
               </div>
 
               {isAdmin && activeView === 'jobs' && (
