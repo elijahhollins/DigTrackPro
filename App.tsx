@@ -2,18 +2,23 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, User, UserRole, JobNote, UserRecord, Job } from './types.ts';
 import { getTicketStatus, getStatusColor, getStatusDotColor, getRowBgColor } from './utils/dateUtils.ts';
 import { apiService } from './services/apiService.ts';
-import { checkSupabaseConfig } from './lib/supabaseClient.ts';
 import TicketForm from './components/TicketForm.tsx';
 import JobForm from './components/JobForm.tsx';
 import StatCards from './components/StatCards.tsx';
 import JobReview from './components/JobReview.tsx';
 import PhotoManager from './components/PhotoManager.tsx';
 import CalendarView from './components/CalendarView.tsx';
-import Login from './components/Login.tsx';
 import TeamManagement from './components/TeamManagement.tsx';
 
 const App: React.FC = () => {
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  // Default to a demo admin user to bypass login
+  const [currentUser, setCurrentUser] = useState<User | null>({
+    id: 'demo-user',
+    name: 'Test Administrator',
+    username: 'admin',
+    role: UserRole.ADMIN
+  });
+
   const [activeView, setActiveView] = useState<AppView>('dashboard');
   const [tickets, setTickets] = useState<DigTicket[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -22,7 +27,6 @@ const App: React.FC = () => {
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [initError, setInitError] = useState<string | null>(null);
-  const [isConfigMissing, setIsConfigMissing] = useState(false);
   
   const [showTicketForm, setShowTicketForm] = useState(false);
   const [showJobForm, setShowJobForm] = useState(false);
@@ -38,7 +42,6 @@ const App: React.FC = () => {
     localStorage.setItem('dig_theme_color', color);
     document.documentElement.style.setProperty('--brand-primary', color);
     
-    // Extract RGB for translucent UI elements
     let r = 0, g = 0, b = 0;
     if (color.startsWith('#') && color.length === 7) {
       r = parseInt(color.slice(1, 3), 16);
@@ -56,82 +59,41 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const initApp = async () => {
-      // If no user, we don't need to fetch data yet
-      if (!currentUser) {
-        setIsLoading(false);
-        return;
-      }
-
       setIsLoading(true);
       setInitError(null);
-      
-      const config = checkSupabaseConfig();
-      if (!config.isValid) {
-        setIsConfigMissing(true);
-        setIsLoading(false);
-        return;
-      }
-
-      const timeoutId = setTimeout(() => {
-        setInitError("Sync timeout. The Supabase service might be unreachable or the table structure is missing.");
-        setIsLoading(false);
-      }, 15000);
 
       try {
-        // Fetch all necessary data
         const [t, j, p, n, u] = await Promise.all([
-          apiService.getTickets().catch(err => { console.error('Tickets fetch fail:', err); return []; }),
-          apiService.getJobs().catch(err => { console.error('Jobs fetch fail:', err); return []; }),
-          apiService.getPhotos().catch(err => { console.error('Photos fetch fail:', err); return []; }),
-          apiService.getNotes().catch(err => { console.error('Notes fetch fail:', err); return []; }),
-          apiService.getUsers().catch(err => { console.error('Users fetch fail:', err); return []; })
+          apiService.getTickets(),
+          apiService.getJobs(),
+          apiService.getPhotos(),
+          apiService.getNotes(),
+          apiService.getUsers()
         ]);
 
-        clearTimeout(timeoutId);
         setTickets(t);
         setJobs(j);
         setPhotos(p);
         setNotes(n);
         setUsers(u);
       } catch (error: any) {
-        clearTimeout(timeoutId);
-        const msg = typeof error === 'string' ? error : (error?.message || "Data synchronization failed.");
-        setInitError(msg);
+        console.error("Initialization warning:", error);
+        // We don't block the UI here anymore since apiService handles fallbacks
       } finally {
         setIsLoading(false);
       }
     };
 
     initApp();
-  }, [currentUser]);
-
-  // Handle session persistence
-  useEffect(() => {
-    const savedUser = localStorage.getItem('dig_auth_user');
-    if (savedUser) {
-      try {
-        setCurrentUser(JSON.parse(savedUser));
-      } catch (e) {
-        localStorage.removeItem('dig_auth_user');
-      }
-    }
   }, []);
 
-  const handleLogin = (user: User) => {
-    setCurrentUser(user);
-    localStorage.setItem('dig_auth_user', JSON.stringify(user));
-  };
-
   const handleLogout = () => {
-    if (window.confirm("Sign out of DigTrack Pro?")) {
-      setCurrentUser(null);
-      localStorage.removeItem('dig_auth_user');
-      setActiveView('dashboard');
+    if (window.confirm("Bypass logout? Normally this would clear credentials.")) {
+      // In bypass mode, we just stay "logged in" as demo
     }
   };
 
   const handleSaveTicket = async (data: Omit<DigTicket, 'id' | 'createdAt'>) => {
-    if (currentUser?.role !== UserRole.ADMIN) return;
     try {
       const ticket: DigTicket = editingTicket 
         ? { ...editingTicket, ...data }
@@ -146,12 +108,11 @@ const App: React.FC = () => {
       setShowTicketForm(false);
       setEditingTicket(null);
     } catch (error: any) {
-      alert(`Failed to save ticket: ${error.message || error}`);
+      alert(`Failed to save: ${error.message || error}`);
     }
   };
 
   const handleSaveJob = async (data: Omit<Job, 'id' | 'createdAt'>) => {
-    if (currentUser?.role !== UserRole.ADMIN) return;
     try {
       const job: Job = editingJob 
         ? { ...editingJob, ...data }
@@ -171,24 +132,21 @@ const App: React.FC = () => {
   };
 
   const handleToggleJobCompletion = async (job: Job) => {
-    if (currentUser?.role !== UserRole.ADMIN) return;
     try {
       const updatedJob = { ...job, isComplete: !job.isComplete };
       await apiService.saveJob(updatedJob);
       setJobs(prev => prev.map(j => j.id === job.id ? updatedJob : j));
     } catch (error: any) {
-      alert(`Failed to update status: ${error.message || error}`);
+      alert(`Update failed: ${error.message || error}`);
     }
   };
 
   const handleEditTicket = (ticket: DigTicket) => {
-    if (currentUser?.role !== UserRole.ADMIN) return;
     setEditingTicket(ticket);
     setShowTicketForm(true);
   };
 
   const handleEditJob = (job: Job) => {
-    if (currentUser?.role !== UserRole.ADMIN) return;
     setEditingJob(job);
     setShowJobForm(true);
   };
@@ -202,8 +160,7 @@ const App: React.FC = () => {
 
   const deleteTicket = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (currentUser?.role !== UserRole.ADMIN) return;
-    if (window.confirm("Delete ticket? This cannot be undone.")) {
+    if (window.confirm("Delete record?")) {
       try {
         await apiService.deleteTicket(id);
         setTickets(prev => prev.filter(t => t.id !== id));
@@ -249,42 +206,14 @@ const App: React.FC = () => {
     return result;
   }, [activeTickets, globalSearch, sortConfig]);
 
-  if (isConfigMissing) return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-8 text-center">
-      <div className="bg-white p-10 md:p-16 rounded-[3rem] shadow-2xl border border-slate-100 max-w-2xl animate-in zoom-in duration-500">
-        <div className="bg-brand/10 text-brand w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-xl shadow-brand/5 rotate-3">
-          <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" /></svg>
-        </div>
-        <h2 className="text-3xl font-black text-slate-800 tracking-tight">System Ready</h2>
-        <p className="text-slate-500 mt-6 leading-relaxed font-medium">Supabase credentials detected. Finalizing environment sync.</p>
-        <button onClick={() => window.location.reload()} className="w-full mt-10 bg-brand text-white py-5 rounded-[1.5rem] font-black text-xs uppercase tracking-[0.2em] hover:brightness-110 transition-all shadow-xl shadow-brand/20 active:scale-[0.98]">Reload Dashboard</button>
-      </div>
-    </div>
-  );
-
-  if (!currentUser && !isLoading) return <Login onLogin={handleLogin} />;
-  
   if (isLoading) return (
     <div className="min-h-screen bg-white flex flex-col items-center justify-center">
       <div className="w-14 h-14 border-4 border-slate-100 border-t-brand rounded-full animate-spin mb-6" />
-      <p className="text-slate-400 font-black uppercase tracking-[0.4em] text-[10px]">Loading Project Data...</p>
+      <p className="text-slate-400 font-black uppercase tracking-[0.4em] text-[10px]">Preparing Workspace...</p>
     </div>
   );
 
-  if (initError) return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-8 text-center">
-      <div className="bg-white p-12 rounded-[3rem] shadow-xl border border-slate-100 max-w-lg">
-        <h2 className="text-2xl font-black text-slate-800 tracking-tight">Sync Failure</h2>
-        <p className="text-slate-500 mt-4 leading-relaxed font-medium">{initError}</p>
-        <div className="flex flex-col gap-3 mt-8">
-          <button onClick={() => window.location.reload()} className="w-full bg-brand text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:brightness-110 transition-all shadow-lg shadow-brand/20">Retry Connection</button>
-          <button onClick={() => { localStorage.removeItem('dig_auth_user'); window.location.reload(); }} className="w-full bg-slate-100 text-slate-500 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-200 transition-all">Sign Out & Reset</button>
-        </div>
-      </div>
-    </div>
-  );
-
-  const isAdmin = currentUser!.role === UserRole.ADMIN;
+  const isAdmin = true; // Forced true for bypass
 
   const NavigationBar = () => (
     <div className="fixed bottom-0 left-0 right-0 z-[100] px-4 pb-6 md:pb-8 flex justify-center pointer-events-none">
@@ -294,7 +223,7 @@ const App: React.FC = () => {
           { id: 'calendar', label: 'Calendar', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
           { id: 'jobs', label: 'Jobs', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2-2H7a2 2 0 00-2 2v16' },
           { id: 'photos', label: 'Photos', icon: 'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z' },
-          ...(isAdmin ? [{ id: 'team', label: 'Team', icon: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197' }] : [])
+          { id: 'team', label: 'Settings', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z' }
         ].map((v) => (
           <button 
             key={v.id}
@@ -330,7 +259,7 @@ const App: React.FC = () => {
               <div>
                 <h1 className="text-lg font-black text-slate-800 tracking-tight leading-none">DigTrack Pro</h1>
                 <div className="flex items-center gap-2 mt-1">
-                  <span className={`text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md ${isAdmin ? 'bg-orange-100 text-brand' : 'bg-slate-100 text-slate-500'}`}>{currentUser!.role}</span>
+                  <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md bg-orange-100 text-brand">Admin Mode (Bypass)</span>
                 </div>
               </div>
             </div>
@@ -348,13 +277,10 @@ const App: React.FC = () => {
                 <button onClick={() => setThemeColor('#eab308')} title="Gas Yellow" className="w-4 h-4 rounded-full bg-[#eab308] shadow-sm hover:scale-125 transition-transform" />
               </div>
 
-              {isAdmin && activeView === 'jobs' && (
+              {activeView === 'jobs' && (
                 <button onClick={() => { setEditingJob(null); setShowJobForm(true); }} className="bg-slate-900 text-white px-5 py-3 rounded-2xl font-black uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center gap-2 shadow-xl shadow-slate-100 text-[10px]">New Job</button>
               )}
-              {isAdmin && (
-                <button onClick={() => { setEditingTicket(null); setShowTicketForm(true); }} className="bg-brand text-white px-5 py-3 rounded-2xl font-black uppercase tracking-widest hover:brightness-110 transition-all flex items-center gap-2 shadow-xl shadow-brand text-[10px]">New Ticket</button>
-              )}
-              <button onClick={handleLogout} className="p-3 bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-500 rounded-xl transition-all border border-slate-100"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg></button>
+              <button onClick={() => { setEditingTicket(null); setShowTicketForm(true); }} className="bg-brand text-white px-5 py-3 rounded-2xl font-black uppercase tracking-widest hover:brightness-110 transition-all flex items-center gap-2 shadow-xl shadow-brand text-[10px]">New Ticket</button>
             </div>
           </div>
         </div>
@@ -381,16 +307,14 @@ const App: React.FC = () => {
                     {filteredAndSortedTickets.map(ticket => {
                       const status = getTicketStatus(ticket);
                       return (
-                        <tr key={ticket.id} onClick={() => isAdmin && handleEditTicket(ticket)} className={`transition-all group ${isAdmin ? 'cursor-pointer' : ''} ${getRowBgColor(status)}`}>
+                        <tr key={ticket.id} onClick={() => handleEditTicket(ticket)} className={`transition-all group cursor-pointer ${getRowBgColor(status)}`}>
                           <td className="px-6 py-6 text-xs font-black text-slate-700">{ticket.jobNumber}</td>
                           <td className="px-6 py-6 text-xs font-mono font-bold text-slate-400">{ticket.ticketNo}</td>
                           <td className="px-6 py-6 text-xs font-bold text-slate-500 truncate max-w-[250px]">{ticket.address}</td>
                           <td className="px-6 py-6"><span className={`inline-flex items-center px-3 py-1 rounded-full text-[9px] font-black border uppercase tracking-widest ${getStatusColor(status)} shadow-sm`}>{status}</span></td>
                           <td className="px-6 py-6 text-[11px] font-black text-slate-500">{new Date(ticket.expirationDate).toLocaleDateString()}</td>
                           <td className="px-6 py-6 text-right">
-                            {isAdmin && (
-                              <button onClick={(e) => deleteTicket(ticket.id, e)} className="p-2 text-slate-200 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
-                            )}
+                            <button onClick={(e) => deleteTicket(ticket.id, e)} className="p-2 text-slate-200 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
                           </td>
                         </tr>
                       );
@@ -402,14 +326,14 @@ const App: React.FC = () => {
           </div>
         )}
         {activeView === 'calendar' && <CalendarView tickets={activeTickets} onEditTicket={handleEditTicket} />}
-        {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} notes={notes} isAdmin={isAdmin} onEditJob={handleEditJob} onToggleComplete={handleToggleJobCompletion} onAddNote={async (note) => { try { const n = await apiService.addNote({...note, id: crypto.randomUUID(), timestamp: Date.now(), author: currentUser!.name}); setNotes(prev => [n, ...prev]); } catch (error: any) { alert(`Note save failed: ${error.message || error}`); } }} onViewPhotos={(j) => { setGlobalSearch(j); setActiveView('photos'); }} />}
+        {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} notes={notes} isAdmin={true} onEditJob={handleEditJob} onToggleComplete={handleToggleJobCompletion} onAddNote={async (note) => { try { const n = await apiService.addNote({...note, id: crypto.randomUUID(), timestamp: Date.now(), author: currentUser!.name}); setNotes(prev => [n, ...prev]); } catch (error: any) { alert(`Note save failed: ${error.message || error}`); } }} onViewPhotos={(j) => { setGlobalSearch(j); setActiveView('photos'); }} />}
         {activeView === 'photos' && <PhotoManager photos={photos} initialSearch={globalSearch} onAddPhoto={async (metadata, file) => { try { const saved = await apiService.addPhoto(metadata, file); setPhotos(prev => [saved, ...prev]); } catch (error: any) { alert(`Upload failed: ${error.message || error}`); } }} onDeletePhoto={async (id) => { try { await apiService.deletePhoto(id); setPhotos(prev => prev.filter(p => p.id !== id)); } catch (error: any) { alert(`Delete failed: ${error.message || error}`); } }} />}
-        {activeView === 'team' && isAdmin && <TeamManagement users={users} currentUserId={currentUser!.id} onAddUser={async (u) => { try { const newUser = await apiService.addUser({...u, id: crypto.randomUUID()}); setUsers(prev => [...prev, newUser]); } catch (error: any) { alert(`User creation failed: ${error.message || error}`); } }} onDeleteUser={async (id) => { try { await apiService.deleteUser(id); setUsers(prev => prev.filter(u => u.id !== id)); } catch (error: any) { alert(`User deletion failed: ${error.message || error}`); } }} onThemeChange={setThemeColor} />}
+        {activeView === 'team' && <TeamManagement users={users} currentUserId={currentUser!.id} onAddUser={async (u) => { try { const newUser = await apiService.addUser({...u, id: crypto.randomUUID()}); setUsers(prev => [...prev, newUser]); } catch (error: any) { alert(`User creation failed: ${error.message || error}`); } }} onDeleteUser={async (id) => { try { await apiService.deleteUser(id); setUsers(prev => prev.filter(u => u.id !== id)); } catch (error: any) { alert(`User deletion failed: ${error.message || error}`); } }} onThemeChange={setThemeColor} />}
       </main>
 
       <NavigationBar />
-      {showTicketForm && isAdmin && <TicketForm onAdd={handleSaveTicket} onClose={() => { setShowTicketForm(false); setEditingTicket(null); }} initialData={editingTicket || undefined} users={users} />}
-      {showJobForm && isAdmin && <JobForm onSave={handleSaveJob} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} />}
+      {showTicketForm && <TicketForm onAdd={handleSaveTicket} onClose={() => { setShowTicketForm(false); setEditingTicket(null); }} initialData={editingTicket || undefined} users={users} />}
+      {showJobForm && <JobForm onSave={handleSaveJob} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} />}
     </div>
   );
 };
