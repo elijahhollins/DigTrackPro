@@ -27,6 +27,8 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSynced, setIsSynced] = useState<boolean | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<any>(null);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [copying, setCopying] = useState<'standard' | 'reset' | null>(null);
   
   const [showTicketForm, setShowTicketForm] = useState(false);
@@ -59,6 +61,7 @@ const App: React.FC = () => {
       const status = await apiService.getSyncStatus();
       setIsSynced(status.synced);
       setSyncError(status.error || null);
+      setDiagnostics(status.diagnostics || null);
 
       const [t, j, p, n, u] = await Promise.all([
         apiService.getTickets(),
@@ -214,7 +217,7 @@ const App: React.FC = () => {
   if (isLoading) return (
     <div className="min-h-screen bg-white flex flex-col items-center justify-center">
       <div className="w-14 h-14 border-4 border-slate-100 border-t-brand rounded-full animate-spin mb-6" />
-      <p className="text-slate-400 font-black uppercase tracking-[0.4em] text-[10px]">Verifying Sync Status...</p>
+      <p className="text-slate-400 font-black uppercase tracking-[0.4em] text-[10px]">Testing Connection...</p>
     </div>
   );
 
@@ -244,8 +247,8 @@ const App: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-4 ml-auto">
-              <button onClick={initApp} title="Refresh Sync" className="p-3 text-slate-400 hover:text-brand transition-colors">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+              <button onClick={initApp} title="Re-test Sync" className="p-3 text-slate-400 hover:text-brand transition-colors">
+                <svg className={`w-5 h-5 ${isLoading ? 'animate-spin text-brand' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
               </button>
               <div className="hidden lg:flex items-center gap-2 px-3 py-1 bg-slate-50 rounded-full border border-slate-100">
                 <button onClick={() => setThemeColor('#ea580c')} className="w-4 h-4 rounded-full bg-[#ea580c] shadow-sm hover:scale-125 transition-transform" />
@@ -265,94 +268,120 @@ const App: React.FC = () => {
 
       <main className="max-w-[1600px] mx-auto px-4 py-8 flex-1 w-full animate-in fade-in slide-in-from-bottom-2 duration-700 pb-44">
         {!isSynced && isSynced !== null && (
-          <div className="mb-6 bg-rose-50 border border-rose-100 p-6 rounded-[2rem] flex flex-col md:flex-row items-center gap-6 shadow-xl shadow-rose-100/50">
-            <div className="bg-rose-100 p-4 rounded-3xl text-rose-600">
-              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+          <div className="mb-6 bg-white border border-rose-100 p-8 rounded-[3rem] shadow-2xl shadow-rose-100/50 flex flex-col items-center text-center max-w-2xl mx-auto">
+            <div className="bg-rose-50 p-6 rounded-[2.5rem] text-rose-500 mb-6">
+              <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
             </div>
-            <div className="flex-1 text-center md:text-left">
-              <p className="text-sm font-black text-rose-800 uppercase tracking-widest">Database Sync Issue</p>
-              <div className="mt-2 p-3 bg-white/50 rounded-xl border border-rose-200">
-                <p className="text-[10px] font-mono font-bold text-rose-600 break-all uppercase leading-relaxed">
-                  {syncError || "Check Supabase SQL Dashboard"}
-                </p>
-              </div>
-              <p className="text-[9px] text-rose-500 font-bold mt-2 leading-relaxed">Ensure you have run the setup SQL in your Supabase dashboard.</p>
+            <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Database Connection Failed</h2>
+            <div className="mt-4 p-4 bg-rose-50/50 rounded-2xl border border-rose-100 w-full">
+              <p className="text-xs font-mono font-bold text-rose-600 break-words uppercase leading-relaxed">
+                {syncError || "Unknown Connection Error"}
+              </p>
             </div>
-            <div className="flex flex-col sm:flex-row gap-2">
+            
+            <p className="text-sm text-slate-400 font-medium mt-6 leading-relaxed">
+              The app is currently running in <b>Local Mode</b>. Your work will save to this browser only. To fix sync, verify your Supabase keys in <code className="bg-slate-100 px-1 rounded">index.html</code>.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full mt-8">
+              <button 
+                onClick={() => setShowDiagnostics(!showDiagnostics)}
+                className="px-6 py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg"
+              >
+                {showDiagnostics ? 'Hide Credentials' : 'Check Credentials'}
+              </button>
               <button 
                 onClick={() => handleCopySQL('standard')}
-                className="px-5 py-3.5 bg-white border border-rose-200 text-rose-600 rounded-2xl font-black text-[9px] uppercase tracking-widest hover:bg-rose-50 transition-all flex items-center gap-2 shadow-sm"
+                className="px-6 py-4 border-2 border-rose-100 text-rose-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-50 transition-all"
               >
-                {copying === 'standard' ? 'Copying...' : 'Copy Standard SQL'}
-              </button>
-              <button 
-                onClick={() => handleCopySQL('reset')}
-                className="px-5 py-3.5 bg-rose-600 text-white rounded-2xl font-black text-[9px] uppercase tracking-widest shadow-lg shadow-rose-200 hover:brightness-110 transition-all flex items-center gap-2"
-              >
-                {copying === 'reset' ? 'Copying...' : 'Copy Nuclear Reset'}
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                Copy Setup SQL
               </button>
             </div>
+
+            {showDiagnostics && diagnostics && (
+              <div className="w-full mt-6 p-6 bg-slate-50 rounded-[2rem] border border-slate-200 text-left animate-in slide-in-from-top-4 duration-300">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Diagnostics Panel</p>
+                <div className="space-y-3">
+                  <div>
+                    <span className="text-[9px] font-black text-slate-500 uppercase block mb-1">Target URL:</span>
+                    <code className="text-xs font-mono font-bold text-slate-800 break-all">{diagnostics.url || 'NOT_SET'}</code>
+                  </div>
+                  <div>
+                    <span className="text-[9px] font-black text-slate-500 uppercase block mb-1">Anon Key (Masked):</span>
+                    <code className="text-xs font-mono font-bold text-slate-800 break-all">{diagnostics.anonKey || 'NOT_SET'}</code>
+                  </div>
+                  <div className="pt-4 border-t border-slate-200 mt-4">
+                    <p className="text-[9px] text-slate-400 font-bold leading-relaxed">
+                      If the URL/Key look wrong, edit the <code className="text-slate-600">window.process.env</code> values inside your <code className="text-slate-600">index.html</code> file.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
-        {activeView === 'dashboard' && (
-          <div className="space-y-6">
-            <StatCards tickets={activeTickets} />
-            <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead className="bg-slate-50/30 border-b border-slate-50">
-                    <tr>
-                      <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
-                        <button onClick={() => handleSort('jobNumber')} className="flex items-center gap-1.5 hover:text-slate-600">Job #</button>
-                      </th>
-                      <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
-                        <button onClick={() => handleSort('ticketNo')} className="flex items-center gap-1.5 hover:text-slate-600">Ticket #</button>
-                      </th>
-                      <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
-                        <button onClick={() => handleSort('address')} className="flex items-center gap-1.5 hover:text-slate-600">Address</button>
-                      </th>
-                      <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Status</th>
-                      <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
-                        <button onClick={() => handleSort('expirationDate')} className="flex items-center gap-1.5 hover:text-slate-600">Expires</button>
-                      </th>
-                      <th className="px-6 py-6"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {filteredAndSortedTickets.map(ticket => {
-                      const status = getTicketStatus(ticket);
-                      return (
-                        <tr key={ticket.id} onClick={() => handleEditTicket(ticket)} className={`transition-all group cursor-pointer ${getRowBgColor(status)}`}>
-                          <td className="px-6 py-6 text-xs font-black text-slate-700">{ticket.jobNumber}</td>
-                          <td className="px-6 py-6 text-xs font-mono font-bold text-slate-400">{ticket.ticketNo}</td>
-                          <td className="px-6 py-6 text-xs font-bold text-slate-500 truncate max-w-[250px]">{ticket.address}</td>
-                          <td className="px-6 py-6"><span className={`inline-flex items-center px-3 py-1 rounded-full text-[9px] font-black border uppercase tracking-widest ${getStatusColor(status)} shadow-sm`}>{status}</span></td>
-                          <td className="px-6 py-6 text-[11px] font-black text-slate-500">{new Date(ticket.expirationDate).toLocaleDateString()}</td>
-                          <td className="px-6 py-6 text-right">
-                            <button onClick={(e) => deleteTicket(ticket.id, e)} className="p-2 text-slate-200 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
-                          </td>
+        {(isSynced || isSynced === null) && (
+          <>
+            {activeView === 'dashboard' && (
+              <div className="space-y-6">
+                <StatCards tickets={activeTickets} />
+                <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead className="bg-slate-50/30 border-b border-slate-50">
+                        <tr>
+                          <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                            <button onClick={() => handleSort('jobNumber')} className="flex items-center gap-1.5 hover:text-slate-600">Job #</button>
+                          </th>
+                          <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                            <button onClick={() => handleSort('ticketNo')} className="flex items-center gap-1.5 hover:text-slate-600">Ticket #</button>
+                          </th>
+                          <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                            <button onClick={() => handleSort('address')} className="flex items-center gap-1.5 hover:text-slate-600">Address</button>
+                          </th>
+                          <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Status</th>
+                          <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                            <button onClick={() => handleSort('expirationDate')} className="flex items-center gap-1.5 hover:text-slate-600">Expires</button>
+                          </th>
+                          <th className="px-6 py-6"></th>
                         </tr>
-                      );
-                    })}
-                    {filteredAndSortedTickets.length === 0 && (
-                      <tr>
-                        <td colSpan={6} className="px-6 py-20 text-center">
-                          <p className="text-[10px] font-black text-slate-300 uppercase tracking-[0.3em]">No tickets found in this view</p>
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {filteredAndSortedTickets.map(ticket => {
+                          const status = getTicketStatus(ticket);
+                          return (
+                            <tr key={ticket.id} onClick={() => handleEditTicket(ticket)} className={`transition-all group cursor-pointer ${getRowBgColor(status)}`}>
+                              <td className="px-6 py-6 text-xs font-black text-slate-700">{ticket.jobNumber}</td>
+                              <td className="px-6 py-6 text-xs font-mono font-bold text-slate-400">{ticket.ticketNo}</td>
+                              <td className="px-6 py-6 text-xs font-bold text-slate-500 truncate max-w-[250px]">{ticket.address}</td>
+                              <td className="px-6 py-6"><span className={`inline-flex items-center px-3 py-1 rounded-full text-[9px] font-black border uppercase tracking-widest ${getStatusColor(status)} shadow-sm`}>{status}</span></td>
+                              <td className="px-6 py-6 text-[11px] font-black text-slate-500">{new Date(ticket.expirationDate).toLocaleDateString()}</td>
+                              <td className="px-6 py-6 text-right">
+                                <button onClick={(e) => deleteTicket(ticket.id, e)} className="p-2 text-slate-200 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {filteredAndSortedTickets.length === 0 && (
+                          <tr>
+                            <td colSpan={6} className="px-6 py-20 text-center">
+                              <p className="text-[10px] font-black text-slate-300 uppercase tracking-[0.3em]">No tickets found in this view</p>
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
+            )}
+            {activeView === 'calendar' && <CalendarView tickets={activeTickets} onEditTicket={handleEditTicket} />}
+            {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} notes={notes} isAdmin={true} onEditJob={handleEditJob} onToggleComplete={handleToggleJobCompletion} onAddNote={async (note) => { const n = await apiService.addNote({...note, id: crypto.randomUUID(), timestamp: Date.now(), author: 'Admin'}); setNotes(prev => [n, ...prev]); }} onViewPhotos={(j) => { setGlobalSearch(j); setActiveView('photos'); }} />}
+            {activeView === 'photos' && <PhotoManager photos={photos} initialSearch={globalSearch} onAddPhoto={async (metadata, file) => { const saved = await apiService.addPhoto(metadata, file); setPhotos(prev => [saved, ...prev]); }} onDeletePhoto={async (id) => { await apiService.deletePhoto(id); setPhotos(prev => prev.filter(p => p.id !== id)); }} />}
+            {activeView === 'team' && <TeamManagement users={users} currentUserId="demo-user" onAddUser={async (u) => { const newUser = await apiService.addUser({...u, id: crypto.randomUUID()}); setUsers(prev => [...prev, newUser]); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); setUsers(prev => prev.filter(u => u.id !== id)); }} onThemeChange={setThemeColor} />}
+          </>
         )}
-        {activeView === 'calendar' && <CalendarView tickets={activeTickets} onEditTicket={handleEditTicket} />}
-        {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} notes={notes} isAdmin={true} onEditJob={handleEditJob} onToggleComplete={handleToggleJobCompletion} onAddNote={async (note) => { const n = await apiService.addNote({...note, id: crypto.randomUUID(), timestamp: Date.now(), author: 'Admin'}); setNotes(prev => [n, ...prev]); }} onViewPhotos={(j) => { setGlobalSearch(j); setActiveView('photos'); }} />}
-        {activeView === 'photos' && <PhotoManager photos={photos} initialSearch={globalSearch} onAddPhoto={async (metadata, file) => { const saved = await apiService.addPhoto(metadata, file); setPhotos(prev => [saved, ...prev]); }} onDeletePhoto={async (id) => { await apiService.deletePhoto(id); setPhotos(prev => prev.filter(p => p.id !== id)); }} />}
-        {activeView === 'team' && <TeamManagement users={users} currentUserId="demo-user" onAddUser={async (u) => { const newUser = await apiService.addUser({...u, id: crypto.randomUUID()}); setUsers(prev => [...prev, newUser]); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); setUsers(prev => prev.filter(u => u.id !== id)); }} onThemeChange={setThemeColor} />}
       </main>
 
       <div className="fixed bottom-0 left-0 right-0 z-[100] px-4 pb-6 md:pb-8 flex justify-center pointer-events-none">

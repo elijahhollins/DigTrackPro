@@ -1,4 +1,4 @@
-import { supabase } from '../lib/supabaseClient.ts';
+import { supabase, getSupabaseConfig } from '../lib/supabaseClient.ts';
 import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job } from '../types.ts';
 
 export const SQL_SCHEMA = `create table if not exists jobs (id uuid primary key, job_number text, customer text, address text, city text, state text, county text, is_complete boolean default false, created_at timestamp with time zone default now());
@@ -90,18 +90,22 @@ const mapTicket = (data: any): DigTicket => ({
 });
 
 export const apiService = {
-  async getSyncStatus(): Promise<{ synced: boolean, error?: string }> {
+  async getSyncStatus(): Promise<{ synced: boolean, error?: string, diagnostics?: any }> {
+    const config = getSupabaseConfig();
+    if (!config.isValid) {
+      return { synced: false, error: 'SUPABASE_URL or ANON_KEY missing in index.html', diagnostics: config };
+    }
+
     try {
       const { error } = await supabase.from('jobs').select('id').limit(1);
       if (error) {
-        return { 
-          synced: false, 
-          error: `Supabase Error [${error.code}]: ${error.message}` 
-        };
+        let msg = `Supabase Error [${error.code}]: ${error.message}`;
+        if (error.message.includes('fetch')) msg = "Network Connection Failed. Check CORS or Firewall.";
+        return { synced: false, error: msg, diagnostics: config };
       }
-      return { synced: true };
+      return { synced: true, diagnostics: config };
     } catch (e: any) { 
-      return { synced: false, error: e.message || String(e) }; 
+      return { synced: false, error: `Critical Failure: ${e.message || String(e)}`, diagnostics: config }; 
     }
   },
 

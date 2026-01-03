@@ -2,12 +2,10 @@ import { createClient } from '@supabase/supabase-js';
 
 const safeGetEnv = (key: string): string => {
   try {
-    // Check window.process first as it's what we inject in index.html
     // @ts-ignore
     const winEnv = window.process?.env?.[key];
     if (winEnv) return winEnv;
 
-    // Fallback to global process if available
     // @ts-ignore
     if (typeof process !== 'undefined' && process.env) {
       // @ts-ignore
@@ -20,19 +18,26 @@ const safeGetEnv = (key: string): string => {
 const supabaseUrl = safeGetEnv('SUPABASE_URL').trim();
 const supabaseAnonKey = safeGetEnv('SUPABASE_ANON_KEY').trim();
 
-// Loose validation: just check if they look like strings and contain project indicators
+// Strict validation
 const isConfigured = 
   supabaseUrl.length > 5 && 
-  supabaseUrl.includes('.supabase.co') &&
+  supabaseUrl.startsWith('https://') &&
   supabaseAnonKey.length > 5;
+
+// Diagnostics logging
+if (!isConfigured) {
+  console.error("Supabase Configuration Missing or Invalid!");
+  console.info("URL Found:", supabaseUrl ? "Yes" : "No");
+  console.info("Key Found:", supabaseAnonKey ? "Yes" : "No");
+}
 
 export const supabase = createClient(
   supabaseUrl || 'https://placeholder.supabase.co', 
   supabaseAnonKey || 'placeholder'
 );
 
-export const checkSupabaseConfig = () => ({
+export const getSupabaseConfig = () => ({
   isValid: isConfigured,
   url: supabaseUrl,
-  hasKey: supabaseAnonKey.length > 0
+  anonKey: supabaseAnonKey ? `${supabaseAnonKey.substring(0, 6)}...${supabaseAnonKey.substring(supabaseAnonKey.length - 4)}` : 'MISSING'
 });
