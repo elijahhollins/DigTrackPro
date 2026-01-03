@@ -11,8 +11,7 @@ import CalendarView from './components/CalendarView.tsx';
 import TeamManagement from './components/TeamManagement.tsx';
 
 const App: React.FC = () => {
-  // Default to a demo admin user to bypass login
-  const [currentUser, setCurrentUser] = useState<User | null>({
+  const [currentUser] = useState<User | null>({
     id: 'demo-user',
     name: 'Test Administrator',
     username: 'admin',
@@ -26,7 +25,7 @@ const App: React.FC = () => {
   const [notes, setNotes] = useState<JobNote[]>([]);
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [initError, setInitError] = useState<string | null>(null);
+  const [isSynced, setIsSynced] = useState<boolean | null>(null);
   
   const [showTicketForm, setShowTicketForm] = useState(false);
   const [showJobForm, setShowJobForm] = useState(false);
@@ -60,9 +59,10 @@ const App: React.FC = () => {
   useEffect(() => {
     const initApp = async () => {
       setIsLoading(true);
-      setInitError(null);
-
       try {
+        const status = await apiService.getSyncStatus();
+        setIsSynced(status);
+
         const [t, j, p, n, u] = await Promise.all([
           apiService.getTickets(),
           apiService.getJobs(),
@@ -78,7 +78,6 @@ const App: React.FC = () => {
         setUsers(u);
       } catch (error: any) {
         console.error("Initialization warning:", error);
-        // We don't block the UI here anymore since apiService handles fallbacks
       } finally {
         setIsLoading(false);
       }
@@ -87,28 +86,22 @@ const App: React.FC = () => {
     initApp();
   }, []);
 
-  const handleLogout = () => {
-    if (window.confirm("Bypass logout? Normally this would clear credentials.")) {
-      // In bypass mode, we just stay "logged in" as demo
-    }
-  };
-
   const handleSaveTicket = async (data: Omit<DigTicket, 'id' | 'createdAt'>) => {
     try {
       const ticket: DigTicket = editingTicket 
         ? { ...editingTicket, ...data }
         : { ...data, id: crypto.randomUUID(), createdAt: Date.now() };
       
-      await apiService.saveTicket(ticket);
+      const saved = await apiService.saveTicket(ticket);
       setTickets(prev => {
-        const index = prev.findIndex(t => t.id === ticket.id);
-        if (index > -1) return prev.map(t => t.id === ticket.id ? ticket : t);
-        return [ticket, ...prev];
+        const index = prev.findIndex(t => t.id === saved.id);
+        if (index > -1) return prev.map(t => t.id === saved.id ? saved : t);
+        return [saved, ...prev];
       });
       setShowTicketForm(false);
       setEditingTicket(null);
     } catch (error: any) {
-      alert(`Failed to save: ${error.message || error}`);
+      alert(`Database error: ${error.message || error}`);
     }
   };
 
@@ -118,16 +111,16 @@ const App: React.FC = () => {
         ? { ...editingJob, ...data }
         : { ...data, id: crypto.randomUUID(), createdAt: Date.now() };
       
-      await apiService.saveJob(job);
+      const saved = await apiService.saveJob(job);
       setJobs(prev => {
-        const index = prev.findIndex(j => j.id === job.id);
-        if (index > -1) return prev.map(j => j.id === job.id ? job : j);
-        return [job, ...prev];
+        const index = prev.findIndex(j => j.id === saved.id);
+        if (index > -1) return prev.map(j => j.id === saved.id ? saved : j);
+        return [saved, ...prev];
       });
       setShowJobForm(false);
       setEditingJob(null);
     } catch (error: any) {
-      alert(`Failed to save job: ${error.message || error}`);
+      alert(`Database error: ${error.message || error}`);
     }
   };
 
@@ -160,12 +153,12 @@ const App: React.FC = () => {
 
   const deleteTicket = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (window.confirm("Delete record?")) {
+    if (window.confirm("Permanent delete?")) {
       try {
         await apiService.deleteTicket(id);
         setTickets(prev => prev.filter(t => t.id !== id));
       } catch (error: any) {
-        alert(`Failed to delete: ${error.message || error}`);
+        alert(`Delete failed: ${error.message || error}`);
       }
     }
   };
@@ -183,13 +176,11 @@ const App: React.FC = () => {
       const s = globalSearch.toLowerCase().trim();
       if (!s) return true;
       const status = getTicketStatus(t);
-      if (s === 'urgent') return status === TicketStatus.EXPIRED || status === TicketStatus.EXTENDABLE;
       return (
         status.toLowerCase().includes(s) ||
         t.ticketNo.toLowerCase().includes(s) ||
         t.address.toLowerCase().includes(s) ||
-        t.jobNumber.toLowerCase().includes(s) ||
-        (t.city && t.city.toLowerCase().includes(s))
+        t.jobNumber.toLowerCase().includes(s)
       );
     });
 
@@ -209,43 +200,9 @@ const App: React.FC = () => {
   if (isLoading) return (
     <div className="min-h-screen bg-white flex flex-col items-center justify-center">
       <div className="w-14 h-14 border-4 border-slate-100 border-t-brand rounded-full animate-spin mb-6" />
-      <p className="text-slate-400 font-black uppercase tracking-[0.4em] text-[10px]">Preparing Workspace...</p>
+      <p className="text-slate-400 font-black uppercase tracking-[0.4em] text-[10px]">Accessing Database...</p>
     </div>
   );
-
-  const isAdmin = true; // Forced true for bypass
-
-  const NavigationBar = () => (
-    <div className="fixed bottom-0 left-0 right-0 z-[100] px-4 pb-6 md:pb-8 flex justify-center pointer-events-none">
-      <div className="bg-white/95 backdrop-blur-xl border border-slate-200/50 shadow-xl rounded-[2.5rem] p-2 flex items-center gap-1 pointer-events-auto">
-        {[
-          { id: 'dashboard', label: 'Dashboard', icon: 'M4 6h16M4 12h16M4 18h16' },
-          { id: 'calendar', label: 'Calendar', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
-          { id: 'jobs', label: 'Jobs', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2-2H7a2 2 0 00-2 2v16' },
-          { id: 'photos', label: 'Photos', icon: 'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z' },
-          { id: 'team', label: 'Settings', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z' }
-        ].map((v) => (
-          <button 
-            key={v.id}
-            onClick={() => setActiveView(v.id as AppView)}
-            className={`flex flex-col items-center gap-1 py-3 px-5 md:px-8 rounded-[2rem] transition-all group ${activeView === v.id ? 'bg-brand text-white shadow-lg shadow-brand' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d={v.icon} /></svg>
-            <span className={`text-[8px] font-black uppercase tracking-widest ${activeView === v.id ? 'text-white' : 'text-slate-400'}`}>{v.label}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-
-  const SortHeader: React.FC<{ field: SortField, label: string }> = ({ field, label }) => {
-    const isActive = sortConfig.field === field;
-    return (
-      <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
-        <button onClick={() => handleSort(field)} className={`flex items-center gap-1.5 hover:text-slate-600 transition-colors ${isActive ? 'text-slate-800' : ''}`}>{label}</button>
-      </th>
-    );
-  };
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col relative">
@@ -259,22 +216,25 @@ const App: React.FC = () => {
               <div>
                 <h1 className="text-lg font-black text-slate-800 tracking-tight leading-none">DigTrack Pro</h1>
                 <div className="flex items-center gap-2 mt-1">
-                  <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md bg-orange-100 text-brand">Admin Mode (Bypass)</span>
+                  <div className={`w-1.5 h-1.5 rounded-full ${isSynced ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                  <span className={`text-[8px] font-black uppercase tracking-widest ${isSynced ? 'text-emerald-600' : 'text-rose-600'}`}>
+                    {isSynced ? 'Supabase Online' : 'Local Backup Mode'}
+                  </span>
                 </div>
               </div>
             </div>
             
             <div className="flex-1 max-w-xl relative hidden md:block">
-              <input type="text" placeholder="Search database records..." className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-semibold outline-none focus:bg-white focus:ring-4 focus:ring-brand/10 focus:border-brand transition-all" value={globalSearch} onChange={e => setGlobalSearch(e.target.value)} />
+              <input type="text" placeholder="Search project numbers, tickets, or addresses..." className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-semibold outline-none focus:bg-white focus:ring-4 focus:ring-brand/10 focus:border-brand transition-all" value={globalSearch} onChange={e => setGlobalSearch(e.target.value)} />
               <svg className="w-4 h-4 text-slate-300 absolute left-3.5 top-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
             </div>
 
             <div className="flex items-center gap-4 ml-auto">
               <div className="hidden lg:flex items-center gap-2 px-3 py-1 bg-slate-50 rounded-full border border-slate-100">
-                <button onClick={() => setThemeColor('#ea580c')} title="Safety Orange" className="w-4 h-4 rounded-full bg-[#ea580c] shadow-sm hover:scale-125 transition-transform" />
-                <button onClick={() => setThemeColor('#2563eb')} title="Utility Blue" className="w-4 h-4 rounded-full bg-[#2563eb] shadow-sm hover:scale-125 transition-transform" />
-                <button onClick={() => setThemeColor('#10b981')} title="Water Green" className="w-4 h-4 rounded-full bg-[#10b981] shadow-sm hover:scale-125 transition-transform" />
-                <button onClick={() => setThemeColor('#eab308')} title="Gas Yellow" className="w-4 h-4 rounded-full bg-[#eab308] shadow-sm hover:scale-125 transition-transform" />
+                <button onClick={() => setThemeColor('#ea580c')} className="w-4 h-4 rounded-full bg-[#ea580c] shadow-sm hover:scale-125 transition-transform" />
+                <button onClick={() => setThemeColor('#2563eb')} className="w-4 h-4 rounded-full bg-[#2563eb] shadow-sm hover:scale-125 transition-transform" />
+                <button onClick={() => setThemeColor('#10b981')} className="w-4 h-4 rounded-full bg-[#10b981] shadow-sm hover:scale-125 transition-transform" />
+                <button onClick={() => setThemeColor('#eab308')} className="w-4 h-4 rounded-full bg-[#eab308] shadow-sm hover:scale-125 transition-transform" />
               </div>
 
               {activeView === 'jobs' && (
@@ -287,6 +247,18 @@ const App: React.FC = () => {
       </header>
 
       <main className="max-w-[1600px] mx-auto px-4 py-8 flex-1 w-full animate-in fade-in slide-in-from-bottom-2 duration-700 pb-44">
+        {!isSynced && isSynced !== null && (
+          <div className="mb-6 bg-rose-50 border border-rose-100 p-4 rounded-2xl flex items-center gap-4">
+            <div className="bg-rose-100 p-2 rounded-xl text-rose-600">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+            </div>
+            <div>
+              <p className="text-xs font-black text-rose-800 uppercase tracking-widest">Supabase Tables Not Found</p>
+              <p className="text-[10px] text-rose-500 font-bold mt-0.5">App is using Local Storage. Check Console (F12) for the SQL code to fix your database.</p>
+            </div>
+          </div>
+        )}
+
         {activeView === 'dashboard' && (
           <div className="space-y-6">
             <StatCards tickets={activeTickets} />
@@ -295,11 +267,19 @@ const App: React.FC = () => {
                 <table className="w-full text-left">
                   <thead className="bg-slate-50/30 border-b border-slate-50">
                     <tr>
-                      <SortHeader field="jobNumber" label="Job #" />
-                      <SortHeader field="ticketNo" label="Ticket #" />
-                      <SortHeader field="address" label="Address" />
+                      <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                        <button onClick={() => handleSort('jobNumber')} className="flex items-center gap-1.5 hover:text-slate-600">Job #</button>
+                      </th>
+                      <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                        <button onClick={() => handleSort('ticketNo')} className="flex items-center gap-1.5 hover:text-slate-600">Ticket #</button>
+                      </th>
+                      <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                        <button onClick={() => handleSort('address')} className="flex items-center gap-1.5 hover:text-slate-600">Address</button>
+                      </th>
                       <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Status</th>
-                      <SortHeader field="expirationDate" label="Expires" />
+                      <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                        <button onClick={() => handleSort('expirationDate')} className="flex items-center gap-1.5 hover:text-slate-600">Expires</button>
+                      </th>
                       <th className="px-6 py-6"></th>
                     </tr>
                   </thead>
@@ -326,12 +306,27 @@ const App: React.FC = () => {
           </div>
         )}
         {activeView === 'calendar' && <CalendarView tickets={activeTickets} onEditTicket={handleEditTicket} />}
-        {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} notes={notes} isAdmin={true} onEditJob={handleEditJob} onToggleComplete={handleToggleJobCompletion} onAddNote={async (note) => { try { const n = await apiService.addNote({...note, id: crypto.randomUUID(), timestamp: Date.now(), author: currentUser!.name}); setNotes(prev => [n, ...prev]); } catch (error: any) { alert(`Note save failed: ${error.message || error}`); } }} onViewPhotos={(j) => { setGlobalSearch(j); setActiveView('photos'); }} />}
-        {activeView === 'photos' && <PhotoManager photos={photos} initialSearch={globalSearch} onAddPhoto={async (metadata, file) => { try { const saved = await apiService.addPhoto(metadata, file); setPhotos(prev => [saved, ...prev]); } catch (error: any) { alert(`Upload failed: ${error.message || error}`); } }} onDeletePhoto={async (id) => { try { await apiService.deletePhoto(id); setPhotos(prev => prev.filter(p => p.id !== id)); } catch (error: any) { alert(`Delete failed: ${error.message || error}`); } }} />}
-        {activeView === 'team' && <TeamManagement users={users} currentUserId={currentUser!.id} onAddUser={async (u) => { try { const newUser = await apiService.addUser({...u, id: crypto.randomUUID()}); setUsers(prev => [...prev, newUser]); } catch (error: any) { alert(`User creation failed: ${error.message || error}`); } }} onDeleteUser={async (id) => { try { await apiService.deleteUser(id); setUsers(prev => prev.filter(u => u.id !== id)); } catch (error: any) { alert(`User deletion failed: ${error.message || error}`); } }} onThemeChange={setThemeColor} />}
+        {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} notes={notes} isAdmin={true} onEditJob={handleEditJob} onToggleComplete={handleToggleJobCompletion} onAddNote={async (note) => { const n = await apiService.addNote({...note, id: crypto.randomUUID(), timestamp: Date.now(), author: 'Admin'}); setNotes(prev => [n, ...prev]); }} onViewPhotos={(j) => { setGlobalSearch(j); setActiveView('photos'); }} />}
+        {activeView === 'photos' && <PhotoManager photos={photos} initialSearch={globalSearch} onAddPhoto={async (metadata, file) => { const saved = await apiService.addPhoto(metadata, file); setPhotos(prev => [saved, ...prev]); }} onDeletePhoto={async (id) => { await apiService.deletePhoto(id); setPhotos(prev => prev.filter(p => p.id !== id)); }} />}
+        {activeView === 'team' && <TeamManagement users={users} currentUserId="demo-user" onAddUser={async (u) => { const newUser = await apiService.addUser({...u, id: crypto.randomUUID()}); setUsers(prev => [...prev, newUser]); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); setUsers(prev => prev.filter(u => u.id !== id)); }} onThemeChange={setThemeColor} />}
       </main>
 
-      <NavigationBar />
+      <div className="fixed bottom-0 left-0 right-0 z-[100] px-4 pb-6 md:pb-8 flex justify-center pointer-events-none">
+        <div className="bg-white/95 backdrop-blur-xl border border-slate-200/50 shadow-xl rounded-[2.5rem] p-2 flex items-center gap-1 pointer-events-auto">
+          {[
+            { id: 'dashboard', label: 'Tickets', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
+            { id: 'calendar', label: 'Schedule', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
+            { id: 'jobs', label: 'Projects', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2-2H7a2 2 0 00-2 2v16' },
+            { id: 'photos', label: 'Media', icon: 'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z' },
+            { id: 'team', label: 'Settings', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z' }
+          ].map((v) => (
+            <button key={v.id} onClick={() => setActiveView(v.id as AppView)} className={`flex flex-col items-center gap-1 py-3 px-6 md:px-10 rounded-[2.2rem] transition-all group ${activeView === v.id ? 'bg-brand text-white shadow-lg shadow-brand' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}>
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d={v.icon} /></svg>
+              <span className={`text-[8px] font-black uppercase tracking-widest ${activeView === v.id ? 'text-white' : 'text-slate-400'}`}>{v.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
       {showTicketForm && <TicketForm onAdd={handleSaveTicket} onClose={() => { setShowTicketForm(false); setEditingTicket(null); }} initialData={editingTicket || undefined} users={users} />}
       {showJobForm && <JobForm onSave={handleSaveJob} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} />}
     </div>
