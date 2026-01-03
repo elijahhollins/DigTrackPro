@@ -1,7 +1,7 @@
 import { supabase } from '../lib/supabaseClient.ts';
 import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job } from '../types.ts';
 
-export const SQL_SCHEMA = `create table if not exists jobs (id uuid primary key, job_number text, customer text, address text, city text, state text, county text, is_complete boolean, created_at timestamp with time zone default now());
+export const SQL_SCHEMA = `create table if not exists jobs (id uuid primary key, job_number text, customer text, address text, city text, state text, county text, is_complete boolean default false, created_at timestamp with time zone default now());
 create table if not exists tickets (id uuid primary key, job_number text, ticket_no text, address text, county text, city text, state text, call_in_date text, dig_start text, expiration_date text, site_contact text, created_at timestamp with time zone default now());
 create table if not exists photos (id uuid primary key, job_number text, data_url text, caption text, created_at timestamp with time zone default now());
 create table if not exists notes (id uuid primary key, job_number text, text text, author text, timestamp bigint);
@@ -11,12 +11,14 @@ alter table jobs disable row level security;
 alter table tickets disable row level security;
 alter table photos disable row level security;
 alter table notes disable row level security;
-alter table profiles disable row level security;`;
+alter table profiles disable row level security;
+
+grant all on all tables in schema public to anon, authenticated;`;
 
 export const RESET_SQL_SCHEMA = `-- WARNING: THIS WIPES ALL EXISTING DATA
 drop table if exists jobs, tickets, photos, notes, profiles cascade;
 
-create table jobs (id uuid primary key, job_number text, customer text, address text, city text, state text, county text, is_complete boolean, created_at timestamp with time zone default now());
+create table jobs (id uuid primary key, job_number text, customer text, address text, city text, state text, county text, is_complete boolean default false, created_at timestamp with time zone default now());
 create table tickets (id uuid primary key, job_number text, ticket_no text, address text, county text, city text, state text, call_in_date text, dig_start text, expiration_date text, site_contact text, created_at timestamp with time zone default now());
 create table photos (id uuid primary key, job_number text, data_url text, caption text, created_at timestamp with time zone default now());
 create table notes (id uuid primary key, job_number text, text text, author text, timestamp bigint);
@@ -26,7 +28,9 @@ alter table jobs disable row level security;
 alter table tickets disable row level security;
 alter table photos disable row level security;
 alter table notes disable row level security;
-alter table profiles disable row level security;`;
+alter table profiles disable row level security;
+
+grant all on all tables in schema public to anon, authenticated;`;
 
 const STORAGE_KEYS = {
   TICKETS: 'digtrack_tickets_cache',
@@ -86,18 +90,19 @@ const mapTicket = (data: any): DigTicket => ({
 });
 
 export const apiService = {
-  async getSyncStatus() {
+  async getSyncStatus(): Promise<{ synced: boolean, error?: string }> {
     try {
-      const { error } = await supabase.from('jobs').select('count', { count: 'exact', head: true });
+      const { error } = await supabase.from('jobs').select('id').limit(1);
       if (error) {
-        console.group('%c Supabase Sync Info ', 'background: #334155; color: white;');
-        console.warn(`Sync Issue Code: ${error.code}`);
-        console.warn(`Message: ${error.message}`);
-        console.groupEnd();
-        return false;
+        return { 
+          synced: false, 
+          error: `Supabase Error [${error.code}]: ${error.message}` 
+        };
       }
-      return true;
-    } catch { return false; }
+      return { synced: true };
+    } catch (e: any) { 
+      return { synced: false, error: e.message || String(e) }; 
+    }
   },
 
   async getUsers(): Promise<UserRecord[]> {

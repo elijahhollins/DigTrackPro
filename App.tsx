@@ -26,6 +26,7 @@ const App: React.FC = () => {
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSynced, setIsSynced] = useState<boolean | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [copying, setCopying] = useState<'standard' | 'reset' | null>(null);
   
   const [showTicketForm, setShowTicketForm] = useState(false);
@@ -52,38 +53,37 @@ const App: React.FC = () => {
     document.documentElement.style.setProperty('--brand-shadow', `rgba(${r}, ${g}, ${b}, 0.2)`);
   };
 
+  const initApp = async () => {
+    setIsLoading(true);
+    try {
+      const status = await apiService.getSyncStatus();
+      setIsSynced(status.synced);
+      setSyncError(status.error || null);
+
+      const [t, j, p, n, u] = await Promise.all([
+        apiService.getTickets(),
+        apiService.getJobs(),
+        apiService.getPhotos(),
+        apiService.getNotes(),
+        apiService.getUsers()
+      ]);
+
+      setTickets(t);
+      setJobs(j);
+      setPhotos(p);
+      setNotes(n);
+      setUsers(u);
+    } catch (error: any) {
+      console.error("Initialization warning:", error);
+      setSyncError(error.message || "Failed to connect to database");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
     const savedColor = localStorage.getItem('dig_theme_color') || '#ea580c';
     setThemeColor(savedColor);
-  }, []);
-
-  useEffect(() => {
-    const initApp = async () => {
-      setIsLoading(true);
-      try {
-        const status = await apiService.getSyncStatus();
-        setIsSynced(status);
-
-        const [t, j, p, n, u] = await Promise.all([
-          apiService.getTickets(),
-          apiService.getJobs(),
-          apiService.getPhotos(),
-          apiService.getNotes(),
-          apiService.getUsers()
-        ]);
-
-        setTickets(t);
-        setJobs(j);
-        setPhotos(p);
-        setNotes(n);
-        setUsers(u);
-      } catch (error: any) {
-        console.error("Initialization warning:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
     initApp();
   }, []);
 
@@ -214,7 +214,7 @@ const App: React.FC = () => {
   if (isLoading) return (
     <div className="min-h-screen bg-white flex flex-col items-center justify-center">
       <div className="w-14 h-14 border-4 border-slate-100 border-t-brand rounded-full animate-spin mb-6" />
-      <p className="text-slate-400 font-black uppercase tracking-[0.4em] text-[10px]">Accessing Database...</p>
+      <p className="text-slate-400 font-black uppercase tracking-[0.4em] text-[10px]">Verifying Sync Status...</p>
     </div>
   );
 
@@ -232,7 +232,7 @@ const App: React.FC = () => {
                 <div className="flex items-center gap-2 mt-1">
                   <div className={`w-1.5 h-1.5 rounded-full ${isSynced ? 'bg-emerald-500' : 'bg-rose-500'}`} />
                   <span className={`text-[8px] font-black uppercase tracking-widest ${isSynced ? 'text-emerald-600' : 'text-rose-600'}`}>
-                    {isSynced ? 'Supabase Online' : 'Local Backup Mode'}
+                    {isSynced ? 'Supabase Connected' : 'Local Backup Mode'}
                   </span>
                 </div>
               </div>
@@ -244,6 +244,9 @@ const App: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-4 ml-auto">
+              <button onClick={initApp} title="Refresh Sync" className="p-3 text-slate-400 hover:text-brand transition-colors">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+              </button>
               <div className="hidden lg:flex items-center gap-2 px-3 py-1 bg-slate-50 rounded-full border border-slate-100">
                 <button onClick={() => setThemeColor('#ea580c')} className="w-4 h-4 rounded-full bg-[#ea580c] shadow-sm hover:scale-125 transition-transform" />
                 <button onClick={() => setThemeColor('#2563eb')} className="w-4 h-4 rounded-full bg-[#2563eb] shadow-sm hover:scale-125 transition-transform" />
@@ -267,21 +270,26 @@ const App: React.FC = () => {
               <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
             </div>
             <div className="flex-1 text-center md:text-left">
-              <p className="text-sm font-black text-rose-800 uppercase tracking-widest">Database Sync Required</p>
-              <p className="text-xs text-rose-500 font-bold mt-1 leading-relaxed">The cloud tables are missing. If you want a fresh start, use the Rebuild option.</p>
+              <p className="text-sm font-black text-rose-800 uppercase tracking-widest">Database Sync Issue</p>
+              <div className="mt-2 p-3 bg-white/50 rounded-xl border border-rose-200">
+                <p className="text-[10px] font-mono font-bold text-rose-600 break-all uppercase leading-relaxed">
+                  {syncError || "Check Supabase SQL Dashboard"}
+                </p>
+              </div>
+              <p className="text-[9px] text-rose-500 font-bold mt-2 leading-relaxed">Ensure you have run the setup SQL in your Supabase dashboard.</p>
             </div>
             <div className="flex flex-col sm:flex-row gap-2">
               <button 
                 onClick={() => handleCopySQL('standard')}
                 className="px-5 py-3.5 bg-white border border-rose-200 text-rose-600 rounded-2xl font-black text-[9px] uppercase tracking-widest hover:bg-rose-50 transition-all flex items-center gap-2 shadow-sm"
               >
-                {copying === 'standard' ? 'Copying...' : 'Standard Setup'}
+                {copying === 'standard' ? 'Copying...' : 'Copy Standard SQL'}
               </button>
               <button 
                 onClick={() => handleCopySQL('reset')}
                 className="px-5 py-3.5 bg-rose-600 text-white rounded-2xl font-black text-[9px] uppercase tracking-widest shadow-lg shadow-rose-200 hover:brightness-110 transition-all flex items-center gap-2"
               >
-                {copying === 'reset' ? 'Copying...' : 'Nuclear Rebuild'}
+                {copying === 'reset' ? 'Copying...' : 'Copy Nuclear Reset'}
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
               </button>
             </div>
@@ -328,6 +336,13 @@ const App: React.FC = () => {
                         </tr>
                       );
                     })}
+                    {filteredAndSortedTickets.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="px-6 py-20 text-center">
+                          <p className="text-[10px] font-black text-slate-300 uppercase tracking-[0.3em]">No tickets found in this view</p>
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
