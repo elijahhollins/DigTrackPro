@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 
 const MAX_RETRIES = 3;
@@ -6,22 +5,9 @@ const INITIAL_DELAY = 1000;
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-const getApiKey = (): string => {
-  try {
-    // @ts-ignore
-    if (typeof process !== 'undefined' && process.env) {
-      // @ts-ignore
-      return process.env.API_KEY || '';
-    }
-  } catch (e) {
-    // Silent fail
-  }
-  return '';
-};
-
 export const parseTicketData = async (input: string | { data: string; mimeType: string }) => {
-  const apiKey = getApiKey();
-  const ai = new GoogleGenAI({ apiKey });
+  // Fix: initialized GoogleGenAI strictly following guidelines using process.env.API_KEY directly
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   let lastError: any;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {

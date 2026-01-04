@@ -48,17 +48,17 @@ const TeamManagement: React.FC<TeamManagementProps> = ({ users, currentUserId, o
         <div className="flex justify-between items-center mb-6">
           <div>
             <h2 className="text-xl font-black text-slate-900 tracking-tight uppercase">Branding & Environment</h2>
-            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Global Color System</p>
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Global Color System</p>
           </div>
           <div className="flex items-center gap-4 bg-slate-50 p-3 rounded-2xl border border-slate-100">
-            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Custom Hex</span>
+            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Custom Hex</span>
             <input 
               type="color" 
               value={customColor} 
               onChange={handleCustomColor}
               className="w-10 h-10 rounded-xl cursor-pointer border-none bg-transparent"
             />
-            <span className="text-xs font-mono font-bold text-slate-600 uppercase">{customColor}</span>
+            <span className="text-xs font-mono font-bold text-slate-800 uppercase">{customColor}</span>
           </div>
         </div>
         
@@ -76,7 +76,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({ users, currentUserId, o
                 className="w-10 h-10 rounded-2xl shadow-lg transition-transform group-hover:scale-110" 
                 style={{ backgroundColor: t.color }}
               />
-              <span className="text-[9px] font-black text-slate-500 uppercase tracking-tighter">{t.name}</span>
+              <span className="text-[9px] font-black text-slate-600 uppercase tracking-tighter">{t.name}</span>
             </button>
           ))}
         </div>
@@ -85,11 +85,11 @@ const TeamManagement: React.FC<TeamManagementProps> = ({ users, currentUserId, o
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-xl font-black text-slate-900 tracking-tight uppercase">User Access Control</h2>
-          <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">Local Permissions</p>
+          <p className="text-xs text-slate-600 font-bold uppercase tracking-widest mt-1">Local Permissions</p>
         </div>
         <button 
           onClick={() => setShowAddForm(!showAddForm)}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all ${showAddForm ? 'bg-slate-100 text-slate-600' : 'bg-brand text-white shadow-lg shadow-brand hover:brightness-110'}`}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all ${showAddForm ? 'bg-slate-100 text-slate-700' : 'bg-brand text-white shadow-lg shadow-brand hover:brightness-110'}`}
         >
           {showAddForm ? 'Cancel' : 'Register Member'}
         </button>
@@ -99,21 +99,21 @@ const TeamManagement: React.FC<TeamManagementProps> = ({ users, currentUserId, o
         <div className="bg-white p-8 rounded-3xl border border-brand/20 shadow-xl shadow-brand/5 animate-in slide-in-from-top-4 duration-300">
           <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
             <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Full Name</label>
-              <input required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-brand transition-all" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Full Name</label>
+              <input required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-brand transition-all text-slate-900" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
             </div>
             <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Username</label>
-              <input required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-brand transition-all" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} />
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Username</label>
+              <input required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-brand transition-all text-slate-900" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} />
             </div>
             <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Password</label>
-              <input required type="text" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-brand transition-all" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} />
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Password</label>
+              <input required type="text" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-brand transition-all text-slate-900" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} />
             </div>
             <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Role</label>
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Role</label>
               <div className="flex gap-2">
-                <select className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-brand transition-all appearance-none cursor-pointer" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as UserRole})}>
+                <select className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-brand transition-all appearance-none cursor-pointer text-slate-900" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as UserRole})}>
                   <option value={UserRole.CREW}>Crew</option>
                   <option value={UserRole.ADMIN}>Admin</option>
                 </select>
@@ -128,9 +128,9 @@ const TeamManagement: React.FC<TeamManagementProps> = ({ users, currentUserId, o
         <table className="w-full text-left">
           <thead className="bg-slate-50/50 border-b border-slate-100">
             <tr>
-              <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Name</th>
-              <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Role</th>
-              <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Actions</th>
+              <th className="px-8 py-5 text-[10px] font-black text-slate-500 uppercase tracking-widest">Name</th>
+              <th className="px-8 py-5 text-[10px] font-black text-slate-500 uppercase tracking-widest">Role</th>
+              <th className="px-8 py-5 text-[10px] font-black text-slate-500 uppercase tracking-widest text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
@@ -138,7 +138,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({ users, currentUserId, o
               <tr key={user.id} className="hover:bg-slate-50 transition-colors group">
                 <td className="px-8 py-5">
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center font-black text-slate-400 text-[10px] uppercase">{user.name.substring(0, 1)}</div>
+                    <div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center font-black text-slate-500 text-[10px] uppercase">{user.name.substring(0, 1)}</div>
                     <span className="text-sm font-bold text-slate-800">{user.name}</span>
                   </div>
                 </td>

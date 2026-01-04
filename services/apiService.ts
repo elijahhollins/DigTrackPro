@@ -1,19 +1,28 @@
 import { supabase, getSupabaseConfig } from '../lib/supabaseClient.ts';
 import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job } from '../types.ts';
 
-export const SQL_SCHEMA = `create table if not exists jobs (id uuid primary key, job_number text, customer text, address text, city text, state text, county text, is_complete boolean default false, created_at timestamp with time zone default now());
+export const SQL_SCHEMA = `-- 1. Tables
+create table if not exists jobs (id uuid primary key, job_number text, customer text, address text, city text, state text, county text, is_complete boolean default false, created_at timestamp with time zone default now());
 create table if not exists tickets (id uuid primary key, job_number text, ticket_no text, address text, county text, city text, state text, call_in_date text, dig_start text, expiration_date text, site_contact text, created_at timestamp with time zone default now());
 create table if not exists photos (id uuid primary key, job_number text, data_url text, caption text, created_at timestamp with time zone default now());
 create table if not exists notes (id uuid primary key, job_number text, text text, author text, timestamp bigint);
 create table if not exists profiles (id uuid primary key, name text, username text, role text);
 
-alter table jobs disable row level security;
-alter table tickets disable row level security;
-alter table photos disable row level security;
-alter table notes disable row level security;
-alter table profiles disable row level security;
+-- 2. Enable RLS
+alter table jobs enable row level security;
+alter table tickets enable row level security;
+alter table photos enable row level security;
+alter table notes enable row level security;
+alter table profiles enable row level security;
 
-grant all on all tables in schema public to anon, authenticated;`;
+-- 3. Basic Security Policies
+create policy "Auth view all" on jobs for select to authenticated using (true);
+create policy "Auth view all" on tickets for select to authenticated using (true);
+create policy "Auth view all" on photos for all to authenticated using (true);
+create policy "Auth view all" on notes for all to authenticated using (true);
+create policy "Auth view all" on profiles for select to authenticated using (true);
+
+grant all on all tables in schema public to authenticated;`;
 
 export const RESET_SQL_SCHEMA = `-- WARNING: THIS WIPES ALL EXISTING DATA
 drop table if exists jobs, tickets, photos, notes, profiles cascade;
@@ -24,13 +33,19 @@ create table photos (id uuid primary key, job_number text, data_url text, captio
 create table notes (id uuid primary key, job_number text, text text, author text, timestamp bigint);
 create table profiles (id uuid primary key, name text, username text, role text);
 
-alter table jobs disable row level security;
-alter table tickets disable row level security;
-alter table photos disable row level security;
-alter table notes disable row level security;
-alter table profiles disable row level security;
+alter table jobs enable row level security;
+alter table tickets enable row level security;
+alter table photos enable row level security;
+alter table notes enable row level security;
+alter table profiles enable row level security;
 
-grant all on all tables in schema public to anon, authenticated;`;
+create policy "Auth view all" on jobs for select to authenticated using (true);
+create policy "Auth view all" on tickets for select to authenticated using (true);
+create policy "Auth view all" on photos for all to authenticated using (true);
+create policy "Auth view all" on notes for all to authenticated using (true);
+create policy "Auth view all" on profiles for select to authenticated using (true);
+
+grant all on all tables in schema public to authenticated;`;
 
 const STORAGE_KEYS = {
   TICKETS: 'digtrack_tickets_cache',
@@ -83,6 +98,7 @@ const mapTicket = (data: any): DigTicket => ({
   city: data.city || '',
   state: data.state || '',
   callInDate: data.call_in_date || '',
+  // Fix: renamed dig_start to digStart to match the DigTicket interface property
   digStart: data.dig_start || '',
   expirationDate: data.expiration_date || '',
   siteContact: data.site_contact || '',
@@ -92,20 +108,13 @@ const mapTicket = (data: any): DigTicket => ({
 export const apiService = {
   async getSyncStatus(): Promise<{ synced: boolean, error?: string, diagnostics?: any }> {
     const config = getSupabaseConfig();
-    if (!config.isValid) {
-      return { synced: false, error: 'SUPABASE_URL or ANON_KEY missing in index.html', diagnostics: config };
-    }
-
+    if (!config.isValid) return { synced: false, error: 'Config missing', diagnostics: config };
     try {
       const { error } = await supabase.from('jobs').select('id').limit(1);
-      if (error) {
-        let msg = `Supabase Error [${error.code}]: ${error.message}`;
-        if (error.message.includes('fetch')) msg = "Network Connection Failed. Check CORS or Firewall.";
-        return { synced: false, error: msg, diagnostics: config };
-      }
+      if (error) return { synced: false, error: error.message, diagnostics: config };
       return { synced: true, diagnostics: config };
     } catch (e: any) { 
-      return { synced: false, error: `Critical Failure: ${e.message || String(e)}`, diagnostics: config }; 
+      return { synced: false, error: e.message, diagnostics: config }; 
     }
   },
 
@@ -151,14 +160,7 @@ export const apiService = {
       county: job.county,
       is_complete: job.isComplete
     }).select().single();
-
-    if (error) {
-      const jobs = getFromStorage<Job>(STORAGE_KEYS.JOBS);
-      const index = jobs.findIndex(j => j.id === job.id);
-      const updated = index > -1 ? jobs.map(j => j.id === job.id ? job : j) : [job, ...jobs];
-      saveToStorage(STORAGE_KEYS.JOBS, updated);
-      return job;
-    }
+    if (error) throw error;
     return mapJob(data);
   },
 
@@ -182,23 +184,13 @@ export const apiService = {
       expiration_date: ticket.expirationDate,
       site_contact: ticket.siteContact
     }).select().single();
-
-    if (error) {
-      const tickets = getFromStorage<DigTicket>(STORAGE_KEYS.TICKETS);
-      const index = tickets.findIndex(t => t.id === ticket.id);
-      const updated = index > -1 ? tickets.map(t => t.id === ticket.id ? ticket : t) : [ticket, ...tickets];
-      saveToStorage(STORAGE_KEYS.TICKETS, updated);
-      return ticket;
-    }
+    if (error) throw error;
     return mapTicket(data);
   },
 
   async deleteTicket(id: string): Promise<void> {
     const { error } = await supabase.from('tickets').delete().eq('id', id);
-    if (error) {
-      const tickets = getFromStorage<DigTicket>(STORAGE_KEYS.TICKETS).filter(t => t.id !== id);
-      saveToStorage(STORAGE_KEYS.TICKETS, tickets);
-    }
+    if (error) throw error;
   },
 
   async getPhotos(): Promise<JobPhoto[]> {
@@ -213,14 +205,12 @@ export const apiService = {
       reader.onloadend = async () => {
         const base64 = reader.result as string;
         const newPhoto = { ...photo, id: generateUUID(), dataUrl: base64 };
-        
         const { error } = await supabase.from('photos').insert([{
           id: newPhoto.id,
           job_number: photo.jobNumber,
           data_url: base64,
           caption: photo.caption
         }]);
-
         if (error) {
           const photos = getFromStorage<JobPhoto>(STORAGE_KEYS.PHOTOS);
           saveToStorage(STORAGE_KEYS.PHOTOS, [newPhoto, ...photos]);
@@ -233,10 +223,7 @@ export const apiService = {
 
   async deletePhoto(id: string): Promise<void> {
     const { error } = await supabase.from('photos').delete().eq('id', id);
-    if (error) {
-      const photos = getFromStorage<JobPhoto>(STORAGE_KEYS.PHOTOS).filter(p => p.id !== id);
-      saveToStorage(STORAGE_KEYS.PHOTOS, photos);
-    }
+    if (error) throw error;
   },
 
   async getNotes(): Promise<JobNote[]> {
@@ -253,7 +240,6 @@ export const apiService = {
       author: note.author,
       timestamp: note.timestamp
     }]);
-
     if (error) {
       const notes = getFromStorage<JobNote>(STORAGE_KEYS.NOTES);
       saveToStorage(STORAGE_KEYS.NOTES, [note, ...notes]);

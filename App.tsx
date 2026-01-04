@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, User, UserRole, JobNote, UserRecord, Job } from './types.ts';
 import { getTicketStatus, getStatusColor, getStatusDotColor, getRowBgColor } from './utils/dateUtils.ts';
 import { apiService, SQL_SCHEMA, RESET_SQL_SCHEMA } from './services/apiService.ts';
+import { supabase } from './lib/supabaseClient.ts';
 import TicketForm from './components/TicketForm.tsx';
 import JobForm from './components/JobForm.tsx';
 import StatCards from './components/StatCards.tsx';
@@ -9,15 +10,10 @@ import JobReview from './components/JobReview.tsx';
 import PhotoManager from './components/PhotoManager.tsx';
 import CalendarView from './components/CalendarView.tsx';
 import TeamManagement from './components/TeamManagement.tsx';
+import Login from './components/Login.tsx';
 
 const App: React.FC = () => {
-  const [currentUser] = useState<User | null>({
-    id: 'demo-user',
-    name: 'Test Administrator',
-    username: 'admin',
-    role: UserRole.ADMIN
-  });
-
+  const [sessionUser, setSessionUser] = useState<User | null>(null);
   const [activeView, setActiveView] = useState<AppView>('dashboard');
   const [tickets, setTickets] = useState<DigTicket[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -27,9 +23,6 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSynced, setIsSynced] = useState<boolean | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
-  const [diagnostics, setDiagnostics] = useState<any>(null);
-  const [showDiagnostics, setShowDiagnostics] = useState(false);
-  const [copying, setCopying] = useState<'standard' | 'reset' | null>(null);
   
   const [showTicketForm, setShowTicketForm] = useState(false);
   const [showJobForm, setShowJobForm] = useState(false);
@@ -44,7 +37,6 @@ const App: React.FC = () => {
   const setThemeColor = (color: string) => {
     localStorage.setItem('dig_theme_color', color);
     document.documentElement.style.setProperty('--brand-primary', color);
-    
     let r = 0, g = 0, b = 0;
     if (color.startsWith('#') && color.length === 7) {
       r = parseInt(color.slice(1, 3), 16);
@@ -55,13 +47,41 @@ const App: React.FC = () => {
     document.documentElement.style.setProperty('--brand-shadow', `rgba(${r}, ${g}, ${b}, 0.2)`);
   };
 
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setSessionUser(null);
+  };
+
   const initApp = async () => {
     setIsLoading(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        setSessionUser(null);
+        setIsLoading(false);
+        return;
+      }
+
+      // Fetch Profile
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', session.user.id)
+        .single();
+
+      if (profile) {
+        setSessionUser({
+          id: profile.id,
+          name: profile.name,
+          username: profile.username,
+          role: profile.role as UserRole
+        });
+      }
+
       const status = await apiService.getSyncStatus();
       setIsSynced(status.synced);
       setSyncError(status.error || null);
-      setDiagnostics(status.diagnostics || null);
 
       const [t, j, p, n, u] = await Promise.all([
         apiService.getTickets(),
@@ -77,8 +97,7 @@ const App: React.FC = () => {
       setNotes(n);
       setUsers(u);
     } catch (error: any) {
-      console.error("Initialization warning:", error);
-      setSyncError(error.message || "Failed to connect to database");
+      console.error("Initialization error:", error);
     } finally {
       setIsLoading(false);
     }
@@ -88,6 +107,13 @@ const App: React.FC = () => {
     const savedColor = localStorage.getItem('dig_theme_color') || '#f59e0b';
     setThemeColor(savedColor);
     initApp();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) setSessionUser(null);
+      else initApp();
+    });
+
+    return () => authListener.subscription.unsubscribe();
   }, []);
 
   const handleSaveTicket = async (data: Omit<DigTicket, 'id' | 'createdAt'>) => {
@@ -95,7 +121,6 @@ const App: React.FC = () => {
       const ticket: DigTicket = editingTicket 
         ? { ...editingTicket, ...data }
         : { ...data, id: crypto.randomUUID(), createdAt: Date.now() };
-      
       const saved = await apiService.saveTicket(ticket);
       setTickets(prev => {
         const index = prev.findIndex(t => t.id === saved.id);
@@ -105,7 +130,7 @@ const App: React.FC = () => {
       setShowTicketForm(false);
       setEditingTicket(null);
     } catch (error: any) {
-      alert(`Database error: ${error.message || error}`);
+      alert(`Access Denied: Only Admins can save tickets. ${error.message}`);
     }
   };
 
@@ -114,7 +139,6 @@ const App: React.FC = () => {
       const job: Job = editingJob 
         ? { ...editingJob, ...data }
         : { ...data, id: crypto.randomUUID(), createdAt: Date.now() };
-      
       const saved = await apiService.saveJob(job);
       setJobs(prev => {
         const index = prev.findIndex(j => j.id === saved.id);
@@ -124,7 +148,7 @@ const App: React.FC = () => {
       setShowJobForm(false);
       setEditingJob(null);
     } catch (error: any) {
-      alert(`Database error: ${error.message || error}`);
+      alert(`Access Denied: Only Admins can manage jobs.`);
     }
   };
 
@@ -134,25 +158,8 @@ const App: React.FC = () => {
       await apiService.saveJob(updatedJob);
       setJobs(prev => prev.map(j => j.id === job.id ? updatedJob : j));
     } catch (error: any) {
-      alert(`Update failed: ${error.message || error}`);
+      alert(`Update failed. Check your permissions.`);
     }
-  };
-
-  const handleEditTicket = (ticket: DigTicket) => {
-    setEditingTicket(ticket);
-    setShowTicketForm(true);
-  };
-
-  const handleEditJob = (job: Job) => {
-    setEditingJob(job);
-    setShowJobForm(true);
-  };
-
-  const handleSort = (field: SortField) => {
-    setSortConfig(prev => ({
-      field,
-      order: prev.field === field && prev.order === 'asc' ? 'desc' : 'asc'
-    }));
   };
 
   const deleteTicket = async (id: string, e: React.MouseEvent) => {
@@ -162,21 +169,8 @@ const App: React.FC = () => {
         await apiService.deleteTicket(id);
         setTickets(prev => prev.filter(t => t.id !== id));
       } catch (error: any) {
-        alert(`Delete failed: ${error.message || error}`);
+        alert(`Delete failed: You must be an Admin.`);
       }
-    }
-  };
-
-  const handleCopySQL = async (mode: 'standard' | 'reset') => {
-    setCopying(mode);
-    try {
-      const sql = mode === 'standard' ? SQL_SCHEMA : RESET_SQL_SCHEMA;
-      await navigator.clipboard.writeText(sql);
-      alert(mode === 'standard' ? "Standard SQL Copied!" : "RESET & REBUILD SQL Copied! Warning: This drops existing tables.");
-    } catch (err) {
-      console.error("Copy fail:", err);
-    } finally {
-      setCopying(null);
     }
   };
 
@@ -193,22 +187,13 @@ const App: React.FC = () => {
       const s = globalSearch.toLowerCase().trim();
       if (!s) return true;
       const status = getTicketStatus(t);
-      return (
-        status.toLowerCase().includes(s) ||
-        t.ticketNo.toLowerCase().includes(s) ||
-        t.address.toLowerCase().includes(s) ||
-        t.jobNumber.toLowerCase().includes(s)
-      );
+      return status.toLowerCase().includes(s) || t.ticketNo.toLowerCase().includes(s) || t.address.toLowerCase().includes(s) || t.jobNumber.toLowerCase().includes(s);
     });
-
     result.sort((a, b) => {
       const valA = a[sortConfig.field] ?? '';
       const valB = b[sortConfig.field] ?? '';
       const factor = sortConfig.order === 'asc' ? 1 : -1;
-      
-      if (typeof valA === 'string' && typeof valB === 'string') {
-        return factor * valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' });
-      }
+      if (typeof valA === 'string' && typeof valB === 'string') return factor * valA.localeCompare(valB, undefined, { numeric: true });
       return factor * ((valA as number) - (valB as number));
     });
     return result;
@@ -217,9 +202,15 @@ const App: React.FC = () => {
   if (isLoading) return (
     <div className="min-h-screen bg-[#0f172a] flex flex-col items-center justify-center">
       <div className="w-14 h-14 border-4 border-slate-800 border-t-brand rounded-full animate-spin mb-6" />
-      <p className="text-slate-500 font-black uppercase tracking-[0.4em] text-[10px]">Testing Connection...</p>
+      <p className="text-slate-500 font-black uppercase tracking-[0.4em] text-[10px]">Validating Session...</p>
     </div>
   );
+
+  if (!sessionUser) {
+    return <Login onLogin={(user) => setSessionUser(user)} />;
+  }
+
+  const isAdmin = sessionUser.role === UserRole.ADMIN;
 
   return (
     <div className="min-h-screen bg-[#0f172a] text-slate-100 flex flex-col relative">
@@ -233,9 +224,8 @@ const App: React.FC = () => {
               <div>
                 <h1 className="text-lg font-black text-white tracking-tight leading-none uppercase">DigTrack Pro</h1>
                 <div className="flex items-center gap-2 mt-1.5">
-                  <div className={`w-1.5 h-1.5 rounded-full ${isSynced ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : 'bg-rose-500 shadow-[0_0_8px_#ef4444]'}`} />
-                  <span className={`text-[8px] font-black uppercase tracking-[0.2em] ${isSynced ? 'text-emerald-500' : 'text-rose-500'}`}>
-                    {isSynced ? 'Supabase Secure' : 'Local Offline Mode'}
+                  <span className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-400">
+                    {sessionUser.name} ({sessionUser.role})
                   </span>
                 </div>
               </div>
@@ -247,149 +237,68 @@ const App: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-4 ml-auto">
-              <button onClick={initApp} title="Re-test Sync" className="p-3 text-slate-500 hover:text-brand transition-colors">
-                <svg className={`w-5 h-5 ${isLoading ? 'animate-spin text-brand' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+              <button onClick={handleSignOut} title="Sign Out" className="p-3 text-slate-500 hover:text-rose-500 transition-colors">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
               </button>
               
-              <div className="hidden lg:flex items-center gap-2 px-3 py-1 bg-white/5 rounded-full border border-white/5">
-                <button onClick={() => setThemeColor('#f59e0b')} className="w-4 h-4 rounded-full bg-[#f59e0b] shadow-sm hover:scale-125 transition-transform" />
-                <button onClick={() => setThemeColor('#2563eb')} className="w-4 h-4 rounded-full bg-[#2563eb] shadow-sm hover:scale-125 transition-transform" />
-                <button onClick={() => setThemeColor('#10b981')} className="w-4 h-4 rounded-full bg-[#10b981] shadow-sm hover:scale-125 transition-transform" />
-                <button onClick={() => setThemeColor('#ef4444')} className="w-4 h-4 rounded-full bg-[#ef4444] shadow-sm hover:scale-125 transition-transform" />
-              </div>
-
-              {activeView === 'jobs' && (
-                <button onClick={() => { setEditingJob(null); setShowJobForm(true); }} className="bg-white text-[#0f172a] px-5 py-3 rounded-2xl font-black uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-2 shadow-xl shadow-white/5 text-[10px]">New Job</button>
+              {isAdmin && (
+                <>
+                  {activeView === 'jobs' && (
+                    <button onClick={() => { setEditingJob(null); setShowJobForm(true); }} className="bg-white text-[#0f172a] px-5 py-3 rounded-2xl font-black uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-2 shadow-xl shadow-white/5 text-[10px]">New Job</button>
+                  )}
+                  <button onClick={() => { setEditingTicket(null); setShowTicketForm(true); }} className="bg-brand text-[#0f172a] px-5 py-3 rounded-2xl font-black uppercase tracking-widest hover:brightness-110 transition-all flex items-center gap-2 shadow-xl shadow-brand/20 text-[10px]">New Ticket</button>
+                </>
               )}
-              <button onClick={() => { setEditingTicket(null); setShowTicketForm(true); }} className="bg-brand text-[#0f172a] px-5 py-3 rounded-2xl font-black uppercase tracking-widest hover:brightness-110 transition-all flex items-center gap-2 shadow-xl shadow-brand/20 text-[10px]">New Ticket</button>
             </div>
           </div>
         </div>
       </header>
 
       <main className="max-w-[1600px] mx-auto px-4 py-8 flex-1 w-full animate-in fade-in slide-in-from-bottom-2 duration-700 pb-44">
-        {!isSynced && isSynced !== null && (
-          <div className="mb-10 bg-[#1e293b] border border-rose-500/20 p-10 rounded-[3rem] shadow-2xl shadow-rose-950/20 flex flex-col items-center text-center max-w-2xl mx-auto border-t-4 border-t-rose-500">
-            <div className="bg-rose-500/10 p-6 rounded-[2.5rem] text-rose-500 mb-6 border border-rose-500/20">
-              <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-            </div>
-            <h2 className="text-2xl font-black text-white uppercase tracking-tight">Sync Failure Detected</h2>
-            <div className="mt-4 p-5 bg-black/40 rounded-2xl border border-white/5 w-full">
-              <p className="text-[11px] font-mono font-bold text-rose-400 break-words uppercase leading-relaxed">
-                {syncError || "Unknown Connection Error"}
-              </p>
-            </div>
-            
-            <p className="text-sm text-slate-400 font-medium mt-6 leading-relaxed">
-              System is operating in <b>Internal Memory Mode</b>. Work is being cached locally. Verify your Supabase endpoint and run the Setup SQL in your dashboard.
-            </p>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full mt-8">
-              <button 
-                onClick={() => setShowDiagnostics(!showDiagnostics)}
-                className="px-6 py-4 bg-slate-800 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-700 transition-all border border-white/5"
-              >
-                {showDiagnostics ? 'Hide Credentials' : 'Check Credentials'}
-              </button>
-              <button 
-                onClick={() => handleCopySQL('standard')}
-                className="px-6 py-4 border-2 border-brand/20 text-brand rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-brand/10 transition-all"
-              >
-                Copy Setup SQL
-              </button>
-            </div>
-
-            {showDiagnostics && diagnostics && (
-              <div className="w-full mt-6 p-6 bg-black/40 rounded-[2rem] border border-white/5 text-left animate-in slide-in-from-top-4 duration-300">
-                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">Diagnostics Console</p>
-                <div className="space-y-3">
-                  <div>
-                    <span className="text-[9px] font-black text-slate-600 uppercase block mb-1">Target Endpoint:</span>
-                    <code className="text-[11px] font-mono font-bold text-brand break-all">{diagnostics.url || 'NOT_CONFIGURED'}</code>
-                  </div>
-                  <div>
-                    <span className="text-[9px] font-black text-slate-600 uppercase block mb-1">API Key (Masked):</span>
-                    <code className="text-[11px] font-mono font-bold text-slate-300 break-all">{diagnostics.anonKey || 'NOT_CONFIGURED'}</code>
-                  </div>
-                  <div className="pt-4 border-t border-white/5 mt-4">
-                    <p className="text-[9px] text-slate-500 font-bold leading-relaxed italic">
-                      Edit the process.env values in index.html to update these credentials.
-                    </p>
-                  </div>
-                </div>
+        {activeView === 'dashboard' && (
+          <div className="space-y-8">
+            <StatCards tickets={activeTickets} />
+            <div className="bg-[#1e293b] rounded-[3rem] shadow-xl border border-white/5 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="bg-black/20 border-b border-white/5">
+                    <tr>
+                      <th className="px-8 py-7 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Job #</th>
+                      <th className="px-8 py-7 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Ticket #</th>
+                      <th className="px-8 py-7 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Address</th>
+                      <th className="px-8 py-7 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Status</th>
+                      <th className="px-8 py-7 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Expires</th>
+                      <th className="px-8 py-7"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    {filteredAndSortedTickets.map(ticket => {
+                      const status = getTicketStatus(ticket);
+                      return (
+                        <tr key={ticket.id} onClick={() => isAdmin && setEditingTicket(ticket)} className={`transition-all group ${isAdmin ? 'cursor-pointer hover:bg-white/5' : ''}`}>
+                          <td className="px-8 py-7 text-xs font-black text-white">{ticket.jobNumber}</td>
+                          <td className="px-8 py-7 text-xs font-mono font-bold text-slate-400">{ticket.ticketNo}</td>
+                          <td className="px-8 py-7 text-xs font-bold text-slate-300 truncate max-w-[250px]">{ticket.address}</td>
+                          <td className="px-8 py-7">
+                            <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-[9px] font-black border uppercase tracking-[0.1em] ${getStatusColor(status).replace('bg-emerald-50', 'bg-emerald-500/10').replace('text-emerald-700', 'text-emerald-500')} shadow-sm`}>{status}</span>
+                          </td>
+                          <td className="px-8 py-7 text-[11px] font-black text-slate-400">{new Date(ticket.expirationDate).toLocaleDateString()}</td>
+                          <td className="px-8 py-7 text-right">
+                            {isAdmin && <button onClick={(e) => deleteTicket(ticket.id, e)} className="p-2 text-slate-700 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
-            )}
+            </div>
           </div>
         )}
-
-        {(isSynced || isSynced === null) && (
-          <>
-            {activeView === 'dashboard' && (
-              <div className="space-y-8">
-                <StatCards tickets={activeTickets} />
-                <div className="bg-[#1e293b] rounded-[3rem] shadow-xl border border-white/5 overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                      <thead className="bg-black/20 border-b border-white/5">
-                        <tr>
-                          <th className="px-8 py-7 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">
-                            <button onClick={() => handleSort('jobNumber')} className="flex items-center gap-1.5 hover:text-white transition-colors">Job #</button>
-                          </th>
-                          <th className="px-8 py-7 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">
-                            <button onClick={() => handleSort('ticketNo')} className="flex items-center gap-1.5 hover:text-white transition-colors">Ticket #</button>
-                          </th>
-                          <th className="px-8 py-7 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">
-                            <button onClick={() => handleSort('address')} className="flex items-center gap-1.5 hover:text-white transition-colors">Address</button>
-                          </th>
-                          <th className="px-8 py-7 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Status</th>
-                          <th className="px-8 py-7 text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">
-                            <button onClick={() => handleSort('expirationDate')} className="flex items-center gap-1.5 hover:text-white transition-colors">Expires</button>
-                          </th>
-                          <th className="px-8 py-7"></th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-white/5">
-                        {filteredAndSortedTickets.map(ticket => {
-                          const status = getTicketStatus(ticket);
-                          const isExpired = status === TicketStatus.EXPIRED;
-                          return (
-                            <tr key={ticket.id} onClick={() => handleEditTicket(ticket)} className={`transition-all group cursor-pointer ${isExpired ? 'bg-rose-950/20' : 'hover:bg-white/5'}`}>
-                              <td className="px-8 py-7 text-xs font-black text-white">{ticket.jobNumber}</td>
-                              <td className="px-8 py-7 text-xs font-mono font-bold text-slate-400 tracking-wider">{ticket.ticketNo}</td>
-                              <td className="px-8 py-7 text-xs font-bold text-slate-300 truncate max-w-[250px]">{ticket.address}</td>
-                              <td className="px-8 py-7">
-                                <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-[9px] font-black border uppercase tracking-[0.1em] ${getStatusColor(status).replace('bg-emerald-50', 'bg-emerald-500/10').replace('bg-orange-100', 'bg-orange-500/10').replace('bg-rose-100', 'bg-rose-500/10').replace('text-emerald-700', 'text-emerald-500').replace('text-orange-900', 'text-orange-500').replace('text-rose-900', 'text-rose-500')} shadow-sm`}>
-                                  {status}
-                                </span>
-                              </td>
-                              <td className={`px-8 py-7 text-[11px] font-black ${isExpired ? 'text-rose-500' : 'text-slate-400'}`}>
-                                {new Date(ticket.expirationDate).toLocaleDateString()}
-                              </td>
-                              <td className="px-8 py-7 text-right">
-                                <button onClick={(e) => deleteTicket(ticket.id, e)} className="p-2 text-slate-700 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                        {filteredAndSortedTickets.length === 0 && (
-                          <tr>
-                            <td colSpan={6} className="px-8 py-24 text-center">
-                              <p className="text-[10px] font-black text-slate-600 uppercase tracking-[0.4em]">Empty Registry View</p>
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            )}
-            {activeView === 'calendar' && <CalendarView tickets={activeTickets} onEditTicket={handleEditTicket} />}
-            {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} notes={notes} isAdmin={true} onEditJob={handleEditJob} onToggleComplete={handleToggleJobCompletion} onAddNote={async (note) => { const n = await apiService.addNote({...note, id: crypto.randomUUID(), timestamp: Date.now(), author: 'Admin'}); setNotes(prev => [n, ...prev]); }} onViewPhotos={(j) => { setGlobalSearch(j); setActiveView('photos'); }} />}
-            {activeView === 'photos' && <PhotoManager photos={photos} initialSearch={globalSearch} onAddPhoto={async (metadata, file) => { const saved = await apiService.addPhoto(metadata, file); setPhotos(prev => [saved, ...prev]); }} onDeletePhoto={async (id) => { await apiService.deletePhoto(id); setPhotos(prev => prev.filter(p => p.id !== id)); }} />}
-            {activeView === 'team' && <TeamManagement users={users} currentUserId="demo-user" onAddUser={async (u) => { const newUser = await apiService.addUser({...u, id: crypto.randomUUID()}); setUsers(prev => [...prev, newUser]); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); setUsers(prev => prev.filter(u => u.id !== id)); }} onThemeChange={setThemeColor} />}
-          </>
-        )}
+        {activeView === 'calendar' && <CalendarView tickets={activeTickets} onEditTicket={(t) => isAdmin && setEditingTicket(t)} />}
+        {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} notes={notes} isAdmin={isAdmin} onEditJob={(j) => isAdmin && setEditingJob(j)} onToggleComplete={handleToggleJobCompletion} onAddNote={async (note) => { const n = await apiService.addNote({...note, id: crypto.randomUUID(), timestamp: Date.now(), author: sessionUser.name}); setNotes(prev => [n, ...prev]); }} onViewPhotos={(j) => { setGlobalSearch(j); setActiveView('photos'); }} />}
+        {activeView === 'photos' && <PhotoManager photos={photos} initialSearch={globalSearch} onAddPhoto={async (metadata, file) => { const saved = await apiService.addPhoto(metadata, file); setPhotos(prev => [saved, ...prev]); }} onDeletePhoto={async (id) => { await apiService.deletePhoto(id); setPhotos(prev => prev.filter(p => p.id !== id)); }} />}
+        {activeView === 'team' && <TeamManagement users={users} currentUserId={sessionUser.id} onAddUser={async (u) => { const newUser = await apiService.addUser({...u, id: crypto.randomUUID()}); setUsers(prev => [...prev, newUser]); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); setUsers(prev => prev.filter(u => u.id !== id)); }} onThemeChange={setThemeColor} />}
       </main>
 
       <div className="fixed bottom-0 left-0 right-0 z-[100] px-4 pb-6 md:pb-8 flex justify-center pointer-events-none">
@@ -408,8 +317,8 @@ const App: React.FC = () => {
           ))}
         </div>
       </div>
-      {showTicketForm && <TicketForm onAdd={handleSaveTicket} onClose={() => { setShowTicketForm(false); setEditingTicket(null); }} initialData={editingTicket || undefined} users={users} />}
-      {showJobForm && <JobForm onSave={handleSaveJob} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} />}
+      {(showTicketForm || editingTicket) && <TicketForm onAdd={handleSaveTicket} onClose={() => { setShowTicketForm(false); setEditingTicket(null); }} initialData={editingTicket || undefined} users={users} />}
+      {(showJobForm || editingJob) && <JobForm onSave={handleSaveJob} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} />}
     </div>
   );
 };

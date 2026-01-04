@@ -60,7 +60,7 @@ const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, notes, isAdmin, on
           <input
             type="text"
             placeholder="Search Project Database..."
-            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl text-sm outline-none focus:ring-2 focus:ring-orange-500/10 focus:border-orange-500 font-medium"
+            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl text-sm outline-none focus:ring-2 focus:ring-orange-500/10 focus:border-orange-500 font-medium text-slate-800"
             value={jobSearch}
             onChange={e => setJobSearch(e.target.value)}
           />
@@ -162,7 +162,7 @@ const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, notes, isAdmin, on
                     <input 
                       type="text" 
                       placeholder="Add a field report or update..."
-                      className="flex-1 px-5 py-3.5 bg-white border border-slate-100 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-orange-500/10 focus:border-orange-500 font-medium shadow-sm"
+                      className="flex-1 px-5 py-3.5 bg-white border border-slate-100 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-orange-500/10 focus:border-orange-500 font-medium shadow-sm text-slate-900"
                       value={newNoteText}
                       onChange={e => setNewNoteText(e.target.value)}
                       onKeyDown={e => e.key === 'Enter' && handleNoteSubmit(jobNum)}
