@@ -1,4 +1,5 @@
 
+
 import { supabase, getSupabaseConfig } from '../lib/supabaseClient.ts';
 import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job } from '../types.ts';
 
@@ -98,7 +99,11 @@ export const apiService = {
   async getUsers(): Promise<UserRecord[]> {
     const { data, error } = await supabase.from('profiles').select('*');
     if (error) return getFromStorage<UserRecord>(STORAGE_KEYS.USERS);
-    return (data || []).map(u => ({ ...u, role: u.role as UserRole }));
+    return (data || []).map(u => {
+      const rawRole = (u.role || '').toUpperCase();
+      const role = rawRole === 'ADMIN' ? UserRole.ADMIN : UserRole.CREW;
+      return { ...u, role };
+    });
   },
 
   async addUser(user: Omit<UserRecord, 'id'>): Promise<UserRecord> {
@@ -110,7 +115,9 @@ export const apiService = {
       saveToStorage(STORAGE_KEYS.USERS, [...users, newUserRecord]);
       return newUserRecord;
     }
-    return { ...data, role: data.role as UserRole };
+    const rawRole = (data.role || '').toUpperCase();
+    const role = rawRole === 'ADMIN' ? UserRole.ADMIN : UserRole.CREW;
+    return { ...data, role };
   },
 
   async updateUserRole(id: string, role: UserRole): Promise<void> {
@@ -153,6 +160,7 @@ export const apiService = {
     return (data || []).map(mapTicket);
   },
 
+  // Fixed mapping of DigTicket properties to snake_case database columns
   async saveTicket(ticket: DigTicket): Promise<DigTicket> {
     const { data, error } = await supabase.from('tickets').upsert({
       id: ticket.id,

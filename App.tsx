@@ -70,15 +70,17 @@ const App: React.FC = () => {
         .eq('id', session.user.id)
         .maybeSingle();
 
+      // Normalize role comparison
+      const rawRole = (profile?.role || '').toUpperCase();
+      const resolvedRole = rawRole === 'ADMIN' ? UserRole.ADMIN : UserRole.CREW;
+
       const userObj: User = {
         id: session.user.id,
         name: profile?.name || session.user.email?.split('@')[0] || 'User',
         username: profile?.username || session.user.email || 'unknown',
-        role: (profile?.role as UserRole) || UserRole.CREW
+        role: resolvedRole
       };
       
-      // CRITICAL FIX: Set user and stop loading spinner immediately 
-      // This allows the dashboard to show while data loads in the background
       setSessionUser(userObj);
       setIsLoading(false);
 

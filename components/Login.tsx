@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { UserRole, User } from '../types.ts';
 import { supabase } from '../lib/supabaseClient.ts';
@@ -42,6 +43,10 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         throw new Error(`Profile access error: ${profileError.message}. Check database permissions.`);
       }
 
+      // Safe role normalization
+      const rawRole = (profile?.role || '').toUpperCase();
+      const resolvedRole = rawRole === 'ADMIN' ? UserRole.ADMIN : UserRole.CREW;
+
       if (!profile) {
         onLogin({
           id: authData.user.id,
@@ -54,7 +59,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
           id: profile.id,
           name: profile.name,
           username: profile.username,
-          role: profile.role as UserRole
+          role: resolvedRole
         });
       }
     } catch (err: any) {
