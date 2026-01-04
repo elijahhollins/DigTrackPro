@@ -1,21 +1,31 @@
+
 import React, { useState, useMemo } from 'react';
 import { DigTicket } from '../types.ts';
-import { getTicketStatus, getStatusDotColor } from '../utils/dateUtils.ts';
 
 interface CalendarViewProps {
   tickets: DigTicket[];
   onEditTicket: (ticket: DigTicket) => void;
 }
 
+type CalendarEvent = {
+  ticket: DigTicket;
+  type: 'start' | 'refresh' | 'expire';
+};
+
 const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [selectedDay, setSelectedDay] = useState<number | null>(null);
+  const [selectedDay, setSelectedDay] = useState<number | null>(new Date().getDate());
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
 
   const daysInMonth = (y: number, m: number) => new Date(y, m + 1, 0).getDate();
   const firstDayOfMonth = (y: number, m: number) => new Date(y, m, 1).getDay();
+
+  const isSameDay = (d1: Date, d2: Date) => 
+    d1.getDate() === d2.getDate() && 
+    d1.getMonth() === d2.getMonth() && 
+    d1.getFullYear() === d2.getFullYear();
 
   const calendarDays = useMemo(() => {
     const days = [];
@@ -25,21 +35,42 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket }) =>
     for (let i = 0; i < startOffset; i++) days.push(null);
 
     for (let i = 1; i <= count; i++) {
-      const dayTickets = tickets.filter(t => {
-        const d = new Date(t.digStart);
-        return d.getDate() === i && d.getMonth() === month && d.getFullYear() === year;
+      const cellDate = new Date(year, month, i);
+      const dayEvents: CalendarEvent[] = [];
+      
+      tickets.forEach(t => {
+        const start = new Date(t.digStart);
+        const expire = new Date(t.expirationDate);
+        // Refresh eligibility is typically 3 days before expiry
+        const refreshDate = new Date(expire);
+        refreshDate.setDate(refreshDate.getDate() - 3);
+
+        if (isSameDay(start, cellDate)) dayEvents.push({ ticket: t, type: 'start' });
+        if (isSameDay(expire, cellDate)) dayEvents.push({ ticket: t, type: 'expire' });
+        if (isSameDay(refreshDate, cellDate)) dayEvents.push({ ticket: t, type: 'refresh' });
       });
-      days.push({ day: i, tickets: dayTickets });
+
+      days.push({ day: i, events: dayEvents });
     }
     return days;
   }, [year, month, tickets]);
 
-  const selectedTickets = useMemo(() => {
+  const selectedDayEvents = useMemo(() => {
     if (selectedDay === null) return [];
-    return tickets.filter(t => {
-      const d = new Date(t.digStart);
-      return d.getDate() === selectedDay && d.getMonth() === month && d.getFullYear() === year;
+    const cellDate = new Date(year, month, selectedDay);
+    const results: CalendarEvent[] = [];
+    
+    tickets.forEach(t => {
+      const start = new Date(t.digStart);
+      const expire = new Date(t.expirationDate);
+      const refreshDate = new Date(expire);
+      refreshDate.setDate(refreshDate.getDate() - 3);
+
+      if (isSameDay(start, cellDate)) results.push({ ticket: t, type: 'start' });
+      if (isSameDay(expire, cellDate)) results.push({ ticket: t, type: 'expire' });
+      if (isSameDay(refreshDate, cellDate)) results.push({ ticket: t, type: 'refresh' });
     });
+    return results;
   }, [selectedDay, month, year, tickets]);
 
   const monthName = currentDate.toLocaleString('default', { month: 'long' });
@@ -68,16 +99,23 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket }) =>
             <div 
               key={i} 
               onClick={() => d && setSelectedDay(d.day)}
-              className={`p-2 border-r border-b border-slate-50 min-h-[100px] cursor-pointer transition-all ${!d ? 'bg-slate-50/20' : 'bg-white hover:bg-blue-50/20'} ${d?.day === selectedDay ? 'ring-2 ring-inset ring-blue-500 bg-blue-50/30' : ''}`}
+              className={`p-2 border-r border-b border-slate-50 min-h-[100px] cursor-pointer transition-all ${!d ? 'bg-slate-50/20' : 'bg-white hover:bg-slate-50/40'} ${d?.day === selectedDay ? 'ring-2 ring-inset ring-brand bg-brand/5' : ''}`}
             >
               {d && (
                 <div className="h-full flex flex-col">
-                  <span className={`text-xs font-black ${d.day === new Date().getDate() && month === new Date().getMonth() ? 'text-blue-600 bg-blue-50 w-6 h-6 flex items-center justify-center rounded-full' : 'text-slate-400'}`}>
+                  <span className={`text-xs font-black w-6 h-6 flex items-center justify-center rounded-full ${d.day === new Date().getDate() && month === new Date().getMonth() && year === new Date().getFullYear() ? 'text-white bg-slate-900' : 'text-slate-400'}`}>
                     {d.day}
                   </span>
-                  <div className="flex flex-wrap gap-1 mt-auto">
-                    {d.tickets.map(t => (
-                      <div key={t.id} className={`w-1.5 h-1.5 rounded-full ${getStatusDotColor(getTicketStatus(t))}`} />
+                  <div className="flex flex-wrap gap-1 mt-auto pb-1">
+                    {d.events.map((ev, idx) => (
+                      <div 
+                        key={idx} 
+                        className={`w-2 h-2 rounded-full border border-white shadow-sm ${
+                          ev.type === 'start' ? 'bg-blue-500' : 
+                          ev.type === 'expire' ? 'bg-red-600' : 'bg-yellow-400'
+                        }`} 
+                        title={`${ev.type.toUpperCase()}: ${ev.ticket.ticketNo}`}
+                      />
                     ))}
                   </div>
                 </div>
@@ -89,22 +127,55 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket }) =>
 
       <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6">
         <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-6 border-b border-slate-100 pb-4">
-          {selectedDay ? `${monthName} ${selectedDay} Schedule` : 'Select a date'}
+          {selectedDay ? `${monthName} ${selectedDay} Activity` : 'Select a date'}
         </h3>
-        <div className="space-y-4">
-          {selectedTickets.map(t => (
-            <div key={t.id} onClick={() => onEditTicket(t)} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-blue-200 hover:shadow-md transition-all cursor-pointer">
-              <div className="flex justify-between items-start mb-2">
-                <span className="text-[10px] font-black text-blue-600 uppercase">Job #{t.jobNumber}</span>
-                <div className={`w-2 h-2 rounded-full ${getStatusDotColor(getTicketStatus(t))}`} />
+        
+        <div className="space-y-6">
+          <div className="space-y-4">
+            {selectedDayEvents.length > 0 ? (
+              selectedDayEvents.map((ev, idx) => (
+                <div key={idx} onClick={() => onEditTicket(ev.ticket)} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-brand/40 hover:shadow-md transition-all cursor-pointer group">
+                  <div className="flex justify-between items-start mb-2">
+                    <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-md ${
+                      ev.type === 'start' ? 'bg-blue-100 text-blue-700' : 
+                      ev.type === 'expire' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-800'
+                    }`}>
+                      {ev.type === 'start' ? 'Dig Start' : ev.type === 'expire' ? 'Expirations' : 'Refresh Needed'}
+                    </span>
+                    <div className={`w-2.5 h-2.5 rounded-full border border-white shadow-sm ${
+                      ev.type === 'start' ? 'bg-blue-500' : 
+                      ev.type === 'expire' ? 'bg-red-600' : 'bg-yellow-400'
+                    }`} />
+                  </div>
+                  <p className="text-xs font-black text-slate-800 truncate mb-1">#{ev.ticket.jobNumber} • {ev.ticket.address}</p>
+                  <p className="text-[9px] font-mono font-bold text-slate-400">TKT: {ev.ticket.ticketNo}</p>
+                </div>
+              ))
+            ) : selectedDay && (
+              <div className="py-20 flex flex-col items-center opacity-30">
+                <svg className="w-10 h-10 text-slate-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest text-center">No Activity Scheduled</p>
               </div>
-              <p className="text-xs font-bold text-slate-800 truncate mb-1">{t.address}</p>
-              <p className="text-[9px] font-mono text-slate-400 uppercase">{t.ticketNo}</p>
+            )}
+          </div>
+
+          <div className="pt-6 border-t border-slate-100">
+            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Legend</h4>
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 text-[10px] font-bold text-slate-600 uppercase">
+                <div className="w-3.5 h-3.5 rounded-full bg-blue-500 border border-white shadow-sm" />
+                <span>Dig Start Work</span>
+              </div>
+              <div className="flex items-center gap-3 text-[10px] font-bold text-slate-600 uppercase">
+                <div className="w-3.5 h-3.5 rounded-full bg-yellow-400 border border-white shadow-sm" />
+                <span>Refresh Eligibility</span>
+              </div>
+              <div className="flex items-center gap-3 text-[10px] font-bold text-slate-600 uppercase">
+                <div className="w-3.5 h-3.5 rounded-full bg-red-600 border border-white shadow-sm" />
+                <span>Ticket Expiration</span>
+              </div>
             </div>
-          ))}
-          {selectedDay && selectedTickets.length === 0 && (
-            <p className="text-xs text-slate-400 italic text-center py-10">No dig starts scheduled.</p>
-          )}
+          </div>
         </div>
       </div>
     </div>

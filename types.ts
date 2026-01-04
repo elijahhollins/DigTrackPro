@@ -66,6 +66,6 @@ export interface JobNote {
   timestamp: number;
 }
 
-export type SortField = keyof DigTicket;
+export type SortField = keyof DigTicket | 'status';
 export type SortOrder = 'asc' | 'desc';
 export type AppView = 'dashboard' | 'calendar' | 'jobs' | 'photos' | 'team';

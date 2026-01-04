@@ -2,12 +2,12 @@
 import { supabase, getSupabaseConfig } from '../lib/supabaseClient.ts';
 import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job } from '../types.ts';
 
-export const SQL_SCHEMA = `-- 1. THE ULTIMATE POLICY NUKER
--- This script clears out ALL existing policies to stop infinite recursion loops.
+export const SQL_SCHEMA = `-- 1. THE ULTIMATE POLICY NUKER (Tables & Storage)
 DO $$ 
 DECLARE 
     r RECORD;
 BEGIN
+    -- Drop table policies
     FOR r IN (
         SELECT policyname, tablename 
         FROM pg_policies 
@@ -16,50 +16,63 @@ BEGIN
     ) LOOP
         EXECUTE 'DROP POLICY IF EXISTS ' || quote_ident(r.policyname) || ' ON ' || quote_ident(r.tablename);
     END LOOP;
+
+    -- Drop storage policies
+    FOR r IN (
+        SELECT policyname 
+        FROM pg_policies 
+        WHERE schemaname = 'storage' 
+        AND tablename = 'objects'
+    ) LOOP
+        EXECUTE 'DROP POLICY IF EXISTS ' || quote_ident(r.policyname) || ' ON storage.objects';
+    END LOOP;
 END $$;
 
--- 2. ENSURE TABLES EXIST
+-- 2. TABLE INITIALIZATION
 create table if not exists jobs (id uuid primary key, job_number text, customer text, address text, city text, state text, county text, is_complete boolean default false, created_at timestamp with time zone default now());
 create table if not exists tickets (id uuid primary key, job_number text, ticket_no text, address text, county text, city text, state text, call_in_date text, dig_start text, expiration_date text, site_contact text, created_at timestamp with time zone default now());
 create table if not exists photos (id uuid primary key, job_number text, data_url text, caption text, created_at timestamp with time zone default now());
 create table if not exists notes (id uuid primary key, job_number text, text text, author text, timestamp bigint);
 create table if not exists profiles (id uuid primary key, name text, username text, role text);
 
--- 3. RESET SECURITY
+-- 3. ENABLE RLS
 alter table jobs enable row level security;
 alter table tickets enable row level security;
 alter table photos enable row level security;
 alter table notes enable row level security;
 alter table profiles enable row level security;
 
--- 4. CLEAN NON-RECURSIVE POLICIES
--- These policies do not query the tables themselves, preventing 'infinite recursion'.
+-- 4. TABLE POLICIES (Allow all authenticated access)
 create policy "allow_authenticated_all" on profiles for all to authenticated using (true) with check (true);
 create policy "allow_authenticated_all" on jobs for all to authenticated using (true) with check (true);
 create policy "allow_authenticated_all" on tickets for all to authenticated using (true) with check (true);
 create policy "allow_authenticated_all" on photos for all to authenticated using (true) with check (true);
 create policy "allow_authenticated_all" on notes for all to authenticated using (true) with check (true);
 
+-- 5. STORAGE SETUP
+-- Create the bucket if it doesn't exist
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('job-photos', 'job-photos', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Storage Policy: Allow public to view photos
+CREATE POLICY "Public Access for Job Photos"
+ON storage.objects FOR SELECT
+USING ( bucket_id = 'job-photos' );
+
+-- Storage Policy: Allow authenticated users to upload
+CREATE POLICY "Authenticated Upload for Job Photos"
+ON storage.objects FOR INSERT
+TO authenticated
+WITH CHECK ( bucket_id = 'job-photos' );
+
+-- Storage Policy: Allow authenticated users to delete
+CREATE POLICY "Authenticated Delete for Job Photos"
+ON storage.objects FOR DELETE
+TO authenticated
+USING ( bucket_id = 'job-photos' );
+
 grant all on all tables in schema public to authenticated;`;
-
-const STORAGE_KEYS = {
-  TICKETS: 'digtrack_tickets_cache',
-  JOBS: 'digtrack_jobs_cache',
-  PHOTOS: 'digtrack_photos_cache',
-  NOTES: 'digtrack_notes_cache',
-  USERS: 'digtrack_users_cache'
-};
-
-const getFromStorage = <T>(key: string): T[] => {
-  try {
-    const data = localStorage.getItem(key);
-    return data ? JSON.parse(data) : [];
-  } catch (e) { return []; }
-};
-
-const saveToStorage = <T>(key: string, data: T[]) => {
-  localStorage.setItem(key, JSON.stringify(data));
-};
 
 const generateUUID = () => {
   try {
@@ -84,63 +97,19 @@ const mapJob = (data: any): Job => ({
   isComplete: data.is_complete ?? false
 });
 
-const mapTicket = (data: any): DigTicket => ({
-  id: data.id,
-  jobNumber: data.job_number || 'UNKNOWN',
-  ticketNo: data.ticket_no || 'UNKNOWN',
-  address: data.address || '',
-  county: data.county || '',
-  city: data.city || '',
-  state: data.state || '',
-  callInDate: data.call_in_date || '',
-  digStart: data.dig_start || '',
-  expirationDate: data.expiration_date || '',
-  siteContact: data.site_contact || '',
-  createdAt: data.created_at ? new Date(data.created_at).getTime() : Date.now()
-});
-
 export const apiService = {
-  async getSyncStatus(): Promise<{ synced: boolean, error?: string, diagnostics?: any }> {
-    const config = getSupabaseConfig();
-    if (!config.isValid) return { synced: false, error: 'Config missing', diagnostics: config };
-    try {
-      const { error } = await supabase.from('jobs').select('id').limit(1);
-      if (error) return { synced: false, error: error.message, diagnostics: config };
-      return { synced: true, diagnostics: config };
-    } catch (e: any) { 
-      return { synced: false, error: e.message, diagnostics: config }; 
-    }
-  },
-
   async getUsers(): Promise<UserRecord[]> {
     const { data, error } = await supabase.from('profiles').select('*');
-    if (error) return getFromStorage<UserRecord>(STORAGE_KEYS.USERS);
-    return (data || []).map(u => {
-      const rawRole = (u.role || '').toUpperCase();
-      const role = rawRole === 'ADMIN' ? UserRole.ADMIN : UserRole.CREW;
-      return { ...u, role };
-    });
+    if (error) return [];
+    return (data || []).map(u => ({ ...u, role: u.role?.toUpperCase() === 'ADMIN' ? UserRole.ADMIN : UserRole.CREW }));
   },
 
   async addUser(user: Partial<UserRecord>): Promise<UserRecord> {
     const id = user.id || generateUUID();
-    const newUserRecord = { 
-      id, 
-      name: user.name || 'New User', 
-      username: user.username || 'user@example.com', 
-      role: user.role || UserRole.CREW 
-    };
-    
+    const newUserRecord = { id, name: user.name, username: user.username, role: user.role || UserRole.CREW };
     const { data, error } = await supabase.from('profiles').upsert([newUserRecord]).select().single();
-    
-    if (error) {
-      console.error("DB User Creation Error:", error);
-      throw error;
-    }
-
-    const rawRole = (data.role || '').toUpperCase();
-    const role = rawRole === 'ADMIN' ? UserRole.ADMIN : UserRole.CREW;
-    return { ...data, role };
+    if (error) throw error;
+    return { ...data, role: data.role?.toUpperCase() === 'ADMIN' ? UserRole.ADMIN : UserRole.CREW };
   },
 
   async updateUserRole(id: string, role: UserRole): Promise<void> {
@@ -155,7 +124,7 @@ export const apiService = {
 
   async getJobs(): Promise<Job[]> {
     const { data, error } = await supabase.from('jobs').select('*');
-    if (error) return getFromStorage<Job>(STORAGE_KEYS.JOBS);
+    if (error) return [];
     return (data || []).map(mapJob);
   },
 
@@ -170,15 +139,27 @@ export const apiService = {
       county: job.county,
       is_complete: job.isComplete
     }).select().single();
-    
     if (error) throw error;
     return mapJob(data);
   },
 
   async getTickets(): Promise<DigTicket[]> {
     const { data, error } = await supabase.from('tickets').select('*');
-    if (error) return getFromStorage<DigTicket>(STORAGE_KEYS.TICKETS);
-    return (data || []).map(mapTicket);
+    if (error) return [];
+    return (data || []).map(t => ({
+        id: t.id,
+        jobNumber: t.job_number,
+        ticketNo: t.ticket_no,
+        address: t.address,
+        county: t.county,
+        city: t.city,
+        state: t.state,
+        callInDate: t.call_in_date,
+        digStart: t.dig_start,
+        expirationDate: t.expiration_date,
+        siteContact: t.site_contact,
+        createdAt: new Date(t.created_at).getTime()
+    }));
   },
 
   async saveTicket(ticket: DigTicket): Promise<DigTicket> {
@@ -195,9 +176,21 @@ export const apiService = {
       expiration_date: ticket.expirationDate,
       site_contact: ticket.siteContact
     }).select().single();
-    
     if (error) throw error;
-    return mapTicket(data);
+    return {
+        id: data.id,
+        jobNumber: data.job_number,
+        ticketNo: data.ticket_no,
+        address: data.address,
+        county: data.county,
+        city: data.city,
+        state: data.state,
+        callInDate: data.callInDate,
+        digStart: data.digStart,
+        expirationDate: data.expirationDate,
+        siteContact: data.siteContact,
+        createdAt: new Date(data.created_at).getTime()
+    };
   },
 
   async deleteTicket(id: string): Promise<void> {
@@ -207,38 +200,56 @@ export const apiService = {
 
   async getPhotos(): Promise<JobPhoto[]> {
     const { data, error } = await supabase.from('photos').select('*');
-    if (error) return getFromStorage<JobPhoto>(STORAGE_KEYS.PHOTOS);
+    if (error) return [];
     return (data || []).map(p => ({ ...p, jobNumber: p.job_number, dataUrl: p.data_url }));
   },
 
   async addPhoto(photo: Omit<JobPhoto, 'id' | 'dataUrl'>, file: File): Promise<JobPhoto> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const base64 = reader.result as string;
-        const id = generateUUID();
-        const newPhoto = { ...photo, id, dataUrl: base64 };
-        const { error } = await supabase.from('photos').insert([{
-          id: id,
-          job_number: photo.jobNumber,
-          data_url: base64,
-          caption: photo.caption
-        }]);
-        if (error) reject(error);
-        else resolve(newPhoto);
-      };
-      reader.readAsDataURL(file);
-    });
+    const id = generateUUID();
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${id}.${fileExt}`;
+    const filePath = `${photo.jobNumber}/${fileName}`;
+
+    // 1. Upload to Storage Bucket 'job-photos'
+    const { error: uploadError } = await supabase.storage
+      .from('job-photos')
+      .upload(filePath, file);
+
+    if (uploadError) throw uploadError;
+
+    // 2. Get Public URL
+    const { data: { publicUrl } } = supabase.storage
+      .from('job-photos')
+      .getPublicUrl(filePath);
+
+    // 3. Save Record to Database
+    const { error: dbError } = await supabase.from('photos').insert([{
+      id: id,
+      job_number: photo.jobNumber,
+      data_url: publicUrl,
+      caption: photo.caption
+    }]);
+
+    if (dbError) throw dbError;
+
+    return { ...photo, id, dataUrl: publicUrl };
   },
 
   async deletePhoto(id: string): Promise<void> {
+    const { data } = await supabase.from('photos').select('data_url, job_number').eq('id', id).single();
+    if (data) {
+        const parts = data.data_url.split('/');
+        const fileName = parts[parts.length - 1];
+        const filePath = `${data.job_number}/${fileName}`;
+        await supabase.storage.from('job-photos').remove([filePath]);
+    }
     const { error } = await supabase.from('photos').delete().eq('id', id);
     if (error) throw error;
   },
 
   async getNotes(): Promise<JobNote[]> {
     const { data, error } = await supabase.from('notes').select('*');
-    if (error) return getFromStorage<JobNote>(STORAGE_KEYS.NOTES);
+    if (error) return [];
     return (data || []).map(n => ({ ...n, jobNumber: n.job_number }));
   },
 
