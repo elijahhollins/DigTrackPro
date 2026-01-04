@@ -1,5 +1,4 @@
 
-
 import { supabase, getSupabaseConfig } from '../lib/supabaseClient.ts';
 import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job } from '../types.ts';
 
@@ -106,15 +105,25 @@ export const apiService = {
     });
   },
 
-  async addUser(user: Omit<UserRecord, 'id'>): Promise<UserRecord> {
-    const id = generateUUID();
-    const newUserRecord = { ...user, id };
+  async addUser(user: Partial<UserRecord>): Promise<UserRecord> {
+    const id = user.id || generateUUID();
+    const newUserRecord = { 
+      id, 
+      name: user.name || 'New User', 
+      username: user.username || 'user@example.com', 
+      role: user.role || UserRole.CREW 
+    };
+    
     const { data, error } = await supabase.from('profiles').insert([newUserRecord]).select().single();
+    
     if (error) {
+      console.error("DB User Creation Error:", error);
+      // Fallback for offline mode
       const users = getFromStorage<UserRecord>(STORAGE_KEYS.USERS);
-      saveToStorage(STORAGE_KEYS.USERS, [...users, newUserRecord]);
-      return newUserRecord;
+      saveToStorage(STORAGE_KEYS.USERS, [...users, newUserRecord as UserRecord]);
+      return newUserRecord as UserRecord;
     }
+
     const rawRole = (data.role || '').toUpperCase();
     const role = rawRole === 'ADMIN' ? UserRole.ADMIN : UserRole.CREW;
     return { ...data, role };
@@ -150,6 +159,7 @@ export const apiService = {
       county: job.county,
       is_complete: job.isComplete
     }).select().single();
+    
     if (error) throw error;
     return mapJob(data);
   },
@@ -160,7 +170,6 @@ export const apiService = {
     return (data || []).map(mapTicket);
   },
 
-  // Fixed mapping of DigTicket properties to snake_case database columns
   async saveTicket(ticket: DigTicket): Promise<DigTicket> {
     const { data, error } = await supabase.from('tickets').upsert({
       id: ticket.id,
@@ -175,6 +184,7 @@ export const apiService = {
       expiration_date: ticket.expirationDate,
       site_contact: ticket.siteContact
     }).select().single();
+    
     if (error) throw error;
     return mapTicket(data);
   },

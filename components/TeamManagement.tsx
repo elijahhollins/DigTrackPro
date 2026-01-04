@@ -1,11 +1,12 @@
 
 import React, { useState } from 'react';
 import { UserRole, UserRecord, User } from '../types.ts';
+import { apiService } from '../services/apiService.ts';
 
 interface TeamManagementProps {
   users: UserRecord[];
   sessionUser: User;
-  onAddUser: (user: Omit<UserRecord, 'id'>) => void;
+  onAddUser: (user: Partial<UserRecord>) => void;
   onDeleteUser: (id: string) => void;
   onThemeChange?: (color: string) => void;
   onToggleRole?: (user: UserRecord) => void;
@@ -13,10 +14,10 @@ interface TeamManagementProps {
 
 const TeamManagement: React.FC<TeamManagementProps> = ({ users, sessionUser, onAddUser, onDeleteUser, onThemeChange, onToggleRole }) => {
   const [showAddForm, setShowAddForm] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     username: '',
-    password: '',
     role: UserRole.CREW
   });
 
@@ -24,8 +25,26 @@ const TeamManagement: React.FC<TeamManagementProps> = ({ users, sessionUser, onA
     e.preventDefault();
     if (!formData.name || !formData.username) return;
     onAddUser(formData);
-    setFormData({ name: '', username: '', password: '', role: UserRole.CREW });
+    setFormData({ name: '', username: '', role: UserRole.CREW });
     setShowAddForm(false);
+  };
+
+  const forceSyncProfile = async () => {
+    setIsSyncing(true);
+    try {
+      const newProfile = await apiService.addUser({
+        id: sessionUser.id,
+        name: sessionUser.name,
+        username: sessionUser.username,
+        role: sessionUser.role
+      });
+      alert(`Success: Your profile has been re-registered in the database with ID ${newProfile.id}. Try adding a job now.`);
+      window.location.reload();
+    } catch (err: any) {
+      alert(`Sync Failed: ${err.message}`);
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const isAdmin = sessionUser.role === UserRole.ADMIN;
@@ -36,32 +55,39 @@ const TeamManagement: React.FC<TeamManagementProps> = ({ users, sessionUser, onA
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
           <div>
             <h2 className="text-xl font-black text-slate-900 tracking-tight uppercase">Your Identity</h2>
-            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Session Data & Access Rights</p>
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Real-time Session Verification</p>
           </div>
-          <div className="flex flex-wrap gap-4">
-            <div className="bg-slate-50 px-4 py-3 rounded-2xl border border-slate-200 flex flex-col">
-              <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Internal UUID</span>
-              <span className="text-[10px] font-mono font-bold text-slate-900">{sessionUser.id}</span>
+          <div className="flex flex-wrap gap-4 items-center">
+            <div className="bg-slate-50 px-4 py-3 rounded-2xl border border-slate-200 flex flex-col min-w-[150px]">
+              <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Auth ID</span>
+              <span className="text-[10px] font-mono font-bold text-slate-900 truncate">{sessionUser.id}</span>
             </div>
             <div className="bg-slate-50 px-4 py-3 rounded-2xl border border-slate-200 flex flex-col">
-              <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Active Role</span>
+              <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Session Permission</span>
               <span className={`text-[10px] font-black uppercase ${isAdmin ? 'text-brand' : 'text-slate-600'}`}>{sessionUser.role}</span>
             </div>
+            <button 
+              onClick={forceSyncProfile}
+              disabled={isSyncing}
+              className="bg-slate-950 text-white px-4 py-3 rounded-2xl font-black text-[9px] uppercase tracking-widest hover:bg-black transition-all flex items-center gap-2"
+            >
+              {isSyncing ? 'Syncing...' : 'Force Sync Profile'}
+            </button>
           </div>
         </div>
       </div>
 
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-xl font-black text-slate-900 tracking-tight uppercase">Registry</h2>
-          <p className="text-xs text-slate-600 font-bold uppercase tracking-widest mt-1">System Users ({users.length})</p>
+          <h2 className="text-xl font-black text-slate-900 tracking-tight uppercase">Database Registry</h2>
+          <p className="text-xs text-slate-600 font-bold uppercase tracking-widest mt-1">Managed Crew Profiles ({users.length})</p>
         </div>
         {isAdmin && (
           <button 
             onClick={() => setShowAddForm(!showAddForm)}
             className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all ${showAddForm ? 'bg-slate-100 text-slate-700' : 'bg-brand text-[#0f172a] shadow-lg shadow-brand/20 hover:brightness-110'}`}
           >
-            {showAddForm ? 'Cancel' : 'Register New User'}
+            {showAddForm ? 'Cancel' : 'Register New Profile'}
           </button>
         )}
       </div>
@@ -70,7 +96,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({ users, sessionUser, onA
         <div className="bg-white p-8 rounded-[2rem] border border-brand/20 shadow-xl shadow-brand/5 animate-in slide-in-from-top-4 duration-300">
           <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
             <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Full Name</label>
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Display Name</label>
               <input required className="w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl text-sm font-black outline-none focus:ring-2 focus:ring-brand transition-all text-slate-950" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
             </div>
             <div className="space-y-1.5">
@@ -78,10 +104,10 @@ const TeamManagement: React.FC<TeamManagementProps> = ({ users, sessionUser, onA
               <input required className="w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl text-sm font-black outline-none focus:ring-2 focus:ring-brand transition-all text-slate-950" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} />
             </div>
             <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Role</label>
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Permission Tier</label>
               <select className="w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl text-sm font-black outline-none focus:ring-2 focus:ring-brand transition-all appearance-none cursor-pointer text-slate-950" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as UserRole})}>
                 <option value={UserRole.CREW}>Crew (Restricted)</option>
-                <option value={UserRole.ADMIN}>Admin (Root)</option>
+                <option value={UserRole.ADMIN}>Admin (Read/Write)</option>
               </select>
             </div>
             <button type="submit" className="bg-slate-950 text-white px-6 py-4 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Add User</button>
@@ -93,7 +119,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({ users, sessionUser, onA
         <table className="w-full text-left">
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>
-              <th className="px-8 py-5 text-[10px] font-black text-slate-900 uppercase tracking-widest">Name & Access ID</th>
+              <th className="px-8 py-5 text-[10px] font-black text-slate-900 uppercase tracking-widest">Crew Member</th>
               <th className="px-8 py-5 text-[10px] font-black text-slate-900 uppercase tracking-widest">Permissions</th>
               <th className="px-8 py-5 text-[10px] font-black text-slate-900 uppercase tracking-widest text-right">Actions</th>
             </tr>
