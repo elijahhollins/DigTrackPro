@@ -31,7 +31,6 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         throw new Error('Authentication succeeded but no user data was returned.');
       }
 
-      // Attempt to fetch profile
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('*')
@@ -44,14 +43,11 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
       }
 
       if (!profile) {
-        // Fallback for cases where auth user exists but profile record is missing
-        // In a production app, you might auto-create this record or redirect to onboarding
-        console.warn('User has no profile record. Using default values.');
         onLogin({
           id: authData.user.id,
           name: authData.user.email?.split('@')[0] || 'Unknown User',
           username: authData.user.email?.split('@')[0] || 'unknown',
-          role: UserRole.CREW // Default role
+          role: UserRole.CREW
         });
       } else {
         onLogin({
@@ -70,17 +66,17 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-50 flex items-center justify-center p-4 z-[200]">
+    <div className="fixed inset-0 bg-slate-100 flex items-center justify-center p-4 z-[200]">
       <div className="max-w-md w-full">
-        <div className="bg-white rounded-[3rem] shadow-2xl shadow-brand/10 overflow-hidden p-10 md:p-12 border border-slate-100">
+        <div className="bg-white rounded-[3rem] shadow-2xl shadow-brand/10 overflow-hidden p-10 md:p-12 border border-slate-200">
           <div className="flex flex-col items-center mb-10 text-center">
             <div className="bg-brand p-4 rounded-3xl shadow-xl shadow-brand/20 mb-6">
               <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
               </svg>
             </div>
-            <h1 className="text-3xl font-black text-slate-800 tracking-tight">DigTrack Pro</h1>
-            <p className="text-slate-400 font-bold uppercase tracking-[0.3em] text-[10px] mt-3">Construction Site Access</p>
+            <h1 className="text-3xl font-black text-slate-900 tracking-tight">DigTrack Pro</h1>
+            <p className="text-slate-500 font-bold uppercase tracking-[0.3em] text-[10px] mt-3">Construction Site Access</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -91,16 +87,16 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             )}
 
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Email Address</label>
+              <label className="text-[10px] font-black text-slate-700 uppercase tracking-widest ml-1">Email Address</label>
               <div className="relative">
-                <span className="absolute left-4 top-4 text-slate-300">
+                <span className="absolute left-4 top-4 text-slate-400">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
                 </span>
                 <input
                   required
                   type="email"
                   placeholder="admin@company.com"
-                  className="w-full pl-11 pr-4 py-4 bg-slate-50 border border-slate-100 rounded-[1.25rem] text-sm font-semibold outline-none focus:ring-4 focus:ring-brand/10 focus:border-brand focus:bg-white transition-all"
+                  className="w-full pl-11 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-[1.25rem] text-sm font-bold text-slate-950 outline-none focus:ring-4 focus:ring-brand/10 focus:border-brand focus:bg-white transition-all placeholder:text-slate-400"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                 />
@@ -108,16 +104,16 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             </div>
 
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Secure Password</label>
+              <label className="text-[10px] font-black text-slate-700 uppercase tracking-widest ml-1">Secure Password</label>
               <div className="relative">
-                <span className="absolute left-4 top-4 text-slate-300">
+                <span className="absolute left-4 top-4 text-slate-400">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
                 </span>
                 <input
                   required
                   type="password"
                   placeholder="••••••••"
-                  className="w-full pl-11 pr-4 py-4 bg-slate-50 border border-slate-100 rounded-[1.25rem] text-sm font-semibold outline-none focus:ring-4 focus:ring-brand/10 focus:border-brand focus:bg-white transition-all"
+                  className="w-full pl-11 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-[1.25rem] text-sm font-bold text-slate-950 outline-none focus:ring-4 focus:ring-brand/10 focus:border-brand focus:bg-white transition-all placeholder:text-slate-400"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                 />
@@ -140,7 +136,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             </button>
           </form>
 
-          <div className="mt-10 pt-8 border-t border-slate-50 flex justify-between items-center text-[9px] font-bold text-slate-300 uppercase tracking-widest">
+          <div className="mt-10 pt-8 border-t border-slate-100 flex justify-between items-center text-[9px] font-bold text-slate-400 uppercase tracking-widest">
             <span>© 2025 DIGTRACK SYSTEMS</span>
             <span>PRO VERSION 4.0</span>
           </div>
