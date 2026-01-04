@@ -54,7 +54,6 @@ const App: React.FC = () => {
   };
 
   const initApp = async () => {
-    setIsLoading(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       
@@ -64,49 +63,47 @@ const App: React.FC = () => {
         return;
       }
 
-      // Fetch Profile using maybeSingle() to prevent throwing errors if missing
-      const { data: profile, error: profileError } = await supabase
+      // Fetch Profile quickly
+      const { data: profile } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', session.user.id)
         .maybeSingle();
 
-      if (profileError) {
-        console.error("Profile fetch error:", profileError);
-      }
-
-      // Always set a user if we have a session, using profile data if available
       const userObj: User = {
         id: session.user.id,
-        name: profile?.name || session.user.email?.split('@')[0] || 'Unknown User',
+        name: profile?.name || session.user.email?.split('@')[0] || 'User',
         username: profile?.username || session.user.email || 'unknown',
         role: (profile?.role as UserRole) || UserRole.CREW
       };
       
+      // CRITICAL FIX: Set user and stop loading spinner immediately 
+      // This allows the dashboard to show while data loads in the background
       setSessionUser(userObj);
+      setIsLoading(false);
 
-      const status = await apiService.getSyncStatus();
-      setIsSynced(status.synced);
-      setSyncError(status.error || null);
+      // Now fetch data in background
+      apiService.getSyncStatus().then(status => {
+        setIsSynced(status.synced);
+        setSyncError(status.error || null);
+      });
 
-      // Only attempt data fetches if we have a valid session
-      const [t, j, p, n, u] = await Promise.allSettled([
+      Promise.allSettled([
         apiService.getTickets(),
         apiService.getJobs(),
         apiService.getPhotos(),
         apiService.getNotes(),
         apiService.getUsers()
-      ]);
-
-      setTickets(t.status === 'fulfilled' ? t.value : []);
-      setJobs(j.status === 'fulfilled' ? j.value : []);
-      setPhotos(p.status === 'fulfilled' ? p.value : []);
-      setNotes(n.status === 'fulfilled' ? n.value : []);
-      setUsers(u.status === 'fulfilled' ? u.value : []);
+      ]).then(([t, j, p, n, u]) => {
+        if (t.status === 'fulfilled') setTickets(t.value);
+        if (j.status === 'fulfilled') setJobs(j.value);
+        if (p.status === 'fulfilled') setPhotos(p.value);
+        if (n.status === 'fulfilled') setNotes(n.value);
+        if (u.status === 'fulfilled') setUsers(u.value);
+      });
 
     } catch (error: any) {
       console.error("Critical Initialization error:", error);
-    } finally {
       setIsLoading(false);
     }
   };
@@ -141,7 +138,7 @@ const App: React.FC = () => {
       setShowTicketForm(false);
       setEditingTicket(null);
     } catch (error: any) {
-      alert(`Access Denied: Only Admins can save tickets. ${error.message}`);
+      alert(`Access Denied: Only Admins can save tickets.`);
     }
   };
 
@@ -170,6 +167,16 @@ const App: React.FC = () => {
       setJobs(prev => prev.map(j => j.id === job.id ? updatedJob : j));
     } catch (error: any) {
       alert(`Update failed. Check your permissions.`);
+    }
+  };
+
+  const handleToggleUserRole = async (user: UserRecord) => {
+    try {
+      const newRole = user.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN;
+      await apiService.updateUserRole(user.id, newRole);
+      setUsers(prev => prev.map(u => u.id === user.id ? { ...u, role: newRole } : u));
+    } catch (error: any) {
+      alert("Failed to update user role.");
     }
   };
 
@@ -216,7 +223,7 @@ const App: React.FC = () => {
   if (isLoading) return (
     <div className="min-h-screen bg-[#0f172a] flex flex-col items-center justify-center">
       <div className="w-14 h-14 border-4 border-slate-800 border-t-brand rounded-full animate-spin mb-6" />
-      <p className="text-slate-500 font-black uppercase tracking-[0.4em] text-[10px]">Synchronizing Project Data...</p>
+      <p className="text-slate-500 font-black uppercase tracking-[0.4em] text-[10px]">Accessing Secure Gateway...</p>
     </div>
   );
 
@@ -312,7 +319,7 @@ const App: React.FC = () => {
         {activeView === 'calendar' && <CalendarView tickets={activeTickets} onEditTicket={(t) => isAdmin && setEditingTicket(t)} />}
         {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} notes={notes} isAdmin={isAdmin} onEditJob={(j) => isAdmin && setEditingJob(j)} onToggleComplete={handleToggleJobCompletion} onAddNote={async (note) => { const n = await apiService.addNote({...note, id: crypto.randomUUID(), timestamp: Date.now(), author: sessionUser.name}); setNotes(prev => [n, ...prev]); }} onViewPhotos={(j) => { setGlobalSearch(j); setActiveView('photos'); }} />}
         {activeView === 'photos' && <PhotoManager photos={photos} initialSearch={globalSearch} onAddPhoto={async (metadata, file) => { const saved = await apiService.addPhoto(metadata, file); setPhotos(prev => [saved, ...prev]); }} onDeletePhoto={async (id) => { await apiService.deletePhoto(id); setPhotos(prev => prev.filter(p => p.id !== id)); }} />}
-        {activeView === 'team' && <TeamManagement users={users} currentUserId={sessionUser.id} onAddUser={async (u) => { const newUser = await apiService.addUser({...u, id: crypto.randomUUID()}); setUsers(prev => [...prev, newUser]); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); setUsers(prev => prev.filter(u => u.id !== id)); }} onThemeChange={setThemeColor} />}
+        {activeView === 'team' && <TeamManagement users={users} currentUserId={sessionUser.id} onAddUser={async (u) => { const newUser = await apiService.addUser({...u, id: crypto.randomUUID()}); setUsers(prev => [...prev, newUser]); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); setUsers(prev => prev.filter(u => u.id !== id)); }} onThemeChange={setThemeColor} onToggleRole={handleToggleUserRole} />}
       </main>
 
       <div className="fixed bottom-0 left-0 right-0 z-[100] px-4 pb-6 md:pb-8 flex justify-center pointer-events-none">

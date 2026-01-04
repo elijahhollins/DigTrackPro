@@ -1,3 +1,4 @@
+
 import { supabase, getSupabaseConfig } from '../lib/supabaseClient.ts';
 import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job } from '../types.ts';
 
@@ -16,29 +17,6 @@ alter table notes enable row level security;
 alter table profiles enable row level security;
 
 -- 3. Basic Security Policies
-create policy "Auth view all" on jobs for select to authenticated using (true);
-create policy "Auth view all" on tickets for select to authenticated using (true);
-create policy "Auth view all" on photos for all to authenticated using (true);
-create policy "Auth view all" on notes for all to authenticated using (true);
-create policy "Auth view all" on profiles for select to authenticated using (true);
-
-grant all on all tables in schema public to authenticated;`;
-
-export const RESET_SQL_SCHEMA = `-- WARNING: THIS WIPES ALL EXISTING DATA
-drop table if exists jobs, tickets, photos, notes, profiles cascade;
-
-create table jobs (id uuid primary key, job_number text, customer text, address text, city text, state text, county text, is_complete boolean default false, created_at timestamp with time zone default now());
-create table tickets (id uuid primary key, job_number text, ticket_no text, address text, county text, city text, state text, call_in_date text, dig_start text, expiration_date text, site_contact text, created_at timestamp with time zone default now());
-create table photos (id uuid primary key, job_number text, data_url text, caption text, created_at timestamp with time zone default now());
-create table notes (id uuid primary key, job_number text, text text, author text, timestamp bigint);
-create table profiles (id uuid primary key, name text, username text, role text);
-
-alter table jobs enable row level security;
-alter table tickets enable row level security;
-alter table photos enable row level security;
-alter table notes enable row level security;
-alter table profiles enable row level security;
-
 create policy "Auth view all" on jobs for select to authenticated using (true);
 create policy "Auth view all" on tickets for select to authenticated using (true);
 create policy "Auth view all" on photos for all to authenticated using (true);
@@ -98,7 +76,6 @@ const mapTicket = (data: any): DigTicket => ({
   city: data.city || '',
   state: data.state || '',
   callInDate: data.call_in_date || '',
-  // Fix: renamed dig_start to digStart to match the DigTicket interface property
   digStart: data.dig_start || '',
   expirationDate: data.expiration_date || '',
   siteContact: data.site_contact || '',
@@ -125,14 +102,20 @@ export const apiService = {
   },
 
   async addUser(user: Omit<UserRecord, 'id'>): Promise<UserRecord> {
-    const newUser = { ...user, id: generateUUID() };
-    const { data, error } = await supabase.from('profiles').insert([user]).select().single();
+    const id = generateUUID();
+    const newUserRecord = { ...user, id };
+    const { data, error } = await supabase.from('profiles').insert([newUserRecord]).select().single();
     if (error) {
       const users = getFromStorage<UserRecord>(STORAGE_KEYS.USERS);
-      saveToStorage(STORAGE_KEYS.USERS, [...users, newUser]);
-      return newUser;
+      saveToStorage(STORAGE_KEYS.USERS, [...users, newUserRecord]);
+      return newUserRecord;
     }
-    return data;
+    return { ...data, role: data.role as UserRole };
+  },
+
+  async updateUserRole(id: string, role: UserRole): Promise<void> {
+    const { error } = await supabase.from('profiles').update({ role }).eq('id', id);
+    if (error) throw error;
   },
 
   async deleteUser(id: string): Promise<void> {
@@ -204,9 +187,10 @@ export const apiService = {
       const reader = new FileReader();
       reader.onloadend = async () => {
         const base64 = reader.result as string;
-        const newPhoto = { ...photo, id: generateUUID(), dataUrl: base64 };
+        const id = generateUUID();
+        const newPhoto = { ...photo, id, dataUrl: base64 };
         const { error } = await supabase.from('photos').insert([{
-          id: newPhoto.id,
+          id: id,
           job_number: photo.jobNumber,
           data_url: base64,
           caption: photo.caption
