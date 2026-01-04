@@ -2,34 +2,43 @@
 import { supabase, getSupabaseConfig } from '../lib/supabaseClient.ts';
 import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job } from '../types.ts';
 
-export const SQL_SCHEMA = `-- 1. Drop existing policies to clear recursion loops
-drop policy if exists "Auth access all" on jobs;
-drop policy if exists "Auth access all" on tickets;
-drop policy if exists "Auth access all" on photos;
-drop policy if exists "Auth access all" on notes;
-drop policy if exists "Auth access all" on profiles;
-drop policy if exists "Auth view all" on profiles;
+export const SQL_SCHEMA = `-- 1. THE ULTIMATE POLICY NUKER
+-- This script clears out ALL existing policies to stop infinite recursion loops.
+DO $$ 
+DECLARE 
+    r RECORD;
+BEGIN
+    FOR r IN (
+        SELECT policyname, tablename 
+        FROM pg_policies 
+        WHERE schemaname = 'public' 
+        AND tablename IN ('profiles', 'jobs', 'tickets', 'photos', 'notes')
+    ) LOOP
+        EXECUTE 'DROP POLICY IF EXISTS ' || quote_ident(r.policyname) || ' ON ' || quote_ident(r.tablename);
+    END LOOP;
+END $$;
 
--- 2. Create clean tables
+-- 2. ENSURE TABLES EXIST
 create table if not exists jobs (id uuid primary key, job_number text, customer text, address text, city text, state text, county text, is_complete boolean default false, created_at timestamp with time zone default now());
 create table if not exists tickets (id uuid primary key, job_number text, ticket_no text, address text, county text, city text, state text, call_in_date text, dig_start text, expiration_date text, site_contact text, created_at timestamp with time zone default now());
 create table if not exists photos (id uuid primary key, job_number text, data_url text, caption text, created_at timestamp with time zone default now());
 create table if not exists notes (id uuid primary key, job_number text, text text, author text, timestamp bigint);
 create table if not exists profiles (id uuid primary key, name text, username text, role text);
 
--- 3. Enable RLS
+-- 3. RESET SECURITY
 alter table jobs enable row level security;
 alter table tickets enable row level security;
 alter table photos enable row level security;
 alter table notes enable row level security;
 alter table profiles enable row level security;
 
--- 4. Non-Recursive Policies (CRITICAL: 'using (true)' prevents recursion)
-create policy "Public Auth Access" on profiles for all to authenticated using (true) with check (true);
-create policy "Public Auth Access" on jobs for all to authenticated using (true) with check (true);
-create policy "Public Auth Access" on tickets for all to authenticated using (true) with check (true);
-create policy "Public Auth Access" on photos for all to authenticated using (true) with check (true);
-create policy "Public Auth Access" on notes for all to authenticated using (true) with check (true);
+-- 4. CLEAN NON-RECURSIVE POLICIES
+-- These policies do not query the tables themselves, preventing 'infinite recursion'.
+create policy "allow_authenticated_all" on profiles for all to authenticated using (true) with check (true);
+create policy "allow_authenticated_all" on jobs for all to authenticated using (true) with check (true);
+create policy "allow_authenticated_all" on tickets for all to authenticated using (true) with check (true);
+create policy "allow_authenticated_all" on photos for all to authenticated using (true) with check (true);
+create policy "allow_authenticated_all" on notes for all to authenticated using (true) with check (true);
 
 grant all on all tables in schema public to authenticated;`;
 

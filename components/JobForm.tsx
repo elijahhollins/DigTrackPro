@@ -38,8 +38,8 @@ const JobForm: React.FC<JobFormProps> = ({ onSave, onClose, initialData, isDarkM
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[160] overflow-y-auto pt-4 md:pt-10 pb-40">
-      <div className="flex items-start justify-center min-h-[110vh] px-4">
+    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[160] overflow-y-auto pt-6 pb-20 scroll-smooth">
+      <div className="flex items-start justify-center min-h-[120vh] px-4 pt-10 pb-60">
         <div className={`w-full max-w-xl rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in duration-300 border ${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white border-slate-200'}`}>
           <div className={`p-8 border-b flex justify-between items-center ${isDarkMode ? 'bg-black/20 border-white/5' : 'bg-slate-50 border-slate-100'}`}>
             <div>
@@ -124,7 +124,7 @@ const JobForm: React.FC<JobFormProps> = ({ onSave, onClose, initialData, isDarkM
               </div>
             </div>
 
-            <div className="pt-6 pb-12 flex flex-col sm:flex-row gap-4">
+            <div className="pt-6 pb-20 flex flex-col sm:flex-row gap-4">
               <button type="submit" className="flex-1 bg-brand text-[#0f172a] py-5 rounded-[1.5rem] font-black text-xs uppercase tracking-[0.2em] hover:brightness-110 hover:scale-[1.02] transition-all shadow-xl shadow-brand/20">
                 {initialData ? 'Apply Changes' : 'Finalize Job'}
               </button>
