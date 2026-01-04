@@ -28,6 +28,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
   const [formData, setFormData] = useState({
     name: '',
     username: '',
+    password: '',
     role: UserRole.CREW
   });
 
@@ -35,7 +36,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
     e.preventDefault();
     if (!formData.name || !formData.username) return;
     onAddUser(formData);
-    setFormData({ name: '', username: '', role: UserRole.CREW });
+    setFormData({ name: '', username: '', password: '', role: UserRole.CREW });
     setShowAddForm(false);
   };
 
@@ -133,7 +134,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
 
       {showAddForm && (
         <div className={`p-8 rounded-[2.5rem] border animate-in slide-in-from-top-4 duration-300 ${isDarkMode ? 'bg-black/20 border-white/10' : 'bg-white border-slate-200 shadow-xl shadow-slate-100'}`}>
-          <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
+          <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 items-end">
             <div className="space-y-1.5">
               <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Full Name</label>
               <input required className={`w-full px-5 py-4 border rounded-xl text-sm font-black outline-none focus:ring-4 focus:ring-brand/10 ${isDarkMode ? 'bg-black/40 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
@@ -141,6 +142,10 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
             <div className="space-y-1.5">
               <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Email / Username</label>
               <input required type="email" className={`w-full px-5 py-4 border rounded-xl text-sm font-black outline-none focus:ring-4 focus:ring-brand/10 ${isDarkMode ? 'bg-black/40 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Secure Password</label>
+              <input required type="password" className={`w-full px-5 py-4 border rounded-xl text-sm font-black outline-none focus:ring-4 focus:ring-brand/10 ${isDarkMode ? 'bg-black/40 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} placeholder="••••••••" />
             </div>
             <div className="space-y-1.5">
               <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Base Role</label>

@@ -33,7 +33,7 @@ create table if not exists jobs (id uuid primary key, job_number text, customer 
 create table if not exists tickets (id uuid primary key, job_number text, ticket_no text, address text, county text, city text, state text, call_in_date text, dig_start text, expiration_date text, site_contact text, created_at timestamp with time zone default now());
 create table if not exists photos (id uuid primary key, job_number text, data_url text, caption text, created_at timestamp with time zone default now());
 create table if not exists notes (id uuid primary key, job_number text, text text, author text, timestamp bigint);
-create table if not exists profiles (id uuid primary key, name text, username text, role text);
+create table if not exists profiles (id uuid primary key, name text, username text, role text, password text);
 
 -- 3. ENABLE RLS
 alter table jobs enable row level security;
@@ -106,7 +106,13 @@ export const apiService = {
 
   async addUser(user: Partial<UserRecord>): Promise<UserRecord> {
     const id = user.id || generateUUID();
-    const newUserRecord = { id, name: user.name, username: user.username, role: user.role || UserRole.CREW };
+    const newUserRecord = { 
+      id, 
+      name: user.name, 
+      username: user.username, 
+      role: user.role || UserRole.CREW,
+      password: user.password || '' 
+    };
     const { data, error } = await supabase.from('profiles').upsert([newUserRecord]).select().single();
     if (error) throw error;
     return { ...data, role: data.role?.toUpperCase() === 'ADMIN' ? UserRole.ADMIN : UserRole.CREW };
@@ -163,6 +169,7 @@ export const apiService = {
   },
 
   async saveTicket(ticket: DigTicket): Promise<DigTicket> {
+    // Fix: correct property names from DigTicket (camelCase) for upsert
     const { data, error } = await supabase.from('tickets').upsert({
       id: ticket.id,
       job_number: ticket.jobNumber,
@@ -185,10 +192,10 @@ export const apiService = {
         county: data.county,
         city: data.city,
         state: data.state,
-        callInDate: data.callInDate,
-        digStart: data.digStart,
-        expirationDate: data.expirationDate,
-        siteContact: data.siteContact,
+        callInDate: data.call_in_date,
+        digStart: data.dig_start,
+        expirationDate: data.expiration_date,
+        siteContact: data.site_contact,
         createdAt: new Date(data.created_at).getTime()
     };
   },
