@@ -17,11 +17,11 @@ alter table notes enable row level security;
 alter table profiles enable row level security;
 
 -- 3. Basic Security Policies
-create policy "Auth view all" on jobs for select to authenticated using (true);
-create policy "Auth view all" on tickets for select to authenticated using (true);
-create policy "Auth view all" on photos for all to authenticated using (true);
-create policy "Auth view all" on notes for all to authenticated using (true);
-create policy "Auth view all" on profiles for select to authenticated using (true);
+create policy "Auth access all" on jobs for all to authenticated using (true);
+create policy "Auth access all" on tickets for all to authenticated using (true);
+create policy "Auth access all" on photos for all to authenticated using (true);
+create policy "Auth access all" on notes for all to authenticated using (true);
+create policy "Auth access all" on profiles for all to authenticated using (true);
 
 grant all on all tables in schema public to authenticated;`;
 
@@ -114,14 +114,11 @@ export const apiService = {
       role: user.role || UserRole.CREW 
     };
     
-    const { data, error } = await supabase.from('profiles').insert([newUserRecord]).select().single();
+    const { data, error } = await supabase.from('profiles').upsert([newUserRecord]).select().single();
     
     if (error) {
       console.error("DB User Creation Error:", error);
-      // Fallback for offline mode
-      const users = getFromStorage<UserRecord>(STORAGE_KEYS.USERS);
-      saveToStorage(STORAGE_KEYS.USERS, [...users, newUserRecord as UserRecord]);
-      return newUserRecord as UserRecord;
+      throw error;
     }
 
     const rawRole = (data.role || '').toUpperCase();
@@ -136,10 +133,7 @@ export const apiService = {
 
   async deleteUser(id: string): Promise<void> {
     const { error } = await supabase.from('profiles').delete().eq('id', id);
-    if (error) {
-      const users = getFromStorage<UserRecord>(STORAGE_KEYS.USERS).filter(u => u.id !== id);
-      saveToStorage(STORAGE_KEYS.USERS, users);
-    }
+    if (error) throw error;
   },
 
   async getJobs(): Promise<Job[]> {
@@ -201,7 +195,7 @@ export const apiService = {
   },
 
   async addPhoto(photo: Omit<JobPhoto, 'id' | 'dataUrl'>, file: File): Promise<JobPhoto> {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onloadend = async () => {
         const base64 = reader.result as string;
@@ -213,11 +207,8 @@ export const apiService = {
           data_url: base64,
           caption: photo.caption
         }]);
-        if (error) {
-          const photos = getFromStorage<JobPhoto>(STORAGE_KEYS.PHOTOS);
-          saveToStorage(STORAGE_KEYS.PHOTOS, [newPhoto, ...photos]);
-        }
-        resolve(newPhoto);
+        if (error) reject(error);
+        else resolve(newPhoto);
       };
       reader.readAsDataURL(file);
     });
@@ -242,10 +233,7 @@ export const apiService = {
       author: note.author,
       timestamp: note.timestamp
     }]);
-    if (error) {
-      const notes = getFromStorage<JobNote>(STORAGE_KEYS.NOTES);
-      saveToStorage(STORAGE_KEYS.NOTES, [note, ...notes]);
-    }
+    if (error) throw error;
     return note;
   }
 };
