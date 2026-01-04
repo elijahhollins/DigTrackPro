@@ -63,15 +63,25 @@ const App: React.FC = () => {
         return;
       }
 
-      // Fetch Profile quickly
-      const { data: profile } = await supabase
+      // Try fetching profile by ID first
+      let { data: profile } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', session.user.id)
         .maybeSingle();
 
-      // Normalize role comparison
-      const rawRole = (profile?.role || '').toUpperCase();
+      // FALLBACK: If ID lookup fails, try matching by Email/Username 
+      // This solves the issue if DB records were created manually with different IDs
+      if (!profile && session.user.email) {
+        const { data: profileByEmail } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('username', session.user.email)
+          .maybeSingle();
+        profile = profileByEmail;
+      }
+
+      const rawRole = (profile?.role || '').trim().toUpperCase();
       const resolvedRole = rawRole === 'ADMIN' ? UserRole.ADMIN : UserRole.CREW;
 
       const userObj: User = {
@@ -84,7 +94,7 @@ const App: React.FC = () => {
       setSessionUser(userObj);
       setIsLoading(false);
 
-      // Now fetch data in background
+      // Background data fetches
       apiService.getSyncStatus().then(status => {
         setIsSynced(status.synced);
         setSyncError(status.error || null);
@@ -125,6 +135,23 @@ const App: React.FC = () => {
 
     return () => authListener.subscription.unsubscribe();
   }, []);
+
+  const handleToggleUserRole = async (user: UserRecord) => {
+    try {
+      const newRole = user.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN;
+      await apiService.updateUserRole(user.id, newRole);
+      
+      // Update global users list
+      setUsers(prev => prev.map(u => u.id === user.id ? { ...u, role: newRole } : u));
+      
+      // CRITICAL: If toggling own role, update session user state immediately to reflect permission changes
+      if (sessionUser && (user.id === sessionUser.id || user.username === sessionUser.username)) {
+        setSessionUser(prev => prev ? { ...prev, role: newRole } : null);
+      }
+    } catch (error: any) {
+      alert("Failed to update user role.");
+    }
+  };
 
   const handleSaveTicket = async (data: Omit<DigTicket, 'id' | 'createdAt'>) => {
     try {
@@ -169,16 +196,6 @@ const App: React.FC = () => {
       setJobs(prev => prev.map(j => j.id === job.id ? updatedJob : j));
     } catch (error: any) {
       alert(`Update failed. Check your permissions.`);
-    }
-  };
-
-  const handleToggleUserRole = async (user: UserRecord) => {
-    try {
-      const newRole = user.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN;
-      await apiService.updateUserRole(user.id, newRole);
-      setUsers(prev => prev.map(u => u.id === user.id ? { ...u, role: newRole } : u));
-    } catch (error: any) {
-      alert("Failed to update user role.");
     }
   };
 

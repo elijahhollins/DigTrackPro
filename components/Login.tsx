@@ -32,19 +32,29 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         throw new Error('Authentication succeeded but no user data was returned.');
       }
 
-      const { data: profile, error: profileError } = await supabase
+      // Try lookup by ID
+      let { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', authData.user.id)
         .maybeSingle();
 
+      // FALLBACK: If not found by ID, try lookup by Email
+      if (!profile && authData.user.email) {
+        const { data: profileByEmail } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('username', authData.user.email)
+          .maybeSingle();
+        profile = profileByEmail;
+      }
+
       if (profileError) {
         console.error('Profile fetch error:', profileError);
-        throw new Error(`Profile access error: ${profileError.message}. Check database permissions.`);
       }
 
       // Safe role normalization
-      const rawRole = (profile?.role || '').toUpperCase();
+      const rawRole = (profile?.role || '').trim().toUpperCase();
       const resolvedRole = rawRole === 'ADMIN' ? UserRole.ADMIN : UserRole.CREW;
 
       if (!profile) {
