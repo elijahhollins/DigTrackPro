@@ -7,7 +7,7 @@ interface TeamManagementProps {
   users: UserRecord[];
   sessionUser: User;
   isDarkMode?: boolean;
-  onAddUser: (user: Partial<UserRecord>) => void;
+  onAddUser: (user: Partial<UserRecord>) => Promise<void>;
   onDeleteUser: (id: string) => void;
   onThemeChange?: (color: string) => void;
   onToggleRole?: (user: UserRecord) => void;
@@ -24,6 +24,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
 }) => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSqlViewer, setShowSqlViewer] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
@@ -32,12 +33,24 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
     role: UserRole.CREW
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.username) return;
-    onAddUser(formData);
-    setFormData({ name: '', username: '', password: '', role: UserRole.CREW });
-    setShowAddForm(false);
+    if (!formData.name || !formData.username || !formData.password) {
+      alert("Please fill in all fields, including password.");
+      return;
+    }
+    
+    setIsSubmitting(true);
+    try {
+      await onAddUser(formData);
+      setFormData({ name: '', username: '', password: '', role: UserRole.CREW });
+      setShowAddForm(false);
+    } catch (err: any) {
+      // Error is handled in App.tsx but we catch here to stop loading state
+      console.error("Submit error:", err);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const copyFixSql = () => {
@@ -63,7 +76,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
         username: sessionUser.username,
         role: sessionUser.role
       });
-      alert(`Success: Your profile has been re-synchronized. If you still see database errors, please run the SQL Fix.`);
+      alert(`Success: Your profile has been re-synchronized.`);
       window.location.reload();
     } catch (err: any) {
       alert(`Sync Failed: ${err.message}`);
@@ -137,24 +150,35 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
           <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 items-end">
             <div className="space-y-1.5">
               <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Full Name</label>
-              <input required className={`w-full px-5 py-4 border rounded-xl text-sm font-black outline-none focus:ring-4 focus:ring-brand/10 ${isDarkMode ? 'bg-black/40 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
+              <input required disabled={isSubmitting} className={`w-full px-5 py-4 border rounded-xl text-sm font-black outline-none focus:ring-4 focus:ring-brand/10 ${isDarkMode ? 'bg-black/40 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
             </div>
             <div className="space-y-1.5">
               <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Email / Username</label>
-              <input required type="email" className={`w-full px-5 py-4 border rounded-xl text-sm font-black outline-none focus:ring-4 focus:ring-brand/10 ${isDarkMode ? 'bg-black/40 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} />
+              <input required disabled={isSubmitting} type="email" className={`w-full px-5 py-4 border rounded-xl text-sm font-black outline-none focus:ring-4 focus:ring-brand/10 ${isDarkMode ? 'bg-black/40 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} />
             </div>
             <div className="space-y-1.5">
               <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Secure Password</label>
-              <input required type="password" className={`w-full px-5 py-4 border rounded-xl text-sm font-black outline-none focus:ring-4 focus:ring-brand/10 ${isDarkMode ? 'bg-black/40 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} placeholder="••••••••" />
+              <input required disabled={isSubmitting} type="password" className={`w-full px-5 py-4 border rounded-xl text-sm font-black outline-none focus:ring-4 focus:ring-brand/10 ${isDarkMode ? 'bg-black/40 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} placeholder="••••••••" />
             </div>
             <div className="space-y-1.5">
               <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Base Role</label>
-              <select className={`w-full px-5 py-4 border rounded-xl text-sm font-black outline-none focus:ring-4 focus:ring-brand/10 ${isDarkMode ? 'bg-black/40 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as UserRole})}>
+              <select disabled={isSubmitting} className={`w-full px-5 py-4 border rounded-xl text-sm font-black outline-none focus:ring-4 focus:ring-brand/10 ${isDarkMode ? 'bg-black/40 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as UserRole})}>
                 <option value={UserRole.CREW}>Crew Member</option>
                 <option value={UserRole.ADMIN}>Administrator</option>
               </select>
             </div>
-            <button type="submit" className="bg-brand text-[#0f172a] px-6 py-4.5 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-brand/20 hover:scale-[1.02] transition-transform">Save Access</button>
+            <button 
+              type="submit" 
+              disabled={isSubmitting}
+              className="bg-brand text-[#0f172a] px-6 py-4.5 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-brand/20 hover:scale-[1.02] transition-transform flex items-center justify-center gap-2"
+            >
+              {isSubmitting ? (
+                <>
+                  <div className="w-3 h-3 border-2 border-[#0f172a] border-t-transparent rounded-full animate-spin" />
+                  Saving...
+                </>
+              ) : 'Save Access'}
+            </button>
           </form>
         </div>
       )}

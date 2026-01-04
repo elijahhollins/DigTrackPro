@@ -334,7 +334,7 @@ const App: React.FC = () => {
               <div className={`flex items-center gap-2 p-1 rounded-2xl border ${isDarkMode ? 'bg-white/5 border-white/5' : 'bg-slate-100 border-slate-200'}`}>
                 <input 
                   type="color" 
-                  className="w-8 h-8 rounded-xl border-none bg-transparent cursor-pointer p-0 overflow-hidden" 
+                  className="w-8 h-8 rounded-xl border-none bg-transparent p-0 overflow-hidden" 
                   value={localStorage.getItem('dig_theme_color') || '#f59e0b'}
                   onChange={(e) => setThemeColor(e.target.value)}
                 />
@@ -360,7 +360,6 @@ const App: React.FC = () => {
           <div className="space-y-8">
             <StatCards tickets={activeTickets} isDarkMode={isDarkMode} />
             
-            {/* New Sort & Search Bar for Dashboard */}
             <div className={`p-4 md:p-6 rounded-[2.5rem] border flex flex-col md:flex-row md:items-center justify-between gap-6 ${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-200 shadow-sm'}`}>
               <div className="flex-1 max-w-md relative lg:hidden">
                 <input type="text" placeholder="Search tickets..." className={`w-full pl-10 pr-4 py-3.5 border rounded-2xl text-sm font-semibold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder:text-slate-600' : 'bg-slate-100 border-slate-200 text-slate-900 placeholder:text-slate-400'}`} value={globalSearch} onChange={e => setGlobalSearch(e.target.value)} />
@@ -430,7 +429,16 @@ const App: React.FC = () => {
         {activeView === 'calendar' && <CalendarView tickets={activeTickets} onEditTicket={(t) => isAdmin && setEditingTicket(t)} />}
         {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} notes={notes} isAdmin={isAdmin} isDarkMode={isDarkMode} onEditJob={(j) => isAdmin && setEditingJob(j)} onToggleComplete={handleToggleJobCompletion} onAddNote={async (note) => { const n = await apiService.addNote({...note, id: crypto.randomUUID(), timestamp: Date.now(), author: sessionUser.name}); setNotes(prev => [n, ...prev]); }} onViewPhotos={(j) => { setGlobalSearch(j); setActiveView('photos'); }} />}
         {activeView === 'photos' && <PhotoManager photos={photos} initialSearch={globalSearch} isDarkMode={isDarkMode} onAddPhoto={async (metadata, file) => { const saved = await apiService.addPhoto(metadata, file); setPhotos(prev => [saved, ...prev]); }} onDeletePhoto={async (id) => { await apiService.deletePhoto(id); setPhotos(prev => prev.filter(p => p.id !== id)); }} />}
-        {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} isDarkMode={isDarkMode} onAddUser={async (u) => { const newUser = await apiService.addUser({...u}); setUsers(prev => [...prev, newUser]); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); setUsers(prev => prev.filter(u => u.id !== id)); }} onThemeChange={setThemeColor} onToggleRole={handleToggleUserRole} />}
+        {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} isDarkMode={isDarkMode} onAddUser={async (u) => { 
+          try {
+            const newUser = await apiService.addUser({...u}); 
+            setUsers(prev => [...prev, newUser]); 
+          } catch (err: any) {
+            console.error("User addition failed:", err);
+            alert(`Registration Failed: ${err.message || "Ensure the database is initialized with the SQL Fix."}`);
+            throw err;
+          }
+        }} onDeleteUser={async (id) => { await apiService.deleteUser(id); setUsers(prev => prev.filter(u => u.id !== id)); }} onThemeChange={setThemeColor} onToggleRole={handleToggleUserRole} />}
       </main>
 
       <div className="fixed bottom-0 left-0 right-0 z-[100] px-4 pb-6 md:pb-8 flex justify-center pointer-events-none">
