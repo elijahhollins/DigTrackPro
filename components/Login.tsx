@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserRole, User } from '../types.ts';
 import { supabase } from '../lib/supabaseClient.ts';
 
@@ -12,6 +12,19 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [debugSession, setDebugSession] = useState<{id: string, email: string} | null>(null);
+
+  useEffect(() => {
+    // Check if user is already logged in but just needs profile resolution
+    supabase.auth.getSession().then(({data}) => {
+      if (data.session) {
+        setDebugSession({
+          id: data.session.user.id,
+          email: data.session.user.email || 'no-email'
+        });
+      }
+    });
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,52 +45,21 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         throw new Error('Authentication succeeded but no user data was returned.');
       }
 
-      // Try lookup by ID
-      let { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', authData.user.id)
-        .maybeSingle();
-
-      // FALLBACK: If not found by ID, try lookup by Email
-      if (!profile && authData.user.email) {
-        const { data: profileByEmail } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('username', authData.user.email)
-          .maybeSingle();
-        profile = profileByEmail;
-      }
-
-      if (profileError) {
-        console.error('Profile fetch error:', profileError);
-      }
-
-      // Safe role normalization
-      const rawRole = (profile?.role || '').trim().toUpperCase();
-      const resolvedRole = rawRole === 'ADMIN' ? UserRole.ADMIN : UserRole.CREW;
-
-      if (!profile) {
-        onLogin({
-          id: authData.user.id,
-          name: authData.user.email?.split('@')[0] || 'Unknown User',
-          username: authData.user.email?.split('@')[0] || 'unknown',
-          role: UserRole.CREW
-        });
-      } else {
-        onLogin({
-          id: profile.id,
-          name: profile.name,
-          username: profile.username,
-          role: resolvedRole
-        });
-      }
+      // Check for profiles - if empty, the app will bootstrap them in App.tsx
+      // We trigger the reload here to let initApp handle the bootstrap logic
+      window.location.reload();
+      
     } catch (err: any) {
       console.error('Login detailed error:', err);
       setError(err.message || 'An unexpected error occurred during login.');
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    alert('ID Copied! Use this in your profiles table if manually adding admins.');
   };
 
   return (
@@ -103,36 +85,26 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
             <div className="space-y-2">
               <label className="text-[10px] font-black text-slate-700 uppercase tracking-widest ml-1">Email Address</label>
-              <div className="relative">
-                <span className="absolute left-4 top-4 text-slate-400">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
-                </span>
-                <input
-                  required
-                  type="email"
-                  placeholder="admin@company.com"
-                  className="w-full pl-11 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-[1.25rem] text-sm font-bold text-slate-950 outline-none focus:ring-4 focus:ring-brand/10 focus:border-brand focus:bg-white transition-all placeholder:text-slate-400"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </div>
+              <input
+                required
+                type="email"
+                placeholder="admin@company.com"
+                className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-[1.25rem] text-sm font-bold text-slate-950 outline-none focus:ring-4 focus:ring-brand/10 focus:border-brand focus:bg-white transition-all placeholder:text-slate-400"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
             </div>
 
             <div className="space-y-2">
               <label className="text-[10px] font-black text-slate-700 uppercase tracking-widest ml-1">Secure Password</label>
-              <div className="relative">
-                <span className="absolute left-4 top-4 text-slate-400">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-                </span>
-                <input
-                  required
-                  type="password"
-                  placeholder="••••••••"
-                  className="w-full pl-11 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-[1.25rem] text-sm font-bold text-slate-950 outline-none focus:ring-4 focus:ring-brand/10 focus:border-brand focus:bg-white transition-all placeholder:text-slate-400"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </div>
+              <input
+                required
+                type="password"
+                placeholder="••••••••"
+                className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-[1.25rem] text-sm font-bold text-slate-950 outline-none focus:ring-4 focus:ring-brand/10 focus:border-brand focus:bg-white transition-all placeholder:text-slate-400"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
             </div>
 
             <button
@@ -142,18 +114,29 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             >
               {isSubmitting ? (
                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              ) : (
-                <>
-                  Enter Dashboard
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
-                </>
-              )}
+              ) : "Enter Dashboard"}
             </button>
           </form>
 
+          {debugSession && (
+            <div className="mt-8 p-6 bg-slate-50 rounded-2xl border border-slate-200 animate-in slide-in-from-bottom-4">
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3">Identity Troubleshooter</p>
+              <div className="flex flex-col gap-2">
+                <p className="text-[10px] text-slate-600 font-bold truncate">Logged in as: {debugSession.email}</p>
+                <button 
+                  onClick={() => copyToClipboard(debugSession.id)}
+                  className="w-full py-2 bg-white border border-slate-200 rounded-xl text-[9px] font-black uppercase tracking-widest text-slate-600 hover:bg-slate-100 transition-colors"
+                >
+                  Copy My Auth ID
+                </button>
+                <button onClick={async () => { await supabase.auth.signOut(); setDebugSession(null); }} className="text-[9px] font-black text-rose-500 uppercase mt-2 text-center underline">Reset Session</button>
+              </div>
+            </div>
+          )}
+
           <div className="mt-10 pt-8 border-t border-slate-100 flex justify-between items-center text-[9px] font-bold text-slate-400 uppercase tracking-widest">
             <span>© 2025 DIGTRACK SYSTEMS</span>
-            <span>PRO VERSION 4.0</span>
+            <span>PRO VERSION 4.1</span>
           </div>
         </div>
       </div>

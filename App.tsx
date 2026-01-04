@@ -63,9 +63,7 @@ const App: React.FC = () => {
         return;
       }
 
-      // STRATEGY: Fetch all data first, then find current user in the 'users' list.
-      // This is much more reliable than direct ID queries because it uses the same
-      // normalization logic as the Team table.
+      // 1. Fetch all system data
       const [allUsers, allTickets, allJobs, allPhotos, allNotes] = await Promise.all([
         apiService.getUsers(),
         apiService.getTickets(),
@@ -80,20 +78,43 @@ const App: React.FC = () => {
       setPhotos(allPhotos);
       setNotes(allNotes);
 
-      // Identity Resolution: Look for a match by ID or Email
+      // 2. Resolve Identity
       const sessionEmail = session.user.email?.toLowerCase();
       const sessionId = session.user.id;
 
-      const matchedProfile = allUsers.find(u => 
+      let matchedProfile = allUsers.find(u => 
         u.id === sessionId || 
         (u.username && u.username.toLowerCase() === sessionEmail)
       );
+
+      // BOOTSTRAP LOGIC: If DB is empty, current user is the Admin
+      let resolvedRole = UserRole.CREW;
+      if (allUsers.length === 0) {
+        resolvedRole = UserRole.ADMIN;
+      } else if (matchedProfile) {
+        resolvedRole = matchedProfile.role;
+      }
+
+      // If profile is missing but user is logged in, attempt to auto-create it
+      if (!matchedProfile && session.user.email) {
+        try {
+          const newProfile = await apiService.addUser({
+            name: session.user.email.split('@')[0],
+            username: session.user.email,
+            role: resolvedRole
+          });
+          setUsers(prev => [...prev, newProfile]);
+          matchedProfile = newProfile;
+        } catch (e) {
+          console.warn("Could not auto-create profile, continuing as guest session.");
+        }
+      }
 
       const userObj: User = {
         id: sessionId,
         name: matchedProfile?.name || session.user.email?.split('@')[0] || 'User',
         username: matchedProfile?.username || session.user.email || 'unknown',
-        role: matchedProfile?.role || UserRole.CREW
+        role: resolvedRole
       };
       
       setSessionUser(userObj);
@@ -133,12 +154,11 @@ const App: React.FC = () => {
       
       setUsers(prev => prev.map(u => u.id === user.id ? { ...u, role: newRole } : u));
       
-      // Update session user if toggling self
       if (sessionUser && (user.id === sessionUser.id || user.username.toLowerCase() === sessionUser.username.toLowerCase())) {
         setSessionUser(prev => prev ? { ...prev, role: newRole } : null);
       }
     } catch (error: any) {
-      alert("Failed to update user role.");
+      alert("Role update restricted.");
     }
   };
 
@@ -156,7 +176,7 @@ const App: React.FC = () => {
       setShowTicketForm(false);
       setEditingTicket(null);
     } catch (error: any) {
-      alert(`Access Denied: Admin permissions required.`);
+      alert(`Permission Denied: Admin status required to write records.`);
     }
   };
 
@@ -174,7 +194,7 @@ const App: React.FC = () => {
       setShowJobForm(false);
       setEditingJob(null);
     } catch (error: any) {
-      alert(`Access Denied: Admin permissions required.`);
+      alert(`Permission Denied: Admin status required.`);
     }
   };
 
@@ -184,7 +204,7 @@ const App: React.FC = () => {
       await apiService.saveJob(updatedJob);
       setJobs(prev => prev.map(j => j.id === job.id ? updatedJob : j));
     } catch (error: any) {
-      alert(`Update failed. Check your permissions.`);
+      alert(`Update restricted. Admin permissions required.`);
     }
   };
 
@@ -195,7 +215,7 @@ const App: React.FC = () => {
         await apiService.deleteTicket(id);
         setTickets(prev => prev.filter(t => t.id !== id));
       } catch (error: any) {
-        alert(`Delete failed: Admin permissions required.`);
+        alert(`Deletion restricted to Admin users.`);
       }
     }
   };
@@ -231,7 +251,7 @@ const App: React.FC = () => {
   if (isLoading) return (
     <div className="min-h-screen bg-[#0f172a] flex flex-col items-center justify-center">
       <div className="w-14 h-14 border-4 border-slate-800 border-t-brand rounded-full animate-spin mb-6" />
-      <p className="text-slate-500 font-black uppercase tracking-[0.4em] text-[10px]">Synchronizing Identity...</p>
+      <p className="text-slate-500 font-black uppercase tracking-[0.4em] text-[10px]">Validating Credentials...</p>
     </div>
   );
 
@@ -243,7 +263,7 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#0f172a] text-slate-100 flex flex-col relative">
-      <header className="bg-[#1e293b]/80 backdrop-blur-md border-b border-white/5 sticky top-0 z-40">
+      <header className="bg-[#1e293b]/90 backdrop-blur-xl border-b border-white/5 sticky top-0 z-40">
         <div className="max-w-[1600px] mx-auto px-4">
           <div className="h-20 flex items-center justify-between gap-6">
             <div className="flex items-center gap-3 shrink-0">
@@ -260,26 +280,33 @@ const App: React.FC = () => {
               </div>
             </div>
             
-            <div className="flex-1 max-w-xl relative hidden md:block">
-              <input type="text" placeholder="Search project database..." className="w-full pl-10 pr-4 py-3 bg-[#0f172a]/50 border border-white/5 rounded-2xl text-sm font-semibold outline-none focus:bg-[#0f172a] focus:ring-4 focus:ring-brand/10 focus:border-brand/40 transition-all text-white placeholder:text-slate-600" value={globalSearch} onChange={e => setGlobalSearch(e.target.value)} />
+            <div className="flex-1 max-w-xl relative hidden lg:block">
+              <input type="text" placeholder="Search project database..." className="w-full pl-10 pr-4 py-3 bg-white/5 border border-white/10 rounded-2xl text-sm font-semibold outline-none focus:bg-white/10 focus:ring-4 focus:ring-brand/10 focus:border-brand/40 transition-all text-white placeholder:text-slate-600" value={globalSearch} onChange={e => setGlobalSearch(e.target.value)} />
               <svg className="w-4 h-4 text-slate-600 absolute left-3.5 top-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
             </div>
 
-            <div className="flex items-center gap-4 ml-auto">
+            <div className="flex items-center gap-2 md:gap-4 ml-auto">
+              <div className="flex items-center gap-2 bg-white/5 p-1 rounded-2xl border border-white/5 mr-2">
+                <input 
+                  type="color" 
+                  className="w-8 h-8 rounded-xl border-none bg-transparent cursor-pointer p-0 overflow-hidden" 
+                  value={localStorage.getItem('dig_theme_color') || '#f59e0b'}
+                  onChange={(e) => setThemeColor(e.target.value)}
+                  title="Change System Color"
+                />
+              </div>
+
               <button onClick={handleSignOut} title="Sign Out" className="p-3 text-slate-500 hover:text-rose-500 transition-colors">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
               </button>
               
               {isAdmin ? (
-                <>
-                  {activeView === 'jobs' && (
-                    <button onClick={() => { setEditingJob(null); setShowJobForm(true); }} className="bg-white text-[#0f172a] px-5 py-3 rounded-2xl font-black uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center gap-2 shadow-xl shadow-white/5 text-[10px]">New Job</button>
-                  )}
-                  <button onClick={() => { setEditingTicket(null); setShowTicketForm(true); }} className="bg-brand text-[#0f172a] px-5 py-3 rounded-2xl font-black uppercase tracking-widest hover:brightness-110 transition-all flex items-center gap-2 shadow-xl shadow-brand/20 text-[10px]">New Ticket</button>
-                </>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => { setEditingTicket(null); setShowTicketForm(true); }} className="bg-brand text-[#0f172a] px-4 md:px-5 py-3 rounded-2xl font-black uppercase tracking-widest hover:brightness-110 transition-all flex items-center gap-2 shadow-xl shadow-brand/20 text-[9px] md:text-[10px]">New Ticket</button>
+                </div>
               ) : (
                 <div className="hidden md:block">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Read-Only Mode</span>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-600">Restricted Access</span>
                 </div>
               )}
             </div>
@@ -341,7 +368,7 @@ const App: React.FC = () => {
             { id: 'calendar', label: 'Schedule', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
             { id: 'jobs', label: 'Projects', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2-2H7a2 2 0 00-2 2v16' },
             { id: 'photos', label: 'Media', icon: 'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z' },
-            { id: 'team', label: 'Settings', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z' }
+            { id: 'team', label: 'Admin', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z' }
           ].map((v) => (
             <button key={v.id} onClick={() => setActiveView(v.id as AppView)} className={`flex flex-col items-center gap-1.5 py-3.5 px-6 md:px-10 rounded-[2.5rem] transition-all group ${activeView === v.id ? 'bg-brand text-[#0f172a] shadow-xl shadow-brand/20 scale-105' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}>
               <svg className="w-5 h-5 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d={v.icon} /></svg>
