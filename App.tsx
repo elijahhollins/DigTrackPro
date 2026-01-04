@@ -1,7 +1,8 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
-import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, User, UserRole, JobNote, UserRecord, Job } from './types.ts';
-import { getTicketStatus, getStatusColor, getStatusDotColor, getRowBgColor } from './utils/dateUtils.ts';
-import { apiService, SQL_SCHEMA, RESET_SQL_SCHEMA } from './services/apiService.ts';
+import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, User, UserRole, Job, JobNote, UserRecord } from './types.ts';
+import { getTicketStatus, getStatusColor, getStatusDotColor } from './utils/dateUtils.ts';
+import { apiService } from './services/apiService.ts';
 import { supabase } from './lib/supabaseClient.ts';
 import TicketForm from './components/TicketForm.tsx';
 import JobForm from './components/JobForm.tsx';
@@ -63,27 +64,33 @@ const App: React.FC = () => {
         return;
       }
 
-      // Fetch Profile
-      const { data: profile } = await supabase
+      // Fetch Profile using maybeSingle() to prevent throwing errors if missing
+      const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', session.user.id)
-        .single();
+        .maybeSingle();
 
-      if (profile) {
-        setSessionUser({
-          id: profile.id,
-          name: profile.name,
-          username: profile.username,
-          role: profile.role as UserRole
-        });
+      if (profileError) {
+        console.error("Profile fetch error:", profileError);
       }
+
+      // Always set a user if we have a session, using profile data if available
+      const userObj: User = {
+        id: session.user.id,
+        name: profile?.name || session.user.email?.split('@')[0] || 'Unknown User',
+        username: profile?.username || session.user.email || 'unknown',
+        role: (profile?.role as UserRole) || UserRole.CREW
+      };
+      
+      setSessionUser(userObj);
 
       const status = await apiService.getSyncStatus();
       setIsSynced(status.synced);
       setSyncError(status.error || null);
 
-      const [t, j, p, n, u] = await Promise.all([
+      // Only attempt data fetches if we have a valid session
+      const [t, j, p, n, u] = await Promise.allSettled([
         apiService.getTickets(),
         apiService.getJobs(),
         apiService.getPhotos(),
@@ -91,13 +98,14 @@ const App: React.FC = () => {
         apiService.getUsers()
       ]);
 
-      setTickets(t);
-      setJobs(j);
-      setPhotos(p);
-      setNotes(n);
-      setUsers(u);
+      setTickets(t.status === 'fulfilled' ? t.value : []);
+      setJobs(j.status === 'fulfilled' ? j.value : []);
+      setPhotos(p.status === 'fulfilled' ? p.value : []);
+      setNotes(n.status === 'fulfilled' ? n.value : []);
+      setUsers(u.status === 'fulfilled' ? u.value : []);
+
     } catch (error: any) {
-      console.error("Initialization error:", error);
+      console.error("Critical Initialization error:", error);
     } finally {
       setIsLoading(false);
     }
@@ -108,9 +116,12 @@ const App: React.FC = () => {
     setThemeColor(savedColor);
     initApp();
 
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) setSessionUser(null);
-      else initApp();
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT' || !session) {
+        setSessionUser(null);
+      } else if (event === 'SIGNED_IN') {
+        initApp();
+      }
     });
 
     return () => authListener.subscription.unsubscribe();
@@ -187,7 +198,10 @@ const App: React.FC = () => {
       const s = globalSearch.toLowerCase().trim();
       if (!s) return true;
       const status = getTicketStatus(t);
-      return status.toLowerCase().includes(s) || t.ticketNo.toLowerCase().includes(s) || t.address.toLowerCase().includes(s) || t.jobNumber.toLowerCase().includes(s);
+      return status.toLowerCase().includes(s) || 
+             t.ticketNo.toLowerCase().includes(s) || 
+             t.address.toLowerCase().includes(s) || 
+             t.jobNumber.toLowerCase().includes(s);
     });
     result.sort((a, b) => {
       const valA = a[sortConfig.field] ?? '';
@@ -202,7 +216,7 @@ const App: React.FC = () => {
   if (isLoading) return (
     <div className="min-h-screen bg-[#0f172a] flex flex-col items-center justify-center">
       <div className="w-14 h-14 border-4 border-slate-800 border-t-brand rounded-full animate-spin mb-6" />
-      <p className="text-slate-500 font-black uppercase tracking-[0.4em] text-[10px]">Validating Session...</p>
+      <p className="text-slate-500 font-black uppercase tracking-[0.4em] text-[10px]">Synchronizing Project Data...</p>
     </div>
   );
 
