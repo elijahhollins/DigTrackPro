@@ -23,13 +23,16 @@ create table if not exists photos (id uuid primary key, job_number text, data_ur
 create table if not exists notes (id uuid primary key, job_number text, text text, author text, timestamp bigint);
 create table if not exists profiles (id uuid primary key, name text, username text, role text);
 
--- 3. SCHEMA MIGRATION (Ensures column exists for legacy tables)
+-- 3. SCHEMA MIGRATION (Ensures column exists for legacy tables and reloads cache)
 DO $$ 
 BEGIN 
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='refresh_requested') THEN
         ALTER TABLE tickets ADD COLUMN refresh_requested boolean DEFAULT false;
     END IF;
 END $$;
+
+-- Force PostgREST to reload the schema cache
+NOTIFY pgrst, 'reload schema';
 
 -- 4. ENABLE RLS
 alter table jobs enable row level security;
