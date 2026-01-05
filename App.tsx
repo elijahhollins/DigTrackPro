@@ -317,7 +317,7 @@ const App: React.FC = () => {
                           <td className="px-5 py-2.5 text-[12px] font-bold truncate max-w-[250px]">{ticket.address}</td>
                           <td className="px-5 py-2.5 text-center">
                             <span className={`inline-flex px-2 py-0.5 rounded-md text-[9px] font-black uppercase border ${getStatusColor(status)}`}>
-                              {status === TicketStatus.REFRESH_NEEDED ? 'Refresh Req' : status}
+                              {status === TicketStatus.REFRESH_NEEDED ? 'Refresh Req' : status === TicketStatus.EXTENDABLE ? 'Refresh' : status}
                             </span>
                           </td>
                           <td className="px-5 py-2.5 text-[11px] font-bold text-right opacity-40">{new Date(ticket.expirationDate).toLocaleDateString()}</td>

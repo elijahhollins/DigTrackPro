@@ -16,18 +16,44 @@ const StatCards = ({ tickets, isDarkMode }: StatCardsProps) => {
   }, {} as Record<string, number>);
 
   const items = [
-    { label: 'Total Active', value: tickets.length, color: 'text-brand', darkBorder: 'border-brand/30' },
-    { label: 'Sites Valid', value: stats[TicketStatus.VALID] || 0, color: 'text-emerald-500', darkBorder: 'border-emerald-500/20' },
-    { label: 'Refreshes Req', value: stats[TicketStatus.REFRESH_NEEDED] || 0, color: 'text-amber-500', darkBorder: 'border-amber-500/20' },
-    { label: 'Expirations', value: stats[TicketStatus.EXPIRED] || 0, color: 'text-rose-500', darkBorder: 'border-rose-500/20' },
+    { 
+      label: 'Sites Valid', 
+      value: stats[TicketStatus.VALID] || 0, 
+      color: 'text-emerald-500', 
+      darkBorder: 'border-emerald-500/20' 
+    },
+    { 
+      label: 'Refresh', 
+      value: stats[TicketStatus.EXTENDABLE] || 0, 
+      color: 'text-orange-500', 
+      description: 'Expiring Soon',
+      darkBorder: 'border-orange-500/20' 
+    },
+    { 
+      label: 'Refresh Req', 
+      value: stats[TicketStatus.REFRESH_NEEDED] || 0, 
+      color: 'text-amber-500', 
+      description: 'Manual Request',
+      darkBorder: 'border-amber-500/20' 
+    },
+    { 
+      label: 'Expirations', 
+      value: stats[TicketStatus.EXPIRED] || 0, 
+      color: 'text-rose-500', 
+      darkBorder: 'border-rose-500/20' 
+    },
   ];
 
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
       {items.map((it, idx) => (
         <div key={idx} className={`p-4 rounded-xl border transition-all ${isDarkMode ? `bg-[#1e293b] ${it.darkBorder}` : `bg-white border-slate-200`} shadow-sm`}>
-          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">{it.label}</p>
+          <div className="flex justify-between items-start">
+            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">{it.label}</p>
+            {it.value > 0 && <div className={`w-1.5 h-1.5 rounded-full ${it.color.replace('text', 'bg')}`} />}
+          </div>
           <p className={`text-2xl font-black tracking-tight ${it.color}`}>{it.value}</p>
+          {it.description && <p className="text-[8px] font-bold text-slate-500 uppercase mt-0.5 opacity-60">{it.description}</p>}
         </div>
       ))}
     </div>
