@@ -9,7 +9,6 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script>
-      // Injected Supabase configuration from user input
       window.process = window.process || { 
         env: { 
           API_KEY: "",
@@ -20,7 +19,7 @@
     </script>
     <style>
         :root {
-            --brand-primary: #f59e0b; /* Professional Safety Yellow */
+            --brand-primary: #f59e0b;
             --brand-ring: rgba(245, 158, 11, 0.1);
             --brand-shadow: rgba(245, 158, 11, 0.2);
         }
@@ -36,9 +35,8 @@
         @keyframes spin { to { transform: rotate(360deg); } }
         .animate-spin { animation: spin 1s linear infinite; }
 
-        @keyframes enter { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
-        .animate-in { animation: enter 150ms ease-out; }
-        .zoom-in { animation-name: enter; }
+        @keyframes enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-in { animation: enter 250ms ease-out forwards; }
     </style>
 <script type="importmap">
 {
@@ -49,21 +47,16 @@
     "react/jsx-runtime": "https://esm.sh/react@19.0.0/jsx-runtime",
     "@google/genai": "https://esm.sh/@google/genai@0.21.0",
     "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.47.10",
-    "vite": "https://esm.sh/vite@^7.3.0",
     "react/": "https://esm.sh/react@^19.2.3/",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2"
+    "vite": "https://esm.sh/vite@^7.3.0",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/"
   }
 }
 </script>
 </head>
-<body class="bg-[#0f172a] text-slate-100 selection:bg-amber-100 selection:text-amber-900">
-    <div id="root">
-        <div style="display:flex; flex-direction:column; justify-content:center; align-items:center; height:100vh; font-family:sans-serif; color:#475569;">
-            <div style="width:40px; height:40px; border:3px solid #1e293b; border-top-color:#f59e0b; border-radius:50%; animation: spin 1s linear infinite; margin-bottom:16px;"></div>
-            <div style="font-weight:900; letter-spacing:0.2em; font-size:10px; text-transform:uppercase;">Initializing System...</div>
-        </div>
-    </div>
+<body class="bg-[#0f172a] text-slate-100 selection:bg-amber-100 selection:text-amber-900 overflow-x-hidden">
+    <div id="root"></div>
     <script type="module" src="./index.tsx"></script>
 </body>
 </html>
