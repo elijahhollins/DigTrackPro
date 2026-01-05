@@ -23,14 +23,22 @@ create table if not exists photos (id uuid primary key, job_number text, data_ur
 create table if not exists notes (id uuid primary key, job_number text, text text, author text, timestamp bigint);
 create table if not exists profiles (id uuid primary key, name text, username text, role text);
 
--- 3. ENABLE RLS
+-- 3. SCHEMA MIGRATION (Ensures column exists for legacy tables)
+DO $$ 
+BEGIN 
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='refresh_requested') THEN
+        ALTER TABLE tickets ADD COLUMN refresh_requested boolean DEFAULT false;
+    END IF;
+END $$;
+
+-- 4. ENABLE RLS
 alter table jobs enable row level security;
 alter table tickets enable row level security;
 alter table photos enable row level security;
 alter table notes enable row level security;
 alter table profiles enable row level security;
 
--- 4. POLICIES (Simplified for dev)
+-- 5. POLICIES (Simplified for dev)
 create policy "allow_authenticated_all" on profiles for all to authenticated using (true) with check (true);
 create policy "allow_authenticated_all" on jobs for all to authenticated using (true) with check (true);
 create policy "allow_authenticated_all" on tickets for all to authenticated using (true) with check (true);
