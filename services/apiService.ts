@@ -35,6 +35,9 @@ create table if not exists photos (id uuid primary key, job_number text, data_ur
 create table if not exists notes (id uuid primary key, job_number text, text text, author text, timestamp bigint);
 create table if not exists profiles (id uuid primary key, name text, username text, role text, password text);
 
+-- 2.1 COLUMN FIXES (Ensure password column exists if table was created earlier)
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS password text;
+
 -- 3. ENABLE RLS
 alter table jobs enable row level security;
 alter table tickets enable row level security;
@@ -163,13 +166,13 @@ export const apiService = {
         callInDate: t.call_in_date,
         digStart: t.dig_start,
         expirationDate: t.expiration_date,
+        // Fix: Changed site_contact to siteContact to match DigTicket interface
         siteContact: t.site_contact,
         createdAt: new Date(t.created_at).getTime()
     }));
   },
 
   async saveTicket(ticket: DigTicket): Promise<DigTicket> {
-    // Fix: correct property names from DigTicket (camelCase) for upsert
     const { data, error } = await supabase.from('tickets').upsert({
       id: ticket.id,
       job_number: ticket.jobNumber,
@@ -195,6 +198,7 @@ export const apiService = {
         callInDate: data.call_in_date,
         digStart: data.dig_start,
         expirationDate: data.expiration_date,
+        // Fix: Changed site_contact to siteContact to match DigTicket interface
         siteContact: data.site_contact,
         createdAt: new Date(data.created_at).getTime()
     };

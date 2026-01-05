@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 
 const MAX_RETRIES = 3;
@@ -6,7 +7,6 @@ const INITIAL_DELAY = 1000;
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export const parseTicketData = async (input: string | { data: string; mimeType: string }) => {
-  // Fix: initialized GoogleGenAI strictly following guidelines using process.env.API_KEY directly
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   let lastError: any;
@@ -14,7 +14,7 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
     try {
       const isMedia = typeof input !== 'string';
       const parts = isMedia 
-        ? [{ inlineData: input }, { text: "Extract locate ticket info. Return JSON." }]
+        ? [{ inlineData: input }, { text: "Extract locate ticket info from this document/image. Focus on finding the ticket number, job number, address, and key dates. Return JSON." }]
         : [{ text: `Extract locate ticket info. Return JSON.\n\nText:\n"${input}"` }];
 
       const response = await ai.models.generateContent({
@@ -38,7 +38,6 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
             },
             required: ["ticketNo"]
           },
-          // Optimal for parsing tasks
           thinkingConfig: { thinkingBudget: 0 }
         }
       });
@@ -50,9 +49,8 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
       const isServerError = error.message?.includes('500') || error.message?.includes('503');
       
       if (attempt < MAX_RETRIES - 1 && (isQuotaError || isServerError)) {
-        // Exponential backoff: 1s, 2s, 4s... with a bit of jitter
         const waitTime = INITIAL_DELAY * Math.pow(2, attempt) + Math.random() * 1000;
-        console.warn(`Gemini API quota/server issue. Retrying in ${Math.round(waitTime)}ms... (Attempt ${attempt + 1})`);
+        console.warn(`Gemini API issue. Retrying in ${Math.round(waitTime)}ms...`);
         await delay(waitTime);
         continue;
       }
