@@ -1,3 +1,4 @@
+
 import { supabase } from '../lib/supabaseClient.ts';
 import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job } from '../types.ts';
 
@@ -17,7 +18,7 @@ END $$;
 
 -- 2. TABLE INITIALIZATION
 create table if not exists jobs (id uuid primary key, job_number text, customer text, address text, city text, state text, county text, is_complete boolean default false, created_at timestamp with time zone default now());
-create table if not exists tickets (id uuid primary key, job_number text, ticket_no text, address text, county text, city text, state text, call_in_date text, dig_start text, expiration_date text, site_contact text, created_at timestamp with time zone default now());
+create table if not exists tickets (id uuid primary key, job_number text, ticket_no text, address text, county text, city text, state text, call_in_date text, dig_start text, expiration_date text, site_contact text, refresh_requested boolean default false, created_at timestamp with time zone default now());
 create table if not exists photos (id uuid primary key, job_number text, data_url text, caption text, created_at timestamp with time zone default now());
 create table if not exists notes (id uuid primary key, job_number text, text text, author text, timestamp bigint);
 create table if not exists profiles (id uuid primary key, name text, username text, role text);
@@ -118,6 +119,7 @@ export const apiService = {
         digStart: t.dig_start,
         expirationDate: t.expiration_date,
         siteContact: t.site_contact,
+        refreshRequested: t.refresh_requested ?? false,
         createdAt: new Date(t.created_at).getTime()
     }));
   },
@@ -134,7 +136,8 @@ export const apiService = {
       call_in_date: ticket.callInDate,
       dig_start: ticket.digStart,
       expiration_date: ticket.expirationDate,
-      site_contact: ticket.siteContact
+      site_contact: ticket.siteContact,
+      refresh_requested: ticket.refreshRequested ?? false
     }).select().single();
     if (error) throw error;
     return {
@@ -149,6 +152,7 @@ export const apiService = {
         digStart: data.dig_start,
         expirationDate: data.expiration_date,
         siteContact: data.site_contact,
+        refreshRequested: data.refresh_requested ?? false,
         createdAt: new Date(data.created_at).getTime()
     };
   },

@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { DigTicket, TicketStatus } from '../types.ts';
 import { getTicketStatus } from '../utils/dateUtils.ts';
@@ -17,7 +18,7 @@ const StatCards = ({ tickets, isDarkMode }: StatCardsProps) => {
   const items = [
     { label: 'Total Active', value: tickets.length, color: 'text-brand', darkBorder: 'border-brand/30' },
     { label: 'Sites Valid', value: stats[TicketStatus.VALID] || 0, color: 'text-emerald-500', darkBorder: 'border-emerald-500/20' },
-    { label: 'Renewals', value: stats[TicketStatus.EXTENDABLE] || 0, color: 'text-orange-500', darkBorder: 'border-orange-500/20' },
+    { label: 'Refreshes Req', value: stats[TicketStatus.REFRESH_NEEDED] || 0, color: 'text-amber-500', darkBorder: 'border-amber-500/20' },
     { label: 'Expirations', value: stats[TicketStatus.EXPIRED] || 0, color: 'text-rose-500', darkBorder: 'border-rose-500/20' },
   ];
 

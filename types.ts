@@ -3,6 +3,7 @@ export enum TicketStatus {
   PENDING = 'PENDING',
   VALID = 'VALID',
   EXTENDABLE = 'EXTENDABLE',
+  REFRESH_NEEDED = 'REFRESH_NEEDED',
   EXPIRED = 'EXPIRED',
   OTHER = 'OTHER'
 }
@@ -48,6 +49,7 @@ export interface DigTicket {
   expirationDate: string;
   siteContact: string;
   createdAt: number;
+  refreshRequested?: boolean;
 }
 
 export interface JobPhoto {
