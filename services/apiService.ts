@@ -2,17 +2,29 @@
 import { supabase, getSupabaseConfig } from '../lib/supabaseClient.ts';
 import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job } from '../types.ts';
 
-export const SQL_SCHEMA = `-- 1. THE ULTIMATE POLICY NUKER
+export const SQL_SCHEMA = `-- 1. THE ULTIMATE POLICY NUKER (Tables & Storage)
 DO $$ 
 DECLARE 
     r RECORD;
 BEGIN
+    -- Drop table policies
     FOR r IN (
-        SELECT policyname, tablename FROM pg_policies 
+        SELECT policyname, tablename 
+        FROM pg_policies 
         WHERE schemaname = 'public' 
         AND tablename IN ('profiles', 'jobs', 'tickets', 'photos', 'notes')
     ) LOOP
         EXECUTE 'DROP POLICY IF EXISTS ' || quote_ident(r.policyname) || ' ON ' || quote_ident(r.tablename);
+    END LOOP;
+
+    -- Drop storage policies
+    FOR r IN (
+        SELECT policyname 
+        FROM pg_policies 
+        WHERE schemaname = 'storage' 
+        AND tablename = 'objects'
+    ) LOOP
+        EXECUTE 'DROP POLICY IF EXISTS ' || quote_ident(r.policyname) || ' ON storage.objects';
     END LOOP;
 END $$;
 
@@ -21,7 +33,10 @@ create table if not exists jobs (id uuid primary key, job_number text, customer 
 create table if not exists tickets (id uuid primary key, job_number text, ticket_no text, address text, county text, city text, state text, call_in_date text, dig_start text, expiration_date text, site_contact text, created_at timestamp with time zone default now());
 create table if not exists photos (id uuid primary key, job_number text, data_url text, caption text, created_at timestamp with time zone default now());
 create table if not exists notes (id uuid primary key, job_number text, text text, author text, timestamp bigint);
-create table if not exists profiles (id uuid primary key, name text, username text, role text);
+create table if not exists profiles (id uuid primary key, name text, username text, role text, password text);
+
+-- 2.1 COLUMN FIXES (Ensure password column exists if table was created earlier)
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS password text;
 
 -- 3. ENABLE RLS
 alter table jobs enable row level security;
@@ -30,16 +45,48 @@ alter table photos enable row level security;
 alter table notes enable row level security;
 alter table profiles enable row level security;
 
--- 4. POLICIES
+-- 4. TABLE POLICIES (Allow all authenticated access)
 create policy "allow_authenticated_all" on profiles for all to authenticated using (true) with check (true);
 create policy "allow_authenticated_all" on jobs for all to authenticated using (true) with check (true);
 create policy "allow_authenticated_all" on tickets for all to authenticated using (true) with check (true);
 create policy "allow_authenticated_all" on photos for all to authenticated using (true) with check (true);
 create policy "allow_authenticated_all" on notes for all to authenticated using (true) with check (true);
 
+-- 5. STORAGE SETUP
+-- Create the bucket if it doesn't exist
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('job-photos', 'job-photos', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Storage Policy: Allow public to view photos
+CREATE POLICY "Public Access for Job Photos"
+ON storage.objects FOR SELECT
+USING ( bucket_id = 'job-photos' );
+
+-- Storage Policy: Allow authenticated users to upload
+CREATE POLICY "Authenticated Upload for Job Photos"
+ON storage.objects FOR INSERT
+TO authenticated
+WITH CHECK ( bucket_id = 'job-photos' );
+
+-- Storage Policy: Allow authenticated users to delete
+CREATE POLICY "Authenticated Delete for Job Photos"
+ON storage.objects FOR DELETE
+TO authenticated
+USING ( bucket_id = 'job-photos' );
+
 grant all on all tables in schema public to authenticated;`;
 
-const generateUUID = () => crypto.randomUUID();
+const generateUUID = () => {
+  try {
+    return crypto.randomUUID();
+  } catch (e) {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      const r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
+};
 
 const mapJob = (data: any): Job => ({
   id: data.id,
@@ -57,18 +104,17 @@ export const apiService = {
   async getUsers(): Promise<UserRecord[]> {
     const { data, error } = await supabase.from('profiles').select('*');
     if (error) return [];
-    return (data || []).map(u => ({ 
-      ...u, 
-      role: u.role?.toUpperCase() === 'ADMIN' ? UserRole.ADMIN : UserRole.CREW 
-    }));
+    return (data || []).map(u => ({ ...u, role: u.role?.toUpperCase() === 'ADMIN' ? UserRole.ADMIN : UserRole.CREW }));
   },
 
   async addUser(user: Partial<UserRecord>): Promise<UserRecord> {
+    const id = user.id || generateUUID();
     const newUserRecord = { 
-      id: user.id || generateUUID(), 
+      id, 
       name: user.name, 
       username: user.username, 
-      role: user.role || UserRole.CREW
+      role: user.role || UserRole.CREW,
+      password: user.password || '' 
     };
     const { data, error } = await supabase.from('profiles').upsert([newUserRecord]).select().single();
     if (error) throw error;
@@ -120,6 +166,7 @@ export const apiService = {
         callInDate: t.call_in_date,
         digStart: t.dig_start,
         expirationDate: t.expiration_date,
+        // Fix: Changed site_contact to siteContact to match DigTicket interface
         siteContact: t.site_contact,
         createdAt: new Date(t.created_at).getTime()
     }));
@@ -151,6 +198,7 @@ export const apiService = {
         callInDate: data.call_in_date,
         digStart: data.dig_start,
         expirationDate: data.expiration_date,
+        // Fix: Changed site_contact to siteContact to match DigTicket interface
         siteContact: data.site_contact,
         createdAt: new Date(data.created_at).getTime()
     };
@@ -170,25 +218,42 @@ export const apiService = {
   async addPhoto(photo: Omit<JobPhoto, 'id' | 'dataUrl'>, file: File): Promise<JobPhoto> {
     const id = generateUUID();
     const fileExt = file.name.split('.').pop();
-    const filePath = `${photo.jobNumber}/${id}.${fileExt}`;
+    const fileName = `${id}.${fileExt}`;
+    const filePath = `${photo.jobNumber}/${fileName}`;
 
-    const { error: uploadError } = await supabase.storage.from('job-photos').upload(filePath, file);
+    // 1. Upload to Storage Bucket 'job-photos'
+    const { error: uploadError } = await supabase.storage
+      .from('job-photos')
+      .upload(filePath, file);
+
     if (uploadError) throw uploadError;
 
-    const { data: { publicUrl } } = supabase.storage.from('job-photos').getPublicUrl(filePath);
+    // 2. Get Public URL
+    const { data: { publicUrl } } = supabase.storage
+      .from('job-photos')
+      .getPublicUrl(filePath);
 
+    // 3. Save Record to Database
     const { error: dbError } = await supabase.from('photos').insert([{
       id: id,
       job_number: photo.jobNumber,
       data_url: publicUrl,
       caption: photo.caption
     }]);
+
     if (dbError) throw dbError;
 
     return { ...photo, id, dataUrl: publicUrl };
   },
 
   async deletePhoto(id: string): Promise<void> {
+    const { data } = await supabase.from('photos').select('data_url, job_number').eq('id', id).single();
+    if (data) {
+        const parts = data.data_url.split('/');
+        const fileName = parts[parts.length - 1];
+        const filePath = `${data.job_number}/${fileName}`;
+        await supabase.storage.from('job-photos').remove([filePath]);
+    }
     const { error } = await supabase.from('photos').delete().eq('id', id);
     if (error) throw error;
   },

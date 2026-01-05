@@ -22,8 +22,36 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
   onThemeChange, 
   onToggleRole 
 }) => {
+  const [showAddForm, setShowAddForm] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSqlViewer, setShowSqlViewer] = useState(false);
+  const [formData, setFormData] = useState({
+    name: '',
+    username: '',
+    password: '',
+    role: UserRole.CREW
+  });
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.name || !formData.username || !formData.password) {
+      alert("Please fill in all fields, including password.");
+      return;
+    }
+    
+    setIsSubmitting(true);
+    try {
+      await onAddUser(formData);
+      setFormData({ name: '', username: '', password: '', role: UserRole.CREW });
+      setShowAddForm(false);
+    } catch (err: any) {
+      // Error is handled in App.tsx but we catch here to stop loading state
+      console.error("Submit error:", err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const copyFixSql = () => {
     try {
@@ -64,12 +92,9 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
       {/* System Controls */}
       <div className={`p-8 rounded-[2.5rem] shadow-sm border ${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-200'}`}>
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-          <div className="max-w-md">
-            <h2 className={`text-xl font-black tracking-tight uppercase ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>System Management</h2>
+          <div>
+            <h2 className={`text-xl font-black tracking-tight uppercase ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>System Security</h2>
             <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Identity & Database Integrity</p>
-            <p className="text-[11px] text-slate-400 mt-4 leading-relaxed">
-              New team members should <span className="text-brand font-black">Sign Up</span> at the login screen. Once they create an account, they will appear here, and you can grant them Administrator access.
-            </p>
           </div>
           <div className="flex flex-wrap gap-3 items-center w-full md:w-auto">
             <button 
@@ -99,16 +124,67 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
             <div className={`p-6 rounded-3xl border font-mono text-[10px] overflow-x-auto whitespace-pre ${isDarkMode ? 'bg-black/40 border-white/10 text-brand' : 'bg-slate-50 border-slate-200 text-slate-700'}`}>
               {SQL_SCHEMA}
             </div>
+            <p className="mt-4 text-[9px] font-bold text-slate-500 text-center uppercase tracking-widest italic">Copy this code manually and run it in the Supabase SQL Editor</p>
           </div>
         )}
       </div>
 
+      {/* Crew Header */}
+      <div className="flex justify-between items-center px-4">
+        <div>
+          <h2 className={`text-xl font-black tracking-tight uppercase ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Crew Registry</h2>
+          <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">{users.length} Active Profiles</p>
+        </div>
+        {isAdmin && (
+          <button 
+            onClick={() => setShowAddForm(!showAddForm)}
+            className={`px-6 py-3.5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all ${showAddForm ? 'bg-slate-500 text-white' : 'bg-brand text-[#0f172a] shadow-xl shadow-brand/30'}`}
+          >
+            {showAddForm ? 'Cancel Registration' : 'Register New User'}
+          </button>
+        )}
+      </div>
+
+      {showAddForm && (
+        <div className={`p-8 rounded-[2.5rem] border animate-in slide-in-from-top-4 duration-300 ${isDarkMode ? 'bg-black/20 border-white/10' : 'bg-white border-slate-200 shadow-xl shadow-slate-100'}`}>
+          <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 items-end">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Full Name</label>
+              <input required disabled={isSubmitting} className={`w-full px-5 py-4 border rounded-xl text-sm font-black outline-none focus:ring-4 focus:ring-brand/10 ${isDarkMode ? 'bg-black/40 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Email / Username</label>
+              <input required disabled={isSubmitting} type="email" className={`w-full px-5 py-4 border rounded-xl text-sm font-black outline-none focus:ring-4 focus:ring-brand/10 ${isDarkMode ? 'bg-black/40 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Secure Password</label>
+              <input required disabled={isSubmitting} type="password" className={`w-full px-5 py-4 border rounded-xl text-sm font-black outline-none focus:ring-4 focus:ring-brand/10 ${isDarkMode ? 'bg-black/40 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} placeholder="••••••••" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Base Role</label>
+              <select disabled={isSubmitting} className={`w-full px-5 py-4 border rounded-xl text-sm font-black outline-none focus:ring-4 focus:ring-brand/10 ${isDarkMode ? 'bg-black/40 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as UserRole})}>
+                <option value={UserRole.CREW}>Crew Member</option>
+                <option value={UserRole.ADMIN}>Administrator</option>
+              </select>
+            </div>
+            <button 
+              type="submit" 
+              disabled={isSubmitting}
+              className="bg-brand text-[#0f172a] px-6 py-4.5 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-brand/20 hover:scale-[1.02] transition-transform flex items-center justify-center gap-2"
+            >
+              {isSubmitting ? (
+                <>
+                  <div className="w-3 h-3 border-2 border-[#0f172a] border-t-transparent rounded-full animate-spin" />
+                  Saving...
+                </>
+              ) : 'Save Access'}
+            </button>
+          </form>
+        </div>
+      )}
+
       {/* User Table */}
       <div className={`rounded-[2.5rem] shadow-sm border overflow-hidden ${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-200'}`}>
-        <div className="p-8 border-b border-slate-100 flex justify-between items-center">
-          <h2 className={`text-xl font-black tracking-tight uppercase ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Crew Registry</h2>
-          <span className="text-[10px] font-black text-slate-400 bg-slate-100 px-3 py-1.5 rounded-full uppercase tracking-widest">{users.length} Registered</span>
-        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead className={`${isDarkMode ? 'bg-black/20 border-white/5' : 'bg-slate-50 border-slate-200'} border-b`}>
@@ -163,6 +239,11 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
               })}
             </tbody>
           </table>
+          {(users || []).length === 0 && (
+            <div className="py-20 text-center">
+              <p className="text-xs font-black text-slate-400 uppercase tracking-widest">No access logs found in database</p>
+            </div>
+          )}
         </div>
       </div>
     </div>
