@@ -31,6 +31,7 @@ const App: React.FC = () => {
   const [editingJob, setEditingJob] = useState<Job | null>(null);
   const [noShowTicket, setNoShowTicket] = useState<DigTicket | null>(null);
   const [globalSearch, setGlobalSearch] = useState('');
+  const [activeFilter, setActiveFilter] = useState<TicketStatus | 'NO_SHOW' | null>(null);
   const [sortConfig, setSortConfig] = useState<{ field: SortField; order: SortOrder }>({
     field: 'createdAt',
     order: 'desc'
@@ -177,11 +178,23 @@ const App: React.FC = () => {
     }
   };
 
+  const handleCancelNoShow = async (ticket: DigTicket, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (window.confirm(`Clear No Show status for Ticket #${ticket.ticketNo}?`)) {
+      try {
+        const updatedTicket = { ...ticket, noShowRequested: false };
+        const saved = await apiService.saveTicket(updatedTicket);
+        setTickets(prev => prev.map(t => t.id === saved.id ? saved : t));
+      } catch (error: any) {
+        alert(`Error clearing no-show: ${error.message}`);
+      }
+    }
+  };
+
   const handleSaveNoShow = async (record: NoShowRecord) => {
     try {
       await apiService.addNoShow(record);
       
-      // Also update the ticket to reflect no show status
       const originalTicket = tickets.find(t => t.id === record.ticketId);
       if (originalTicket) {
         const updatedTicket = { ...originalTicket, noShowRequested: true };
@@ -245,11 +258,25 @@ const App: React.FC = () => {
 
   const filteredAndSortedTickets = useMemo(() => {
     let result = activeTickets.filter(t => {
+      // 1. Text Search Filter
       const s = globalSearch.toLowerCase().trim();
-      if (!s) return true;
-      return t.ticketNo.toLowerCase().includes(s) || 
+      const matchesSearch = !s || 
+             t.ticketNo.toLowerCase().includes(s) || 
              t.address.toLowerCase().includes(s) || 
              t.jobNumber.toLowerCase().includes(s);
+      
+      if (!matchesSearch) return false;
+
+      // 2. Category Filter
+      if (activeFilter) {
+        if (activeFilter === 'NO_SHOW') {
+          return t.noShowRequested === true;
+        } else {
+          return getTicketStatus(t) === activeFilter;
+        }
+      }
+
+      return true;
     });
     
     result.sort((a, b) => {
@@ -266,7 +293,7 @@ const App: React.FC = () => {
       return factor * ((valA ?? 0) - (valB ?? 0));
     });
     return result;
-  }, [activeTickets, globalSearch, sortConfig]);
+  }, [activeTickets, globalSearch, sortConfig, activeFilter]);
 
   if (isLoading) return (
     <div className="min-h-screen bg-[#0f172a] flex flex-col items-center justify-center">
@@ -321,7 +348,12 @@ const App: React.FC = () => {
       <main className="max-w-[1400px] mx-auto px-4 py-6 animate-in">
         {activeView === 'dashboard' && (
           <div className="space-y-6">
-            <StatCards tickets={activeTickets} isDarkMode={isDarkMode} />
+            <StatCards 
+              tickets={activeTickets} 
+              isDarkMode={isDarkMode} 
+              activeFilter={activeFilter}
+              onFilterClick={setActiveFilter}
+            />
             <div className={`${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-200'} rounded-2xl shadow-sm border overflow-hidden`}>
               <div className="overflow-x-auto">
                 <table className="w-full text-left">
@@ -359,8 +391,15 @@ const App: React.FC = () => {
                           <td className="px-5 py-2.5 text-right">
                             <div className="flex items-center justify-end gap-1.5">
                               <button 
-                                onClick={(e) => { e.stopPropagation(); setNoShowTicket(ticket); }}
-                                title="Call No Shows"
+                                onClick={(e) => { 
+                                  e.stopPropagation(); 
+                                  if (ticket.noShowRequested) {
+                                    handleCancelNoShow(ticket, e);
+                                  } else {
+                                    setNoShowTicket(ticket); 
+                                  }
+                                }}
+                                title={ticket.noShowRequested ? "Clear No Show Request" : "Log No Show"}
                                 className={`p-2 rounded-lg transition-all border shadow-sm ${ticket.noShowRequested ? 'bg-rose-500 text-white border-rose-500 shadow-rose-500/20' : 'bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white border-rose-500/20'}`}
                               >
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
@@ -379,6 +418,13 @@ const App: React.FC = () => {
                         </tr>
                       );
                     })}
+                    {filteredAndSortedTickets.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="px-5 py-20 text-center opacity-30">
+                          <p className="text-[10px] font-black uppercase tracking-[0.2em]">No records found matching filters</p>
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -400,7 +446,7 @@ const App: React.FC = () => {
             { id: 'photos', label: 'Media', icon: 'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z' },
             { id: 'team', label: 'Admin', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066' }
           ].map((v) => (
-            <button key={v.id} onClick={() => setActiveView(v.id as AppView)} className={`flex flex-col items-center gap-1 py-1.5 px-6 rounded-xl transition-all ${activeView === v.id ? 'bg-brand text-[#0f172a] shadow-lg shadow-brand/20 scale-105' : 'text-slate-500 hover:text-brand'}`}>
+            <button key={v.id} onClick={() => { setActiveView(v.id as AppView); setActiveFilter(null); }} className={`flex flex-col items-center gap-1 py-1.5 px-6 rounded-xl transition-all ${activeView === v.id ? 'bg-brand text-[#0f172a] shadow-lg shadow-brand/20 scale-105' : 'text-slate-500 hover:text-brand'}`}>
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d={v.icon} /></svg>
               <span className="text-[8px] font-black uppercase tracking-tighter">{v.label}</span>
             </button>
