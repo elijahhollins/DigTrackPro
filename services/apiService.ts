@@ -35,7 +35,7 @@ BEGIN
     END IF;
 END $$;
 
--- Force PostgREST to reload the schema cache
+-- Force PostgREST to reload the schema cache (REOLVES THE 'COLUMN NOT FOUND' ERROR)
 NOTIFY pgrst, 'reload schema';
 
 -- 4. ENABLE RLS
@@ -47,12 +47,12 @@ alter table profiles enable row level security;
 alter table no_shows enable row level security;
 
 -- 5. POLICIES (Simplified for dev)
-create policy "allow_authenticated_all" on profiles for all to authenticated using (true) with check (true);
-create policy "allow_authenticated_all" on jobs for all to authenticated using (true) with check (true);
-create policy "allow_authenticated_all" on tickets for all to authenticated using (true) with check (true);
-create policy "allow_authenticated_all" on photos for all to authenticated using (true) with check (true);
-create policy "allow_authenticated_all" on notes for all to authenticated using (true) with check (true);
-create policy "allow_authenticated_all" on no_shows for all to authenticated using (true) with check (true);
+create policy "allow_auth_profiles" on profiles for all to authenticated using (true) with check (true);
+create policy "allow_auth_jobs" on jobs for all to authenticated using (true) with check (true);
+create policy "allow_auth_tickets" on tickets for all to authenticated using (true) with check (true);
+create policy "allow_auth_photos" on photos for all to authenticated using (true) with check (true);
+create policy "allow_auth_notes" on notes for all to authenticated using (true) with check (true);
+create policy "allow_auth_noshows" on no_shows for all to authenticated using (true) with check (true);
 
 grant all on all tables in schema public to authenticated;`;
 
@@ -143,6 +143,7 @@ export const apiService = {
   },
 
   async saveTicket(ticket: DigTicket): Promise<DigTicket> {
+    // Corrected mapping: Mapping DigTicket camelCase properties to database snake_case columns
     const { data, error } = await supabase.from('tickets').upsert({
       id: ticket.id,
       job_number: ticket.jobNumber,
@@ -172,6 +173,7 @@ export const apiService = {
         expirationDate: data.expiration_date,
         siteContact: data.site_contact,
         refreshRequested: data.refresh_requested ?? false,
+        // Corrected property name for return object
         noShowRequested: data.no_show_requested ?? false,
         createdAt: new Date(data.created_at).getTime()
     };
