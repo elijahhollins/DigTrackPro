@@ -52,6 +52,16 @@ export interface DigTicket {
   refreshRequested?: boolean;
 }
 
+export interface NoShowRecord {
+  id: string;
+  ticketId: string;
+  jobNumber: string;
+  utilities: string[];
+  companies: string;
+  author: string;
+  timestamp: number;
+}
+
 export interface JobPhoto {
   id: string;
   jobNumber: string;

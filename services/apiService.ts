@@ -1,6 +1,6 @@
 
 import { supabase } from '../lib/supabaseClient.ts';
-import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job } from '../types.ts';
+import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job, NoShowRecord } from '../types.ts';
 
 export const SQL_SCHEMA = `-- 1. SECURITY POLICY NUKER
 DO $$ 
@@ -10,7 +10,7 @@ BEGIN
     FOR r IN (
         SELECT policyname, tablename FROM pg_policies 
         WHERE schemaname = 'public' 
-        AND tablename IN ('profiles', 'jobs', 'tickets', 'photos', 'notes')
+        AND tablename IN ('profiles', 'jobs', 'tickets', 'photos', 'notes', 'no_shows')
     ) LOOP
         EXECUTE 'DROP POLICY IF EXISTS ' || quote_ident(r.policyname) || ' ON ' || quote_ident(r.tablename);
     END LOOP;
@@ -22,6 +22,7 @@ create table if not exists tickets (id uuid primary key, job_number text, ticket
 create table if not exists photos (id uuid primary key, job_number text, data_url text, caption text, created_at timestamp with time zone default now());
 create table if not exists notes (id uuid primary key, job_number text, text text, author text, timestamp bigint);
 create table if not exists profiles (id uuid primary key, name text, username text, role text);
+create table if not exists no_shows (id uuid primary key, ticket_id uuid, job_number text, utilities text[], companies text, author text, timestamp bigint);
 
 -- 3. SCHEMA MIGRATION (Ensures column exists for legacy tables and reloads cache)
 DO $$ 
@@ -40,6 +41,7 @@ alter table tickets enable row level security;
 alter table photos enable row level security;
 alter table notes enable row level security;
 alter table profiles enable row level security;
+alter table no_shows enable row level security;
 
 -- 5. POLICIES (Simplified for dev)
 create policy "allow_authenticated_all" on profiles for all to authenticated using (true) with check (true);
@@ -47,6 +49,7 @@ create policy "allow_authenticated_all" on jobs for all to authenticated using (
 create policy "allow_authenticated_all" on tickets for all to authenticated using (true) with check (true);
 create policy "allow_authenticated_all" on photos for all to authenticated using (true) with check (true);
 create policy "allow_authenticated_all" on notes for all to authenticated using (true) with check (true);
+create policy "allow_authenticated_all" on no_shows for all to authenticated using (true) with check (true);
 
 grant all on all tables in schema public to authenticated;`;
 
@@ -171,6 +174,33 @@ export const apiService = {
   async deleteTicket(id: string): Promise<void> {
     const { error } = await supabase.from('tickets').delete().eq('id', id);
     if (error) throw error;
+  },
+
+  async addNoShow(noShow: NoShowRecord): Promise<void> {
+    const { error } = await supabase.from('no_shows').insert([{
+      id: noShow.id,
+      ticket_id: noShow.ticketId,
+      job_number: noShow.jobNumber,
+      utilities: noShow.utilities,
+      companies: noShow.companies,
+      author: noShow.author,
+      timestamp: noShow.timestamp
+    }]);
+    if (error) throw error;
+  },
+
+  async getNoShows(): Promise<NoShowRecord[]> {
+    const { data, error } = await supabase.from('no_shows').select('*');
+    if (error) return [];
+    return (data || []).map(n => ({
+      id: n.id,
+      ticketId: n.ticket_id,
+      jobNumber: n.job_number,
+      utilities: n.utilities || [],
+      companies: n.companies || '',
+      author: n.author || '',
+      timestamp: n.timestamp
+    }));
   },
 
   async getPhotos(): Promise<JobPhoto[]> {

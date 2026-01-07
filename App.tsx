@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, User, UserRole, Job, JobNote, UserRecord } from './types.ts';
+import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, User, UserRole, Job, JobNote, UserRecord, NoShowRecord } from './types.ts';
 import { getTicketStatus, getStatusColor } from './utils/dateUtils.ts';
 import { apiService } from './services/apiService.ts';
 import { supabase } from './lib/supabaseClient.ts';
@@ -11,6 +11,7 @@ import JobReview from './components/JobReview.tsx';
 import PhotoManager from './components/PhotoManager.tsx';
 import CalendarView from './components/CalendarView.tsx';
 import TeamManagement from './components/TeamManagement.tsx';
+import NoShowForm from './components/NoShowForm.tsx';
 import Login from './components/Login.tsx';
 
 const App: React.FC = () => {
@@ -28,6 +29,7 @@ const App: React.FC = () => {
   const [showJobForm, setShowJobForm] = useState(false);
   const [editingTicket, setEditingTicket] = useState<DigTicket | null>(null);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
+  const [noShowTicket, setNoShowTicket] = useState<DigTicket | null>(null);
   const [globalSearch, setGlobalSearch] = useState('');
   const [sortConfig, setSortConfig] = useState<{ field: SortField; order: SortOrder }>({
     field: 'createdAt',
@@ -172,6 +174,24 @@ const App: React.FC = () => {
       setTickets(prev => prev.map(t => t.id === saved.id ? saved : t));
     } catch (error: any) {
       alert(`Refresh Request Error: ${error.message}`);
+    }
+  };
+
+  const handleSaveNoShow = async (record: NoShowRecord) => {
+    try {
+      await apiService.addNoShow(record);
+      // Optional: Add a note or notification that a no-show was logged
+      const note: JobNote = {
+        id: crypto.randomUUID(),
+        jobNumber: record.jobNumber,
+        text: `LOGGED NO SHOW: Utilities: ${record.utilities.join(', ')}. ${record.companies ? `Companies: ${record.companies}` : ''}`,
+        author: sessionUser?.name || 'System',
+        timestamp: record.timestamp
+      };
+      await apiService.addNote(note);
+      setNotes(prev => [note, ...prev]);
+    } catch (error: any) {
+      alert(`Error logging no-show: ${error.message}`);
     }
   };
 
@@ -322,15 +342,24 @@ const App: React.FC = () => {
                           </td>
                           <td className="px-5 py-2.5 text-[11px] font-bold text-right opacity-40">{new Date(ticket.expirationDate).toLocaleDateString()}</td>
                           <td className="px-5 py-2.5 text-right">
-                            <button 
-                              onClick={(e) => handleToggleRefresh(ticket, e)}
-                              title={ticket.refreshRequested ? "Cancel Refresh Request" : "Request Refresh"}
-                              className={`p-2 rounded-lg transition-all ${ticket.refreshRequested ? 'bg-amber-100 text-amber-600 shadow-sm border border-amber-300' : 'bg-black/5 text-slate-400 hover:text-amber-500 hover:bg-amber-50'}`}
-                            >
-                              <svg className={`w-3.5 h-3.5 ${ticket.refreshRequested ? 'animate-[spin_4s_linear_infinite]' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                              </svg>
-                            </button>
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); setNoShowTicket(ticket); }}
+                                title="Call No Shows"
+                                className="p-2 rounded-lg bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white transition-all border border-rose-500/20 shadow-sm"
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
+                              </button>
+                              <button 
+                                onClick={(e) => handleToggleRefresh(ticket, e)}
+                                title={ticket.refreshRequested ? "Cancel Refresh Request" : "Request Refresh"}
+                                className={`p-2 rounded-lg transition-all ${ticket.refreshRequested ? 'bg-amber-100 text-amber-600 shadow-sm border border-amber-300' : 'bg-black/5 text-slate-400 hover:text-amber-500 hover:bg-amber-50'}`}
+                              >
+                                <svg className={`w-3.5 h-3.5 ${ticket.refreshRequested ? 'animate-[spin_4s_linear_infinite]' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                </svg>
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -366,6 +395,7 @@ const App: React.FC = () => {
 
       {(showTicketForm || editingTicket) && <TicketForm onAdd={handleSaveTicket} onClose={() => { setShowTicketForm(false); setEditingTicket(null); }} initialData={editingTicket || undefined} users={users} isDarkMode={isDarkMode} />}
       {(showJobForm || editingJob) && <JobForm onSave={handleSaveJob} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} isDarkMode={isDarkMode} />}
+      {noShowTicket && <NoShowForm ticket={noShowTicket} userName={sessionUser?.name || 'User'} onSave={handleSaveNoShow} onClose={() => setNoShowTicket(null)} isDarkMode={isDarkMode} />}
     </div>
   );
 };
