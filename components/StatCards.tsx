@@ -15,6 +15,8 @@ const StatCards = ({ tickets, isDarkMode }: StatCardsProps) => {
     return acc;
   }, {} as Record<string, number>);
 
+  const noShowCount = tickets.filter(t => t.noShowRequested).length;
+
   const items = [
     { 
       label: 'Sites Valid', 
@@ -37,15 +39,22 @@ const StatCards = ({ tickets, isDarkMode }: StatCardsProps) => {
       darkBorder: 'border-amber-500/20' 
     },
     { 
+      label: 'No Shows Req', 
+      value: noShowCount, 
+      color: 'text-rose-500', 
+      description: 'Call Ins Required',
+      darkBorder: 'border-rose-500/20' 
+    },
+    { 
       label: 'Expirations', 
       value: stats[TicketStatus.EXPIRED] || 0, 
-      color: 'text-rose-500', 
-      darkBorder: 'border-rose-500/20' 
+      color: 'text-rose-600', 
+      darkBorder: 'border-rose-600/20' 
     },
   ];
 
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
       {items.map((it, idx) => (
         <div key={idx} className={`p-4 rounded-xl border transition-all ${isDarkMode ? `bg-[#1e293b] ${it.darkBorder}` : `bg-white border-slate-200`} shadow-sm`}>
           <div className="flex justify-between items-start">

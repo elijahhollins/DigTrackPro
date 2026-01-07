@@ -18,7 +18,7 @@ END $$;
 
 -- 2. TABLE INITIALIZATION
 create table if not exists jobs (id uuid primary key, job_number text, customer text, address text, city text, state text, county text, is_complete boolean default false, created_at timestamp with time zone default now());
-create table if not exists tickets (id uuid primary key, job_number text, ticket_no text, address text, county text, city text, state text, call_in_date text, dig_start text, expiration_date text, site_contact text, refresh_requested boolean default false, created_at timestamp with time zone default now());
+create table if not exists tickets (id uuid primary key, job_number text, ticket_no text, address text, county text, city text, state text, call_in_date text, dig_start text, expiration_date text, site_contact text, refresh_requested boolean default false, no_show_requested boolean default false, created_at timestamp with time zone default now());
 create table if not exists photos (id uuid primary key, job_number text, data_url text, caption text, created_at timestamp with time zone default now());
 create table if not exists notes (id uuid primary key, job_number text, text text, author text, timestamp bigint);
 create table if not exists profiles (id uuid primary key, name text, username text, role text);
@@ -29,6 +29,9 @@ DO $$
 BEGIN 
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='refresh_requested') THEN
         ALTER TABLE tickets ADD COLUMN refresh_requested boolean DEFAULT false;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='no_show_requested') THEN
+        ALTER TABLE tickets ADD COLUMN no_show_requested boolean DEFAULT false;
     END IF;
 END $$;
 
@@ -134,6 +137,7 @@ export const apiService = {
         expirationDate: t.expiration_date,
         siteContact: t.site_contact,
         refreshRequested: t.refresh_requested ?? false,
+        noShowRequested: t.no_show_requested ?? false,
         createdAt: new Date(t.created_at).getTime()
     }));
   },
@@ -151,7 +155,8 @@ export const apiService = {
       dig_start: ticket.digStart,
       expiration_date: ticket.expirationDate,
       site_contact: ticket.siteContact,
-      refresh_requested: ticket.refreshRequested ?? false
+      refresh_requested: ticket.refreshRequested ?? false,
+      no_show_requested: ticket.noShowRequested ?? false
     }).select().single();
     if (error) throw error;
     return {
@@ -167,6 +172,7 @@ export const apiService = {
         expirationDate: data.expiration_date,
         siteContact: data.site_contact,
         refreshRequested: data.refresh_requested ?? false,
+        noShowRequested: data.no_show_requested ?? false,
         createdAt: new Date(data.created_at).getTime()
     };
   },

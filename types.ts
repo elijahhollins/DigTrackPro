@@ -50,6 +50,7 @@ export interface DigTicket {
   siteContact: string;
   createdAt: number;
   refreshRequested?: boolean;
+  noShowRequested?: boolean;
 }
 
 export interface NoShowRecord {
