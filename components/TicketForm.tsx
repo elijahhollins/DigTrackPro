@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { DigTicket, UserRecord } from '../types.ts';
 import { parseTicketData } from '../services/geminiService.ts';
 
 interface TicketFormProps {
-  onAdd: (ticket: Omit<DigTicket, 'id' | 'createdAt'>) => Promise<void>;
+  onAdd: (ticket: Omit<DigTicket, 'id' | 'createdAt'>, archiveOld: boolean) => Promise<void>;
   onClose: () => void;
   initialData?: DigTicket;
   users: UserRecord[];
@@ -12,6 +13,7 @@ interface TicketFormProps {
 
 const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, users = [], isDarkMode }) => {
   const [activeTab, setActiveTab] = useState<'manual' | 'batch' | 'pdf'>('manual');
+  const [archiveOld, setArchiveOld] = useState(false);
   const [formData, setFormData] = useState({
     jobNumber: '', ticketNo: '', address: '', county: '', city: '', state: '',
     callInDate: '', digStart: '', expirationDate: '', siteContact: '',
@@ -34,6 +36,8 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
         expirationDate: initialData.expirationDate || '',
         siteContact: initialData.siteContact || '',
       });
+      // Default archiveOld to true if editing, since most date changes are refreshes
+      setArchiveOld(true);
     }
   }, [initialData]);
 
@@ -53,7 +57,7 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onAdd(formData);
+    onAdd(formData, archiveOld);
   };
 
   return (
@@ -103,6 +107,22 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
                   <input type="date" className={`w-full px-3 py-2 border rounded-lg text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.expirationDate} onChange={e => setFormData({...formData, expirationDate: e.target.value})} />
                 </div>
               </div>
+
+              {initialData && (
+                <div className="flex items-center gap-2 p-3 bg-black/5 rounded-xl border border-white/5">
+                  <input
+                    type="checkbox"
+                    id="archiveOld"
+                    className="w-4 h-4 rounded text-brand focus:ring-brand/20"
+                    checked={archiveOld}
+                    onChange={e => setArchiveOld(e.target.checked)}
+                  />
+                  <label htmlFor="archiveOld" className="text-[10px] font-black uppercase text-slate-400 cursor-pointer">
+                    Keep previous version as history
+                  </label>
+                </div>
+              )}
+
               <button type="submit" className="w-full bg-brand text-[#0f172a] py-3 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-brand/10 mt-2 transition-all hover:scale-[1.01]">Save Ticket</button>
             </form>
           ) : (

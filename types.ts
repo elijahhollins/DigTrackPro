@@ -51,6 +51,7 @@ export interface DigTicket {
   createdAt: number;
   refreshRequested?: boolean;
   noShowRequested?: boolean;
+  isArchived?: boolean;
 }
 
 export interface NoShowRecord {

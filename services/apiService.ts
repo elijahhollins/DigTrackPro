@@ -18,13 +18,13 @@ END $$;
 
 -- 2. TABLE INITIALIZATION
 create table if not exists jobs (id uuid primary key, job_number text, customer text, address text, city text, state text, county text, is_complete boolean default false, created_at timestamp with time zone default now());
-create table if not exists tickets (id uuid primary key, job_number text, ticket_no text, address text, county text, city text, state text, call_in_date text, dig_start text, expiration_date text, site_contact text, refresh_requested boolean default false, no_show_requested boolean default false, created_at timestamp with time zone default now());
+create table if not exists tickets (id uuid primary key, job_number text, ticket_no text, address text, county text, city text, state text, call_in_date text, dig_start text, expiration_date text, site_contact text, refresh_requested boolean default false, no_show_requested boolean default false, is_archived boolean default false, created_at timestamp with time zone default now());
 create table if not exists photos (id uuid primary key, job_number text, data_url text, caption text, created_at timestamp with time zone default now());
 create table if not exists notes (id uuid primary key, job_number text, text text, author text, timestamp bigint);
 create table if not exists profiles (id uuid primary key, name text, username text, role text);
 create table if not exists no_shows (id uuid primary key, ticket_id uuid, job_number text, utilities text[], companies text, author text, timestamp bigint);
 
--- 3. SCHEMA MIGRATION (Ensures column exists for legacy tables and reloads cache)
+-- 3. SCHEMA MIGRATION
 DO $$ 
 BEGIN 
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='refresh_requested') THEN
@@ -33,9 +33,11 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='no_show_requested') THEN
         ALTER TABLE tickets ADD COLUMN no_show_requested boolean DEFAULT false;
     END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='is_archived') THEN
+        ALTER TABLE tickets ADD COLUMN is_archived boolean DEFAULT false;
+    END IF;
 END $$;
 
--- Force PostgREST to reload the schema cache (REOLVES THE 'COLUMN NOT FOUND' ERROR)
 NOTIFY pgrst, 'reload schema';
 
 -- 4. ENABLE RLS
@@ -46,7 +48,7 @@ alter table notes enable row level security;
 alter table profiles enable row level security;
 alter table no_shows enable row level security;
 
--- 5. POLICIES (Simplified for dev)
+-- 5. POLICIES
 create policy "allow_auth_profiles" on profiles for all to authenticated using (true) with check (true);
 create policy "allow_auth_jobs" on jobs for all to authenticated using (true) with check (true);
 create policy "allow_auth_tickets" on tickets for all to authenticated using (true) with check (true);
@@ -79,12 +81,7 @@ export const apiService = {
 
   async addUser(user: Partial<UserRecord>): Promise<UserRecord> {
     const id = user.id || generateUUID();
-    const newUserRecord = { 
-      id, 
-      name: user.name, 
-      username: user.username, 
-      role: user.role || UserRole.CREW
-    };
+    const newUserRecord = { id, name: user.name, username: user.username, role: user.role || UserRole.CREW };
     const { data, error } = await supabase.from('profiles').upsert([newUserRecord]).select().single();
     if (error) throw error;
     return { ...data, role: data.role?.toUpperCase() === 'ADMIN' ? UserRole.ADMIN : UserRole.CREW };
@@ -138,12 +135,22 @@ export const apiService = {
         siteContact: t.site_contact,
         refreshRequested: t.refresh_requested ?? false,
         noShowRequested: t.no_show_requested ?? false,
+        isArchived: t.is_archived ?? false,
         createdAt: new Date(t.created_at).getTime()
     }));
   },
 
-  async saveTicket(ticket: DigTicket): Promise<DigTicket> {
-    // Corrected mapping: Mapping DigTicket camelCase properties to database snake_case columns
+  async saveTicket(ticket: DigTicket, archiveExisting: boolean = false): Promise<DigTicket> {
+    if (archiveExisting) {
+      // If we are saving a "Refresh", archive any existing active tickets with this number for this job
+      await supabase
+        .from('tickets')
+        .update({ is_archived: true })
+        .eq('ticket_no', ticket.ticketNo)
+        .eq('job_number', ticket.jobNumber)
+        .neq('id', ticket.id);
+    }
+
     const { data, error } = await supabase.from('tickets').upsert({
       id: ticket.id,
       job_number: ticket.jobNumber,
@@ -157,8 +164,10 @@ export const apiService = {
       expiration_date: ticket.expirationDate,
       site_contact: ticket.siteContact,
       refresh_requested: ticket.refreshRequested ?? false,
-      no_show_requested: ticket.noShowRequested ?? false
+      no_show_requested: ticket.noShowRequested ?? false,
+      is_archived: ticket.isArchived ?? false
     }).select().single();
+
     if (error) throw error;
     return {
         id: data.id,
@@ -173,8 +182,8 @@ export const apiService = {
         expirationDate: data.expiration_date,
         siteContact: data.site_contact,
         refreshRequested: data.refresh_requested ?? false,
-        // Corrected property name for return object
         noShowRequested: data.no_show_requested ?? false,
+        isArchived: data.is_archived ?? false,
         createdAt: new Date(data.created_at).getTime()
     };
   },

@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { DigTicket, TicketStatus, JobNote, Job } from '../types.ts';
 import { getTicketStatus, getStatusColor, getStatusDotColor } from '../utils/dateUtils.ts';
@@ -17,14 +18,22 @@ interface JobReviewProps {
 const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, notes, isAdmin, isDarkMode, onEditJob, onToggleComplete, onAddNote, onViewPhotos }) => {
   const [hideCompleted, setHideCompleted] = useState(false);
   const [jobSearch, setJobSearch] = useState('');
-  const [showNotesFor, setShowNotesFor] = useState<string | null>(null);
+  const [showHistoryFor, setShowHistoryFor] = useState<string | null>(null);
   const [newNoteText, setNewNoteText] = useState('');
 
   const groupedTickets = useMemo(() => {
-    const map: Record<string, DigTicket[]> = {};
+    const map: Record<string, { active: DigTicket[], archived: DigTicket[] }> = {};
     tickets.forEach(t => {
-      if (!map[t.jobNumber]) map[t.jobNumber] = [];
-      map[t.jobNumber].push(t);
+      if (!map[t.jobNumber]) map[t.jobNumber] = { active: [], archived: [] };
+      if (t.isArchived) {
+        map[t.jobNumber].archived.push(t);
+      } else {
+        map[t.jobNumber].active.push(t);
+      }
+    });
+    // Sort archived by expiration date descending
+    Object.values(map).forEach(group => {
+      group.archived.sort((a, b) => new Date(b.expirationDate).getTime() - new Date(a.expirationDate).getTime());
     });
     return map;
   }, [tickets]);
@@ -43,12 +52,6 @@ const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, notes, isAdmin, is
       })
       .sort((a, b) => b.localeCompare(a));
   }, [jobs, groupedTickets, jobSearch, hideCompleted]);
-
-  const handleNoteSubmit = (jobNumber: string) => {
-    if (!newNoteText.trim()) return;
-    onAddNote({ jobNumber, text: newNoteText });
-    setNewNoteText('');
-  };
 
   return (
     <div className="space-y-4 animate-in">
@@ -73,43 +76,66 @@ const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, notes, isAdmin, is
         {allJobNumbers.map(jobNum => {
           const jobEntity = jobs.find(j => j.jobNumber === jobNum);
           const isComplete = jobEntity?.isComplete || false;
-          const jobTickets = (groupedTickets[jobNum] || []);
-          const jobNotes = notes.filter(n => n.jobNumber === jobNum);
+          const jobTicketData = groupedTickets[jobNum] || { active: [], archived: [] };
+          const activeTickets = jobTicketData.active;
+          const archivedTickets = jobTicketData.archived;
+          const isHistoryOpen = showHistoryFor === jobNum;
 
           return (
-            <div key={jobNum} className={`p-5 rounded-2xl border transition-all ${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-100 shadow-sm'} ${isComplete ? 'opacity-50 grayscale-[0.2]' : ''}`}>
+            <div key={jobNum} className={`p-5 rounded-2xl border transition-all flex flex-col h-full ${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-100 shadow-sm'} ${isComplete ? 'opacity-50 grayscale-[0.2]' : ''}`}>
               <div className="flex justify-between items-start mb-4">
                 <div>
                   <h3 className={`text-sm font-black uppercase tracking-tight ${isComplete ? 'text-slate-400' : ''}`}>Job #{jobNum}</h3>
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1 truncate max-w-[180px]">{jobEntity?.customer || 'Unknown Client'}</p>
                 </div>
                 <div className="flex gap-1.5">
-                  <button onClick={() => onViewPhotos(jobNum)} className="p-2 rounded-lg bg-black/5 hover:bg-brand hover:text-white transition-all">
+                  <button onClick={() => onViewPhotos(jobNum)} title="View Media" className="p-2 rounded-lg bg-black/5 hover:bg-brand hover:text-white transition-all">
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16" /></svg>
                   </button>
                   {isAdmin && jobEntity && (
-                    <button onClick={() => onToggleComplete(jobEntity)} className={`p-2 rounded-lg border transition-all ${isComplete ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-black/5 border-transparent text-slate-300'}`}>
+                    <button onClick={() => onToggleComplete(jobEntity)} title={isComplete ? "Mark Active" : "Mark Complete"} className={`p-2 rounded-lg border transition-all ${isComplete ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-black/5 border-transparent text-slate-300'}`}>
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
                     </button>
                   )}
                 </div>
               </div>
 
-              <div className="space-y-1.5 border-t border-black/5 pt-4">
-                {jobTickets.slice(0, 3).map(t => {
+              <div className="space-y-1.5 border-t border-black/5 pt-4 flex-1">
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Active Tickets</p>
+                {activeTickets.map(t => {
                   const s = getTicketStatus(t);
                   return (
-                    <div key={t.id} className="flex items-center justify-between text-[10px] font-bold">
-                      <span className="opacity-40 font-mono truncate max-w-[100px]">{t.ticketNo}</span>
+                    <div key={t.id} className="flex items-center justify-between text-[10px] font-bold py-1">
+                      <span className="opacity-40 font-mono truncate max-w-[120px]">{t.ticketNo}</span>
                       <span className={`px-1.5 py-0.5 rounded-md border uppercase text-[8px] ${getStatusColor(s)}`}>{s}</span>
                     </div>
                   );
                 })}
-                {jobTickets.length > 3 && (
-                  <p className="text-[8px] font-black text-slate-400 uppercase text-center pt-1">+{jobTickets.length - 3} more</p>
+                {activeTickets.length === 0 && (
+                  <p className="text-[9px] italic text-slate-400 text-center py-2">No active tickets</p>
                 )}
-                {jobTickets.length === 0 && (
-                  <p className="text-[9px] italic text-slate-400 text-center py-1">No active tickets</p>
+
+                {archivedTickets.length > 0 && (
+                  <div className="mt-4 border-t border-black/5 pt-4">
+                    <button 
+                      onClick={() => setShowHistoryFor(isHistoryOpen ? null : jobNum)}
+                      className="w-full flex items-center justify-between text-[9px] font-black text-slate-400 uppercase tracking-widest hover:text-brand transition-colors"
+                    >
+                      <span>Ticket History ({archivedTickets.length})</span>
+                      <svg className={`w-3 h-3 transition-transform ${isHistoryOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7" /></svg>
+                    </button>
+                    
+                    {isHistoryOpen && (
+                      <div className="mt-2 space-y-1 animate-in">
+                        {archivedTickets.map(t => (
+                          <div key={t.id} className="flex items-center justify-between text-[9px] font-bold p-1.5 bg-black/5 rounded-lg opacity-60">
+                            <span className="font-mono">{t.ticketNo}</span>
+                            <span className="text-slate-400">Exp: {new Date(t.expirationDate).toLocaleDateString()}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
