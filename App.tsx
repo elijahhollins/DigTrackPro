@@ -149,7 +149,6 @@ const App: React.FC = () => {
 
   const handleSaveTicket = async (data: Omit<DigTicket, 'id' | 'createdAt'>, archiveOld: boolean = false) => {
     try {
-      // If archiving, we force a new ID so the old record remains in DB
       const ticket: DigTicket = (editingTicket && !archiveOld)
         ? { ...editingTicket, ...data }
         : { ...data, id: crypto.randomUUID(), createdAt: Date.now(), isArchived: false };
@@ -157,9 +156,7 @@ const App: React.FC = () => {
       const saved = await apiService.saveTicket(ticket, archiveOld);
       
       setTickets(prev => {
-        // If we archived, we need to refresh the whole list to see the update to previous tickets
         if (archiveOld) {
-          // Marking old ones in state as archived locally or just refetching
           const updatedList = prev.map(t => 
             (t.ticketNo === saved.ticketNo && t.jobNumber === saved.jobNumber && t.id !== saved.id)
             ? { ...t, isArchived: true }
@@ -263,7 +260,6 @@ const App: React.FC = () => {
 
   const activeTickets = useMemo(() => {
     const completedJobNumbers = new Set(jobs.filter(j => j.isComplete).map(j => j.jobNumber));
-    // Filter out archived tickets from the main dashboard
     return tickets.filter(t => !completedJobNumbers.has(t.jobNumber) && !t.isArchived);
   }, [tickets, jobs]);
 
@@ -403,7 +399,7 @@ const App: React.FC = () => {
         )}
         {activeView === 'calendar' && <CalendarView tickets={activeTickets} onEditTicket={(t) => isAdmin && setEditingTicket(t)} />}
         {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} notes={notes} isAdmin={isAdmin} isDarkMode={isDarkMode} onEditJob={(j) => isAdmin && setEditingJob(j)} onToggleComplete={handleToggleJobCompletion} onAddNote={async (note) => { const n = await apiService.addNote({...note, id: crypto.randomUUID(), timestamp: Date.now(), author: sessionUser.name}); setNotes(prev => [n, ...prev]); }} onViewPhotos={(j) => { setGlobalSearch(j); setActiveView('photos'); }} />}
-        {activeView === 'photos' && <PhotoManager photos={photos} initialSearch={globalSearch} isDarkMode={isDarkMode} onAddPhoto={async (metadata, file) => { const saved = await apiService.addPhoto(metadata, file); setPhotos(prev => [saved, ...prev]); return saved; }} onDeletePhoto={async (id) => { await apiService.deletePhoto(id); setPhotos(prev => prev.filter(p => p.id !== id)); }} />}
+        {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} initialSearch={globalSearch} isDarkMode={isDarkMode} onAddPhoto={async (metadata, file) => { const saved = await apiService.addPhoto(metadata, file); setPhotos(prev => [saved, ...prev]); return saved; }} onDeletePhoto={async (id) => { await apiService.deletePhoto(id); setPhotos(prev => prev.filter(p => p.id !== id)); }} />}
         {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} isDarkMode={isDarkMode} onAddUser={async (u) => { const newUser = await apiService.addUser({...u}); setUsers(prev => [...prev, newUser]); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); setUsers(prev => prev.filter(u => u.id !== id)); }} onThemeChange={setThemeColor} onToggleRole={handleToggleUserRole} />}
       </main>
 
