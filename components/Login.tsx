@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { User } from '../types.ts';
 import { supabase } from '../lib/supabaseClient.ts';
@@ -20,10 +21,14 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     setIsSubmitting(true);
     try {
       if (isSignUp) {
+        // Explicitly set the redirect URL to the current site origin
         const { data, error: signUpError } = await supabase.auth.signUp({
           email,
           password,
-          options: { data: { display_name: name } }
+          options: { 
+            data: { display_name: name },
+            emailRedirectTo: window.location.origin
+          }
         });
         if (signUpError) throw signUpError;
         if (data.user && data.session) {
