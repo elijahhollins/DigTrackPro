@@ -13,15 +13,40 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showResend, setShowResend] = useState(false);
+
+  const handleResendEmail = async () => {
+    setIsSubmitting(true);
+    setError('');
+    try {
+      const { error: resendError } = await supabase.auth.resend({
+        type: 'signup',
+        email: email,
+        options: {
+          emailRedirectTo: window.location.origin
+        }
+      });
+      if (resendError) throw resendError;
+      setInfo("Verification email resent! Please check your inbox.");
+      setShowResend(false);
+    } catch (err: any) {
+      setError(err.message || "Failed to resend email.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setInfo('');
+    setShowResend(false);
     setIsSubmitting(true);
+
     try {
       if (isSignUp) {
-        // Explicitly set the redirect URL to the current site origin
         const { data, error: signUpError } = await supabase.auth.signUp({
           email,
           password,
@@ -30,16 +55,24 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             emailRedirectTo: window.location.origin
           }
         });
+        
         if (signUpError) throw signUpError;
-        if (data.user && data.session) {
-          window.location.reload();
-        } else {
-          setError("Account created. Please check your email for a confirmation link.");
+        
+        if (data.user && !data.session) {
+          setInfo("Success! Check your email for a confirmation link.");
           setIsSignUp(false);
+        } else if (data.session) {
+          window.location.reload();
         }
       } else {
         const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
-        if (signInError) throw signInError;
+        
+        if (signInError) {
+          if (signInError.message.toLowerCase().includes("confirm") || signInError.message.toLowerCase().includes("verified")) {
+            setShowResend(true);
+          }
+          throw signInError;
+        }
         window.location.reload();
       }
     } catch (err: any) {
@@ -67,8 +100,23 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
-              <div className="p-3 bg-rose-50 text-rose-600 text-[9px] font-black uppercase text-center rounded-xl border border-rose-100">
-                {error}
+              <div className="p-3 bg-rose-50 text-rose-600 text-[10px] font-black uppercase text-center rounded-xl border border-rose-100 flex flex-col gap-2">
+                <span>{error}</span>
+                {showResend && (
+                  <button 
+                    type="button"
+                    onClick={handleResendEmail}
+                    className="bg-rose-600 text-white py-1.5 rounded-lg text-[9px] hover:bg-rose-700 transition-colors"
+                  >
+                    Resend Verification Link
+                  </button>
+                )}
+              </div>
+            )}
+
+            {info && (
+              <div className="p-3 bg-emerald-50 text-emerald-600 text-[10px] font-black uppercase text-center rounded-xl border border-emerald-100">
+                {info}
               </div>
             )}
             
@@ -121,7 +169,12 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
           <div className="mt-8 text-center border-t border-slate-100 pt-6">
             <button 
-              onClick={() => setIsSignUp(!isSignUp)}
+              onClick={() => {
+                setIsSignUp(!isSignUp);
+                setError('');
+                setInfo('');
+                setShowResend(false);
+              }}
               className="text-[9px] font-black text-slate-400 uppercase tracking-widest hover:text-brand transition-colors"
             >
               {isSignUp ? 'Existing User? Sign In' : "No Account? Sign Up Here"}

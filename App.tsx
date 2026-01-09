@@ -63,7 +63,13 @@ const App: React.FC = () => {
 
   const initApp = async () => {
     try {
+      // Small delay to allow Supabase to process URL fragment (confirmation hash)
+      if (window.location.hash) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+
       const { data: { session } } = await supabase.auth.getSession();
+      
       if (!session) {
         setSessionUser(null);
         setIsLoading(false);
@@ -129,7 +135,7 @@ const App: React.FC = () => {
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT' || !session) {
         setSessionUser(null);
-      } else if (event === 'SIGNED_IN') {
+      } else if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
         initApp();
       }
     });
