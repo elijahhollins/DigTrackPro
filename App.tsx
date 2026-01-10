@@ -14,6 +14,17 @@ import TeamManagement from './components/TeamManagement.tsx';
 import NoShowForm from './components/NoShowForm.tsx';
 import Login from './components/Login.tsx';
 
+// Extend window for aistudio types using the expected AIStudio interface
+declare global {
+  interface AIStudio {
+    hasSelectedApiKey: () => Promise<boolean>;
+    openSelectKey: () => Promise<void>;
+  }
+  interface Window {
+    aistudio: AIStudio;
+  }
+}
+
 const App: React.FC = () => {
   const [sessionUser, setSessionUser] = useState<User | null>(null);
   const [activeView, setActiveView] = useState<AppView>('dashboard');
@@ -24,6 +35,7 @@ const App: React.FC = () => {
   const [notes, setNotes] = useState<JobNote[]>([]);
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasApiKey, setHasApiKey] = useState(true);
   
   const [showTicketForm, setShowTicketForm] = useState(false);
   const [showJobForm, setShowJobForm] = useState(false);
@@ -61,12 +73,29 @@ const App: React.FC = () => {
     setSessionUser(null);
   };
 
+  const checkApiKey = async () => {
+    if (typeof window.aistudio !== 'undefined') {
+      const selected = await window.aistudio.hasSelectedApiKey();
+      setHasApiKey(selected);
+      return selected;
+    }
+    return true;
+  };
+
+  const handleSelectApiKey = async () => {
+    if (typeof window.aistudio !== 'undefined') {
+      await window.aistudio.openSelectKey();
+      setHasApiKey(true);
+    }
+  };
+
   const initApp = async () => {
     try {
-      // Small delay to allow Supabase to process URL fragment (confirmation hash)
       if (window.location.hash) {
         await new Promise(resolve => setTimeout(resolve, 500));
       }
+
+      await checkApiKey();
 
       const { data: { session } } = await supabase.auth.getSession();
       
@@ -333,6 +362,15 @@ const App: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-1.5">
+            {!hasApiKey && (
+              <button 
+                onClick={handleSelectApiKey}
+                className="flex items-center gap-2 bg-rose-500 text-white px-3 py-1.5 rounded-xl font-black uppercase text-[9px] tracking-widest animate-pulse"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
+                Setup AI
+              </button>
+            )}
             <button onClick={toggleDarkMode} className={`p-2 rounded-xl transition-all ${isDarkMode ? 'bg-white/5 text-amber-300' : 'bg-slate-100 text-slate-500'}`}>
               {isDarkMode ? <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M12 7a5 5 0 100 10 5 5 0 000-10z" /></svg> : <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>}
             </button>
@@ -350,6 +388,29 @@ const App: React.FC = () => {
       </header>
 
       <main className="max-w-[1400px] mx-auto px-4 py-6 animate-in">
+        {!hasApiKey && (
+          <div className="mb-6 p-6 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-center animate-in">
+            <h2 className="text-sm font-black uppercase tracking-widest text-rose-500 mb-2">Gemini AI Key Required</h2>
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">To scan tickets and use AI extraction, you must select an API key from a paid GCP project.</p>
+            <div className="flex justify-center gap-4">
+               <button 
+                onClick={handleSelectApiKey}
+                className="bg-rose-500 text-white px-6 py-2.5 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-rose-500/20"
+              >
+                Select API Key
+              </button>
+              <a 
+                href="https://ai.google.dev/gemini-api/docs/billing" 
+                target="_blank" 
+                rel="noreferrer"
+                className="px-6 py-2.5 rounded-xl font-black uppercase text-[10px] tracking-widest border border-slate-200 text-slate-500 hover:bg-slate-50 transition-all"
+              >
+                Billing Docs
+              </a>
+            </div>
+          </div>
+        )}
+
         {activeView === 'dashboard' && (
           <div className="space-y-6">
             <StatCards tickets={activeTickets} isDarkMode={isDarkMode} activeFilter={activeFilter} onFilterClick={setActiveFilter} />
