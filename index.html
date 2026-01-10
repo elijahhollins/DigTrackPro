@@ -10,14 +10,17 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script>
-      // Only shim window.process if it doesn't exist. 
-      // Do NOT explicitly set API_KEY to "" as it overrides the platform's key.
-      window.process = window.process || { 
-        env: { 
-          SUPABASE_URL: "https://fusubnzndmngjfgatzrq.supabase.co",
-          SUPABASE_ANON_KEY: "sb_publishable_i7zCb2wHVAV1eL36EDbVCw_1EnSvNml"
-        } 
-      };
+      // Safe environment shim that preserves system-injected variables like API_KEY
+      window.process = window.process || { env: {} };
+      window.process.env = window.process.env || {};
+      
+      // Only set these if they aren't already provided by the environment
+      if (!window.process.env.SUPABASE_URL) {
+        window.process.env.SUPABASE_URL = "https://fusubnzndmngjfgatzrq.supabase.co";
+      }
+      if (!window.process.env.SUPABASE_ANON_KEY) {
+        window.process.env.SUPABASE_ANON_KEY = "sb_publishable_i7zCb2wHVAV1eL36EDbVCw_1EnSvNml";
+      }
     </script>
     <style>
         :root {

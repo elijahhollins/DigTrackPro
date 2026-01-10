@@ -7,7 +7,14 @@ const INITIAL_DELAY = 1000;
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export const parseTicketData = async (input: string | { data: string; mimeType: string }) => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = process.env.API_KEY;
+  
+  if (!apiKey) {
+    console.error("Critical: API_KEY is missing from process.env");
+    throw new Error("API Key not found. Please ensure the environment is configured correctly.");
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
   
   let lastError: any;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -15,26 +22,24 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
       const isMedia = typeof input !== 'string';
       
       const promptText = isMedia 
-        ? `TASK: Analyze this construction 811 locate ticket.
-           REQUIRED FIELDS:
-           - Ticket Number: Often found at top labeled as "Ticket No", "Ticket #", or "Request Number".
-           - Job Number: Look for internal reference codes, project names, or "Job #".
-           - Address: The specific work location address.
-           - Start Date: Also known as "Legal Date", "Work Start", or "Available Date".
-           - Expiration: When the markings are no longer valid.
-           - Site Contact: The person listed under "Contact" or "Field Representative".`
-        : `Extract 811 ticket data from this text:\n\n"${input}"`;
+        ? `TASK: Analyze this construction locate ticket (811 ticket). 
+           Extract high-accuracy metadata. 
+           - Look for 'Legal Start', 'Work Start', or 'Start Date' for digStart.
+           - Look for 'Expiration', 'Valid Until', or 'End Date' for expirationDate.
+           - Look for 'Ticket Number' or 'Request #' for ticketNo.
+           - Look for 'Project', 'Job #', or internal codes for jobNumber.`
+        : `Extract locate ticket info from this text block. Look for Ticket#, Start Date, Expiration, and Job Number.\n\n"${input}"`;
 
       const parts = isMedia 
         ? [{ inlineData: input }, { text: promptText }]
         : [{ text: promptText }];
 
-      // Gemini 3 Flash is preferred for fast, accurate vision-to-JSON tasks
+      // Gemini 3 Pro is better at reasoning over complex PDF layouts and forms
       const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview", 
+        model: "gemini-3-pro-preview", 
         contents: { parts },
         config: {
-          systemInstruction: "You are a professional 811 ticket parser. Your goal is to return valid JSON metadata extracted from the provided ticket document or text. If a date is found, always format it as YYYY-MM-DD. If a field is missing, return an empty string. Focus heavily on the 'Ticket Number' and 'Start Date'.",
+          systemInstruction: "You are an expert construction document parser. Extract metadata from 811 locate tickets into structured JSON. Dates MUST be YYYY-MM-DD. Be highly precise with ticket numbers and site addresses.",
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
@@ -51,19 +56,16 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
               siteContact: { type: Type.STRING },
             },
           },
-          temperature: 0, // Strict extraction
+          temperature: 0.1,
         }
       });
 
-      const textOutput = response.text;
-      if (!textOutput) throw new Error("AI returned an empty response.");
-      
-      const extracted = JSON.parse(textOutput);
-      console.log("Gemini Extraction Success:", extracted);
-      return extracted;
+      const result = JSON.parse(response.text || '{}');
+      console.log("AI Extraction Successful:", result);
+      return result;
     } catch (error: any) {
       lastError = error;
-      console.error(`AI Analysis Attempt ${attempt + 1} failed:`, error);
+      console.warn(`Extraction Attempt ${attempt + 1} failed:`, error.message);
       
       if (attempt < MAX_RETRIES - 1) {
         await delay(INITIAL_DELAY * (attempt + 1));
