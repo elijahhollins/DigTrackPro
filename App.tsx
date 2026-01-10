@@ -15,13 +15,13 @@ import NoShowForm from './components/NoShowForm.tsx';
 import Login from './components/Login.tsx';
 
 // Extend window for aistudio types using the expected AIStudio interface
+// Simplified global declaration to avoid modifier conflicts
 declare global {
-  interface AIStudio {
-    hasSelectedApiKey: () => Promise<boolean>;
-    openSelectKey: () => Promise<void>;
-  }
   interface Window {
-    aistudio: AIStudio;
+    aistudio: {
+      hasSelectedApiKey: () => Promise<boolean>;
+      openSelectKey: () => Promise<void>;
+    };
   }
 }
 

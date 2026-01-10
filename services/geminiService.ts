@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 
 const MAX_RETRIES = 2;
@@ -12,7 +11,7 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
   const apiKey = process.env.API_KEY;
   
   if (!apiKey) {
-    throw new Error("No API key found. Please select a project using the 'Setup AI' button in the dashboard.");
+    throw new Error("No API key found. Please select a project using the 'Setup AI' button in the dashboard or sidebar.");
   }
 
   const ai = new GoogleGenAI({ apiKey });
@@ -67,9 +66,9 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
       lastError = error;
       console.warn(`Extraction Attempt ${attempt + 1} failed:`, error.message);
       
-      // If requested entity not found, it usually means the key/project is invalid
+      // If requested entity not found, it usually means the key/project is invalid or Gemini API isn't enabled
       if (error.message?.includes("Requested entity was not found")) {
-        throw new Error("API Project Error: The selected project does not have the Gemini API enabled or is invalid. Please try selecting a different project.");
+        throw new Error("API Project Error: The selected project does not have the Gemini API enabled or the project ID is invalid. Please select a different project.");
       }
 
       if (attempt < MAX_RETRIES - 1) {

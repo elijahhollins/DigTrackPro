@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { UserRole, UserRecord, User } from '../types.ts';
 import { apiService, SQL_SCHEMA } from '../services/apiService.ts';
@@ -17,15 +16,15 @@ const BRAND_COLORS = [
   { name: 'Safety Orange', hex: '#f59e0b' },
   { name: 'Electric Blue', hex: '#3b82f6' },
   { name: 'Construction Yellow', hex: '#fbbf24' },
-  { name: 'Steel Slate', hex: '#64748b' },
-  { name: 'Forest Green', hex: '#10b981' },
-  { name: 'Deep Rose', hex: '#f43f5e' },
-  { name: 'Purple Haze', hex: '#8b5cf6' },
+  { name: 'Utility Pink', hex: '#ec4899' },
+  { name: 'Safety Green', hex: '#10b981' },
+  { name: 'Gas Yellow', hex: '#eab308' },
+  { name: 'Water Blue', hex: '#0ea5e9' },
+  { name: 'Sewer Green', hex: '#65a30d' },
+  { name: 'Telecom Orange', hex: '#ea580c' },
+  { name: 'Power Red', hex: '#e11d48' },
 ];
 
-/**
- * TeamManagement component for handling user roles, theme selection, and database maintenance.
- */
 const TeamManagement: React.FC<TeamManagementProps> = ({ 
   users = [], 
   sessionUser, 
@@ -71,27 +70,29 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
 
   const isAdmin = sessionUser?.role === UserRole.ADMIN;
 
-  // Fix: Return the component JSX and add default export
   return (
     <div className="space-y-8 animate-in">
       {/* Theme Selection */}
       <section className={`p-6 rounded-2xl border ${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-100 shadow-sm'}`}>
         <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-6 flex items-center gap-2">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M7 21a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
-          Interface Appearance
+          App Branding & Colors
         </h3>
-        <div className="flex flex-wrap gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           {BRAND_COLORS.map(color => (
             <button
               key={color.hex}
               onClick={() => onThemeChange?.(color.hex)}
-              className="group flex flex-col items-center gap-2"
+              className="group flex items-center gap-3 p-2 rounded-xl border border-transparent hover:border-brand/20 hover:bg-brand/5 transition-all text-left"
             >
               <div 
-                className="w-10 h-10 rounded-xl border-2 border-white/10 shadow-lg transition-transform hover:scale-110 active:scale-90"
+                className="w-8 h-8 rounded-lg border-2 border-white/10 shadow-lg shrink-0"
                 style={{ backgroundColor: color.hex }}
               />
-              <span className="text-[8px] font-black uppercase tracking-tighter opacity-40 group-hover:opacity-100">{color.name}</span>
+              <div className="overflow-hidden">
+                <span className="block text-[9px] font-black uppercase tracking-tight truncate">{color.name}</span>
+                <span className="block text-[8px] font-mono opacity-40">{color.hex}</span>
+              </div>
             </button>
           ))}
         </div>
