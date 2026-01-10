@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 
 const MAX_RETRIES = 2;
@@ -10,9 +11,10 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
   const apiKey = process.env.API_KEY;
   
   if (!apiKey) {
-    throw new Error("Gemini API Key is not set. Please click the 'Setup AI' button in the header to select your project.");
+    throw new Error("API KEY MISSING: Please click 'Setup AI' in the header to select your project. For security, keys cannot be hardcoded.");
   }
 
+  // Create fresh instance to ensure we use the selected key
   const ai = new GoogleGenAI({ apiKey });
   
   let lastError: any;
@@ -33,11 +35,12 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
         ? [{ inlineData: input }, { text: promptText }]
         : [{ text: promptText }];
 
+      // Using gemini-3-pro-preview for complex construction forms
       const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview", 
+        model: "gemini-3-pro-preview", 
         contents: { parts },
         config: {
-          systemInstruction: "You are an expert construction document parser. Extract metadata from 811 locate tickets into structured JSON. Dates MUST be YYYY-MM-DD. Be highly precise with ticket numbers and site addresses.",
+          systemInstruction: "You are an expert construction document parser specializing in 811 Locate Tickets. Extract metadata into structured JSON. Dates MUST be YYYY-MM-DD format. Ensure ticket numbers are extracted exactly as written.",
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
@@ -53,6 +56,7 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
               expirationDate: { type: Type.STRING },
               siteContact: { type: Type.STRING },
             },
+            required: ["ticketNo", "address"]
           },
           temperature: 0.1,
         }
@@ -65,9 +69,13 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
       lastError = error;
       console.warn(`Extraction Attempt ${attempt + 1} failed:`, error.message);
       
-      // Handle cases where the key exists but the API isn't enabled or the project is wrong
-      if (error.message?.includes("Requested entity was not found") || error.message?.includes("403") || error.message?.includes("Permission denied")) {
-        throw new Error("Gemini API Access Error: Make sure the 'Generative AI API' is enabled in your Google Cloud Console for the selected project.");
+      // Handle the specific "entity not found" error which usually means model access or project config issues
+      if (error.message?.includes("Requested entity was not found")) {
+        throw new Error("GEMINI ACCESS ERROR: The selected project does not have the Gemini 3 API enabled or the model is restricted. Please check your Google Cloud Console.");
+      }
+      
+      if (error.message?.includes("API_KEY_INVALID")) {
+        throw new Error("INVALID API KEY: The selected project has an invalid key. Please re-run 'Setup AI'.");
       }
 
       if (attempt < MAX_RETRIES - 1) {

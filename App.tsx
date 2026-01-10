@@ -14,16 +14,14 @@ import TeamManagement from './components/TeamManagement.tsx';
 import NoShowForm from './components/NoShowForm.tsx';
 import Login from './components/Login.tsx';
 
-// Define the AIStudio interface to match the environment's expected type.
-// This resolves the conflict where 'aistudio' was being redeclared with an inline literal type.
-interface AIStudio {
-  hasSelectedApiKey: () => Promise<boolean>;
-  openSelectKey: () => Promise<void>;
-}
-
+// Augment the global Window interface for AI Studio integration.
+// Using an optional property and inline type to avoid declaration merging conflicts.
 declare global {
   interface Window {
-    aistudio: AIStudio;
+    aistudio?: {
+      hasSelectedApiKey: () => Promise<boolean>;
+      openSelectKey: () => Promise<void>;
+    };
   }
 }
 
@@ -76,18 +74,26 @@ const App: React.FC = () => {
   };
 
   const checkApiKey = async () => {
-    if (typeof window.aistudio !== 'undefined') {
-      const selected = await window.aistudio.hasSelectedApiKey();
-      setHasApiKey(selected);
-      return selected;
+    if (typeof window.aistudio !== 'undefined' && window.aistudio) {
+      try {
+        const selected = await window.aistudio.hasSelectedApiKey();
+        setHasApiKey(selected);
+        return selected;
+      } catch (e) {
+        console.warn("AI Studio Key Check failed", e);
+        return true; // Default to assuming it might be there
+      }
     }
     return true;
   };
 
   const handleSelectApiKey = async () => {
-    if (typeof window.aistudio !== 'undefined') {
+    if (typeof window.aistudio !== 'undefined' && window.aistudio) {
       await window.aistudio.openSelectKey();
+      // Assume success as per instructions to avoid race conditions
       setHasApiKey(true);
+      // Wait a moment then re-initialize to pick up any changes
+      setTimeout(initApp, 1000);
     }
   };
 
@@ -478,7 +484,7 @@ const App: React.FC = () => {
             { id: 'dashboard', label: 'Tickets', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1' },
             { id: 'calendar', label: 'Cal', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
             { id: 'jobs', label: 'Jobs', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2-2H7a2 2 0 00-2 2v16' },
-            { id: 'photos', label: 'Media', icon: 'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z' },
+            { id: 'photos', label: 'Media', icon: 'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2-2v12a2 2 0 002 2z' },
             { id: 'team', label: 'Admin', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066' }
           ].map((v) => (
             <button key={v.id} onClick={() => { setActiveView(v.id as AppView); setActiveFilter(null); }} className={`flex flex-col items-center gap-1 py-1.5 px-6 rounded-xl transition-all ${activeView === v.id ? 'bg-brand text-[#0f172a] shadow-lg shadow-brand/20 scale-105' : 'text-slate-500 hover:text-brand'}`}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d={v.icon} /></svg><span className="text-[8px] font-black uppercase tracking-tighter">{v.label}</span></button>

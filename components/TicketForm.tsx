@@ -16,6 +16,7 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
   const [activeTab, setActiveTab] = useState<'manual' | 'batch' | 'pdf'>('manual');
   const [archiveOld, setArchiveOld] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [scanStatus, setScanStatus] = useState<string>('');
   const [formData, setFormData] = useState({
     jobNumber: '', ticketNo: '', address: '', county: '', city: '', state: '',
     callInDate: '', digStart: '', expirationDate: '', siteContact: '',
@@ -65,10 +66,12 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
     }
 
     setIsParsing(true);
+    setScanStatus('Reading document...');
     try {
       console.log(`Analyzing: ${file.name}...`);
       const base64Data = await blobToBase64(file);
       
+      setScanStatus('Analyzing with Gemini AI...');
       const parsed = await parseTicketData({
         data: base64Data,
         mimeType: file.type
@@ -76,6 +79,7 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
       
       if (!parsed) throw new Error("AI returned no results.");
 
+      setScanStatus('Formatting data...');
       // Clean up values
       const cleanData = Object.fromEntries(
         Object.entries(parsed).filter(([_, v]) => v !== null && v !== '')
@@ -87,10 +91,12 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
         await apiService.addTicketFile(cleanData.jobNumber || formData.jobNumber, file);
       }
 
-      setActiveTab('manual');
+      setScanStatus('Success!');
+      setTimeout(() => setActiveTab('manual'), 500);
     } catch (err: any) {
       console.error("AI Analysis failed:", err);
       alert(`Analysis Failed: ${err.message || 'Check document clarity.'}`);
+      setScanStatus('Error');
     } finally {
       setIsParsing(false);
     }
@@ -107,7 +113,7 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
       setFormData(prev => ({ ...prev, ...cleanData }));
       setActiveTab('manual');
     } catch (err: any) {
-      alert("Extraction failed. Please check the text format.");
+      alert("Extraction failed: " + err.message);
     } finally {
       setIsParsing(false);
     }
@@ -214,7 +220,7 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
                 </div>
                 <div className="text-center px-4">
                   <p className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-500">
-                    {isParsing ? 'AI Parsing Ticket...' : isDragging ? 'Release to Start' : 'Drop Ticket PDF or Image'}
+                    {isParsing ? (scanStatus || 'AI Parsing Ticket...') : isDragging ? 'Release to Start' : 'Drop Ticket PDF or Image'}
                   </p>
                   <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1 opacity-60">
                     Auto-scans dates, numbers, and address
