@@ -14,14 +14,16 @@ import TeamManagement from './components/TeamManagement.tsx';
 import NoShowForm from './components/NoShowForm.tsx';
 import Login from './components/Login.tsx';
 
-// Extend window for aistudio types using the expected AIStudio interface
-// Simplified global declaration to avoid modifier conflicts
+// Define the AIStudio interface to match the environment's expected type.
+// This resolves the conflict where 'aistudio' was being redeclared with an inline literal type.
+interface AIStudio {
+  hasSelectedApiKey: () => Promise<boolean>;
+  openSelectKey: () => Promise<void>;
+}
+
 declare global {
   interface Window {
-    aistudio: {
-      hasSelectedApiKey: () => Promise<boolean>;
-      openSelectKey: () => Promise<void>;
-    };
+    aistudio: AIStudio;
   }
 }
 
