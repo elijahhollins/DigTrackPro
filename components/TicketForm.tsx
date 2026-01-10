@@ -67,28 +67,38 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
 
     setIsParsing(true);
     try {
+      console.log(`Starting AI extraction for ${file.name} (${file.type})...`);
       const base64Data = await blobToBase64(file);
       
-      // Use AI to extract data from the PDF/Image
       const parsed = await parseTicketData({
         data: base64Data,
         mimeType: file.type
       });
       
-      const newFormData = { ...formData, ...parsed };
+      if (!parsed || Object.keys(parsed).length === 0) {
+        throw new Error("AI returned empty results for this document.");
+      }
+
+      const newFormData = { 
+        ...formData, 
+        ...parsed,
+        // Ensure values are strings and not null
+        jobNumber: parsed.jobNumber || formData.jobNumber,
+        ticketNo: parsed.ticketNo || formData.ticketNo,
+        address: parsed.address || formData.address,
+      };
       setFormData(newFormData);
 
-      // If jobNumber is identified or already set, upload the file to storage
-      const finalJobNumber = newFormData.jobNumber || formData.jobNumber;
+      const finalJobNumber = newFormData.jobNumber;
       if (finalJobNumber) {
+        console.log(`Saving ticket file to Job #${finalJobNumber}...`);
         await apiService.addTicketFile(finalJobNumber, file);
       }
 
-      // Switch back to manual tab to let user review/finish
       setActiveTab('manual');
     } catch (err: any) {
       console.error("AI Analysis failed:", err);
-      alert("AI Analysis failed. Please check the document format and try again.");
+      alert(`AI Analysis failed: ${err.message || 'Check document clarity and try again.'}`);
     } finally {
       setIsParsing(false);
     }
@@ -102,7 +112,7 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
       setFormData(prev => ({ ...prev, ...parsed }));
       setActiveTab('manual');
     } catch (err: any) {
-      alert("AI Analysis failed. Please check the format.");
+      alert("AI Analysis failed. Please check the text format.");
     } finally {
       setIsParsing(false);
     }
