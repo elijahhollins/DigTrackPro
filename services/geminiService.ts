@@ -1,7 +1,7 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 2;
 const INITIAL_DELAY = 1000;
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -15,67 +15,63 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
       const isMedia = typeof input !== 'string';
       
       const promptText = isMedia 
-        ? `Analyze this construction locate ticket (811 ticket). 
-           Extract the following fields accurately:
-           - Ticket Number (the primary identifier)
-           - Job Number (look for project codes or references)
-           - Full Address (including City/ST/County)
-           - Call-in Date (when the ticket was created)
-           - Dig Start Date (the legal start date)
-           - Expiration Date (when the markings expire)
-           - Site Contact (name of the person on site)`
-        : `Extract locate ticket info from the following text block. 
-           Look for labels like "Ticket#", "Job#", "Work Address", "Start Date", and "Expiration".
-           \n\nText Content:\n"${input}"`;
+        ? `TASK: Analyze this construction 811 locate ticket.
+           REQUIRED FIELDS:
+           - Ticket Number: Often found at top labeled as "Ticket No", "Ticket #", or "Request Number".
+           - Job Number: Look for internal reference codes, project names, or "Job #".
+           - Address: The specific work location address.
+           - Start Date: Also known as "Legal Date", "Work Start", or "Available Date".
+           - Expiration: When the markings are no longer valid.
+           - Site Contact: The person listed under "Contact" or "Field Representative".`
+        : `Extract 811 ticket data from this text:\n\n"${input}"`;
 
       const parts = isMedia 
         ? [{ inlineData: input }, { text: promptText }]
         : [{ text: promptText }];
 
+      // Gemini 3 Flash is preferred for fast, accurate vision-to-JSON tasks
       const response = await ai.models.generateContent({
-        model: "gemini-3-pro-preview", // Upgraded to Pro for complex extraction
+        model: "gemini-3-flash-preview", 
         contents: { parts },
         config: {
-          systemInstruction: "You are an expert construction document auditor specialized in 811 Locate Tickets. Your goal is to extract structured metadata from ticket scans and text. Be precise with dates (format YYYY-MM-DD). If a field is ambiguous, use your best judgment based on typical industry standards for locate tickets.",
+          systemInstruction: "You are a professional 811 ticket parser. Your goal is to return valid JSON metadata extracted from the provided ticket document or text. If a date is found, always format it as YYYY-MM-DD. If a field is missing, return an empty string. Focus heavily on the 'Ticket Number' and 'Start Date'.",
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
             properties: {
-              jobNumber: { type: Type.STRING, description: "Internal project number or reference" },
-              ticketNo: { type: Type.STRING, description: "The unique 811 ticket number" },
-              address: { type: Type.STRING, description: "Full street address" },
+              jobNumber: { type: Type.STRING },
+              ticketNo: { type: Type.STRING },
+              address: { type: Type.STRING },
               county: { type: Type.STRING },
               city: { type: Type.STRING },
               state: { type: Type.STRING },
-              callInDate: { type: Type.STRING, description: "YYYY-MM-DD" },
-              digStart: { type: Type.STRING, description: "YYYY-MM-DD" },
-              expirationDate: { type: Type.STRING, description: "YYYY-MM-DD" },
+              callInDate: { type: Type.STRING },
+              digStart: { type: Type.STRING },
+              expirationDate: { type: Type.STRING },
               siteContact: { type: Type.STRING },
             },
-            // Removed strict required to prevent total failure on partial documents
           },
-          temperature: 0.1, // Low temperature for higher accuracy in extraction
+          temperature: 0, // Strict extraction
         }
       });
 
-      const extracted = JSON.parse(response.text || '{}');
-      console.log("AI Extraction Results:", extracted);
+      const textOutput = response.text;
+      if (!textOutput) throw new Error("AI returned an empty response.");
+      
+      const extracted = JSON.parse(textOutput);
+      console.log("Gemini Extraction Success:", extracted);
       return extracted;
     } catch (error: any) {
       lastError = error;
-      const isQuotaError = error.message?.includes('429') || error.message?.toLowerCase().includes('quota');
-      const isServerError = error.message?.includes('500') || error.message?.includes('503');
+      console.error(`AI Analysis Attempt ${attempt + 1} failed:`, error);
       
-      if (attempt < MAX_RETRIES - 1 && (isQuotaError || isServerError)) {
-        const waitTime = INITIAL_DELAY * Math.pow(2, attempt) + Math.random() * 1000;
-        console.warn(`Gemini API issue (Attempt ${attempt + 1}). Retrying in ${Math.round(waitTime)}ms...`);
-        await delay(waitTime);
+      if (attempt < MAX_RETRIES - 1) {
+        await delay(INITIAL_DELAY * (attempt + 1));
         continue;
       }
       break;
     }
   }
 
-  console.error("AI Error after retries:", lastError);
   throw lastError;
 };
