@@ -7,14 +7,9 @@ const INITIAL_DELAY = 1000;
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export const parseTicketData = async (input: string | { data: string; mimeType: string }) => {
-  const apiKey = process.env.API_KEY;
-  
-  if (!apiKey) {
-    console.error("Critical: API_KEY is missing from process.env");
-    throw new Error("API Key not found. Please ensure the environment is configured correctly.");
-  }
-
-  const ai = new GoogleGenAI({ apiKey });
+  // Use Gemini 3 Flash for speed and document parsing efficiency.
+  // Direct use of process.env.API_KEY is required by the SDK guidelines in this environment.
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   let lastError: any;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -34,9 +29,8 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
         ? [{ inlineData: input }, { text: promptText }]
         : [{ text: promptText }];
 
-      // Gemini 3 Pro is better at reasoning over complex PDF layouts and forms
       const response = await ai.models.generateContent({
-        model: "gemini-3-pro-preview", 
+        model: "gemini-3-flash-preview", 
         contents: { parts },
         config: {
           systemInstruction: "You are an expert construction document parser. Extract metadata from 811 locate tickets into structured JSON. Dates MUST be YYYY-MM-DD. Be highly precise with ticket numbers and site addresses.",
