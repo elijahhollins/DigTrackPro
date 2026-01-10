@@ -1,7 +1,8 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { DigTicket, UserRecord } from '../types.ts';
 import { parseTicketData } from '../services/geminiService.ts';
+import { apiService } from '../services/apiService.ts';
 
 interface TicketFormProps {
   onAdd: (ticket: Omit<DigTicket, 'id' | 'createdAt'>, archiveOld: boolean) => Promise<void>;
@@ -14,6 +15,7 @@ interface TicketFormProps {
 const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, users = [], isDarkMode }) => {
   const [activeTab, setActiveTab] = useState<'manual' | 'batch' | 'pdf'>('manual');
   const [archiveOld, setArchiveOld] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const [formData, setFormData] = useState({
     jobNumber: '', ticketNo: '', address: '', county: '', city: '', state: '',
     callInDate: '', digStart: '', expirationDate: '', siteContact: '',
@@ -21,6 +23,7 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
 
   const [batchInput, setBatchInput] = useState('');
   const [isParsing, setIsParsing] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (initialData) {
@@ -36,10 +39,60 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
         expirationDate: initialData.expirationDate || '',
         siteContact: initialData.siteContact || '',
       });
-      // Default archiveOld to true if editing, since most date changes are refreshes
       setArchiveOld(true);
     }
   }, [initialData]);
+
+  const blobToBase64 = (blob: Blob): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64String = (reader.result as string).split(',')[1];
+        resolve(base64String);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  };
+
+  const handleFileUpload = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    
+    // Accept PDF and common image types
+    if (file.type !== 'application/pdf' && !file.type.startsWith('image/')) {
+      alert("Please upload a PDF or Image of the ticket.");
+      return;
+    }
+
+    setIsParsing(true);
+    try {
+      const base64Data = await blobToBase64(file);
+      
+      // Use AI to extract data from the PDF/Image
+      const parsed = await parseTicketData({
+        data: base64Data,
+        mimeType: file.type
+      });
+      
+      const newFormData = { ...formData, ...parsed };
+      setFormData(newFormData);
+
+      // If jobNumber is identified or already set, upload the file to storage
+      const finalJobNumber = newFormData.jobNumber || formData.jobNumber;
+      if (finalJobNumber) {
+        await apiService.addTicketFile(finalJobNumber, file);
+      }
+
+      // Switch back to manual tab to let user review/finish
+      setActiveTab('manual');
+    } catch (err: any) {
+      console.error("AI Analysis failed:", err);
+      alert("AI Analysis failed. Please check the document format and try again.");
+    } finally {
+      setIsParsing(false);
+    }
+  };
 
   const handleAiParse = async () => {
     if (!batchInput.trim()) return;
@@ -125,12 +178,55 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
 
               <button type="submit" className="w-full bg-brand text-[#0f172a] py-3 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-brand/10 mt-2 transition-all hover:scale-[1.01]">Save Ticket</button>
             </form>
-          ) : (
+          ) : activeTab === 'batch' ? (
             <div className="space-y-4">
               <textarea rows={8} className={`w-full px-4 py-3 border rounded-xl text-xs font-semibold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder:text-slate-700' : 'bg-slate-50 border-slate-200 text-slate-900 placeholder:text-slate-400'}`} placeholder="Paste ticket text here for AI extraction..." value={batchInput} onChange={e => setBatchInput(e.target.value)} />
               <button onClick={handleAiParse} disabled={isParsing || !batchInput.trim()} className="w-full bg-brand text-[#0f172a] py-3 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-brand/10 flex items-center justify-center gap-2">
                 {isParsing ? <div className="w-3 h-3 border-2 border-[#0f172a] border-t-transparent rounded-full animate-spin" /> : 'Run AI Analysis'}
               </button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+               <div 
+                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={(e) => { e.preventDefault(); setIsDragging(false); handleFileUpload(e.dataTransfer.files); }}
+                onClick={() => fileInputRef.current?.click()}
+                className={`relative h-[220px] rounded-[2rem] border-2 border-dashed transition-all flex flex-col items-center justify-center gap-4 overflow-hidden group cursor-pointer ${
+                  isDragging ? 'bg-brand/10 border-brand scale-[0.98]' : 'bg-black/5 border-slate-200 hover:border-brand/40'
+                } ${isParsing ? 'opacity-50 pointer-events-none' : ''}`}
+              >
+                <div className={`p-5 rounded-full transition-all ${isDragging ? 'bg-brand text-white scale-110' : 'bg-white/10 text-slate-400 group-hover:bg-brand/10 group-hover:text-brand'}`}>
+                  {isParsing ? (
+                    <div className="w-12 h-12 border-4 border-brand border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 11v6m3-3H9" /></svg>
+                  )}
+                </div>
+                <div className="text-center px-4">
+                  <p className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-500">
+                    {isParsing ? 'AI Extracting Data...' : isDragging ? 'Release to Scan PDF' : 'Drop Ticket PDF or Click to Select'}
+                  </p>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1 opacity-60">
+                    Supports PDFs and Scanned Images
+                  </p>
+                </div>
+                <input 
+                  type="file" 
+                  ref={fileInputRef} 
+                  className="hidden" 
+                  accept="application/pdf,image/*" 
+                  onChange={(e) => handleFileUpload(e.target.files)} 
+                />
+              </div>
+              <div className="flex items-center gap-3 p-4 bg-blue-50/50 rounded-2xl border border-blue-100/50">
+                 <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0">
+                    <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                 </div>
+                 <p className="text-[9px] font-bold text-blue-800 leading-tight">
+                   Uploaded PDFs are automatically filed in the <span className="font-black uppercase tracking-tighter">Job/Tickets/</span> storage directory for permanent record.
+                 </p>
+              </div>
             </div>
           )}
         </div>

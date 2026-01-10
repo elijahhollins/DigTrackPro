@@ -142,7 +142,6 @@ export const apiService = {
 
   async saveTicket(ticket: DigTicket, archiveExisting: boolean = false): Promise<DigTicket> {
     if (archiveExisting) {
-      // If we are saving a "Refresh", archive any existing active tickets with this number for this job
       await supabase
         .from('tickets')
         .update({ is_archived: true })
@@ -159,6 +158,7 @@ export const apiService = {
       county: ticket.county,
       city: ticket.city,
       state: ticket.state,
+      // Fix: Use camelCase properties from DigTicket interface
       call_in_date: ticket.callInDate,
       dig_start: ticket.digStart,
       expiration_date: ticket.expirationDate,
@@ -241,6 +241,17 @@ export const apiService = {
     }]);
     if (dbError) throw dbError;
     return { ...photo, id, dataUrl: publicUrl };
+  },
+
+  async addTicketFile(jobNumber: string, file: File): Promise<string> {
+    const id = generateUUID();
+    const fileExt = file.name.split('.').pop();
+    // Save in a subfolder "tickets" within the job folder
+    const filePath = `${jobNumber}/tickets/${id}.${fileExt}`;
+    const { error: uploadError } = await supabase.storage.from('job-photos').upload(filePath, file);
+    if (uploadError) throw uploadError;
+    const { data: { publicUrl } } = supabase.storage.from('job-photos').getPublicUrl(filePath);
+    return publicUrl;
   },
 
   async deletePhoto(id: string): Promise<void> {
