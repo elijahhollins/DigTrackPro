@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { DigTicket, UserRecord } from '../types.ts';
 import { parseTicketData } from '../services/geminiService.ts';
@@ -10,9 +9,10 @@ interface TicketFormProps {
   initialData?: DigTicket;
   users: UserRecord[];
   isDarkMode?: boolean;
+  onResetKey: () => void;
 }
 
-const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, users = [], isDarkMode }) => {
+const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, users = [], isDarkMode, onResetKey }) => {
   const [activeTab, setActiveTab] = useState<'manual' | 'batch' | 'pdf'>('manual');
   const [archiveOld, setArchiveOld] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -68,7 +68,6 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
     setIsParsing(true);
     setScanStatus('Reading document...');
     try {
-      console.log(`Analyzing: ${file.name}...`);
       const base64Data = await blobToBase64(file);
       
       setScanStatus('Analyzing with Gemini AI...');
@@ -79,8 +78,7 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
       
       if (!parsed) throw new Error("AI returned no results.");
 
-      setScanStatus('Formatting data...');
-      // Clean up values
+      setScanStatus('Success!');
       const cleanData = Object.fromEntries(
         Object.entries(parsed).filter(([_, v]) => v !== null && v !== '')
       );
@@ -91,11 +89,15 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
         await apiService.addTicketFile(cleanData.jobNumber || formData.jobNumber, file);
       }
 
-      setScanStatus('Success!');
       setTimeout(() => setActiveTab('manual'), 500);
     } catch (err: any) {
-      console.error("AI Analysis failed:", err);
-      alert(`Analysis Failed: ${err.message || 'Check document clarity.'}`);
+      console.error("Analysis failed:", err);
+      
+      if (err.message?.includes("ACCESS ERROR")) {
+        onResetKey(); // Trigger the connect UI again
+      }
+      
+      alert(`Scanning Error: ${err.message}`);
       setScanStatus('Error');
     } finally {
       setIsParsing(false);
@@ -113,6 +115,7 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
       setFormData(prev => ({ ...prev, ...cleanData }));
       setActiveTab('manual');
     } catch (err: any) {
+      if (err.message?.includes("ACCESS ERROR")) onResetKey();
       alert("Extraction failed: " + err.message);
     } finally {
       setIsParsing(false);
@@ -223,7 +226,7 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
                     {isParsing ? (scanStatus || 'AI Parsing Ticket...') : isDragging ? 'Release to Start' : 'Drop Ticket PDF or Image'}
                   </p>
                   <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1 opacity-60">
-                    Auto-scans dates, numbers, and address
+                    Supports PDFs and high-res images
                   </p>
                 </div>
                 <input 

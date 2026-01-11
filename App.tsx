@@ -14,14 +14,15 @@ import TeamManagement from './components/TeamManagement.tsx';
 import NoShowForm from './components/NoShowForm.tsx';
 import Login from './components/Login.tsx';
 
-// Augment the global Window interface for AI Studio integration.
-// Using an optional property and inline type to avoid declaration merging conflicts.
 declare global {
+  // Fix: Property 'aistudio' must be of type 'AIStudio' to match environment definitions
+  interface AIStudio {
+    hasSelectedApiKey: () => Promise<boolean>;
+    openSelectKey: () => Promise<void>;
+  }
+
   interface Window {
-    aistudio?: {
-      hasSelectedApiKey: () => Promise<boolean>;
-      openSelectKey: () => Promise<void>;
-    };
+    aistudio: AIStudio;
   }
 }
 
@@ -35,7 +36,7 @@ const App: React.FC = () => {
   const [notes, setNotes] = useState<JobNote[]>([]);
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [hasApiKey, setHasApiKey] = useState(true);
+  const [hasApiKey, setHasApiKey] = useState(false); // Default to false to force initial check
   
   const [showTicketForm, setShowTicketForm] = useState(false);
   const [showJobForm, setShowJobForm] = useState(false);
@@ -81,28 +82,29 @@ const App: React.FC = () => {
         return selected;
       } catch (e) {
         console.warn("AI Studio Key Check failed", e);
-        return true; // Default to assuming it might be there
+        return true; 
       }
     }
+    // If not in AI Studio environment, assume key is provided via standard process.env
+    setHasApiKey(!!process.env.API_KEY);
     return true;
   };
 
   const handleSelectApiKey = async () => {
     if (typeof window.aistudio !== 'undefined' && window.aistudio) {
-      await window.aistudio.openSelectKey();
-      // Assume success as per instructions to avoid race conditions
-      setHasApiKey(true);
-      // Wait a moment then re-initialize to pick up any changes
-      setTimeout(initApp, 1000);
+      try {
+        await window.aistudio.openSelectKey();
+        // Assume key selection was successful and proceed immediately to avoid race condition
+        setHasApiKey(true);
+        initApp();
+      } catch (err) {
+        console.error("Project selection failed", err);
+      }
     }
   };
 
   const initApp = async () => {
     try {
-      if (window.location.hash) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
-
       await checkApiKey();
 
       const { data: { session } } = await supabase.auth.getSession();
@@ -215,6 +217,8 @@ const App: React.FC = () => {
       setShowTicketForm(false);
       setEditingTicket(null);
     } catch (error: any) {
+      // If we get an entity not found error from the AI inside the form, it will throw.
+      // We catch database errors here.
       alert(`Database Error: ${error.message}`);
     }
   };
@@ -373,10 +377,10 @@ const App: React.FC = () => {
             {!hasApiKey && (
               <button 
                 onClick={handleSelectApiKey}
-                className="flex items-center gap-2 bg-rose-500 text-white px-3 py-1.5 rounded-xl font-black uppercase text-[9px] tracking-widest animate-pulse"
+                className="flex items-center gap-2 bg-rose-500 text-white px-3 py-1.5 rounded-xl font-black uppercase text-[9px] tracking-widest animate-pulse shadow-lg shadow-rose-500/20"
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
-                Setup AI
+                Connect AI
               </button>
             )}
             <button onClick={toggleDarkMode} className={`p-2 rounded-xl transition-all ${isDarkMode ? 'bg-white/5 text-amber-300' : 'bg-slate-100 text-slate-500'}`}>
@@ -397,23 +401,26 @@ const App: React.FC = () => {
 
       <main className="max-w-[1400px] mx-auto px-4 py-6 animate-in">
         {!hasApiKey && (
-          <div className="mb-6 p-6 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-center animate-in">
-            <h2 className="text-sm font-black uppercase tracking-widest text-rose-500 mb-2">Gemini AI Key Required</h2>
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">To scan tickets and use AI extraction, you must select an API key from a paid GCP project.</p>
-            <div className="flex justify-center gap-4">
+          <div className="mb-6 p-8 rounded-3xl bg-rose-500/5 border border-rose-500/20 text-center animate-in">
+            <div className="bg-rose-500 text-white w-12 h-12 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-rose-500/30">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+            </div>
+            <h2 className="text-base font-black uppercase tracking-widest text-slate-800 dark:text-white mb-2">Connect Google Gemini</h2>
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-6 max-w-md mx-auto leading-relaxed">To enable PDF scanning and document analysis, you must connect your Google Cloud Project. This securely injects your Gemini API Key.</p>
+            <div className="flex flex-col sm:flex-row justify-center gap-4">
                <button 
                 onClick={handleSelectApiKey}
-                className="bg-rose-500 text-white px-6 py-2.5 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-rose-500/20"
+                className="bg-rose-500 text-white px-8 py-3.5 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-rose-500/25 active:scale-95 transition-all"
               >
-                Select API Key
+                Connect Project Now
               </button>
               <a 
                 href="https://ai.google.dev/gemini-api/docs/billing" 
                 target="_blank" 
                 rel="noreferrer"
-                className="px-6 py-2.5 rounded-xl font-black uppercase text-[10px] tracking-widest border border-slate-200 text-slate-500 hover:bg-slate-50 transition-all"
+                className="px-8 py-3.5 rounded-2xl font-black uppercase text-[10px] tracking-widest border border-slate-200 dark:border-white/10 text-slate-500 hover:bg-slate-50 dark:hover:bg-white/5 transition-all"
               >
-                Billing Docs
+                Check API Billing
               </a>
             </div>
           </div>
@@ -484,7 +491,7 @@ const App: React.FC = () => {
             { id: 'dashboard', label: 'Tickets', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1' },
             { id: 'calendar', label: 'Cal', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
             { id: 'jobs', label: 'Jobs', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2-2H7a2 2 0 00-2 2v16' },
-            { id: 'photos', label: 'Media', icon: 'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2-2v12a2 2 0 002 2z' },
+            { id: 'photos', label: 'Media', icon: 'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z' },
             { id: 'team', label: 'Admin', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066' }
           ].map((v) => (
             <button key={v.id} onClick={() => { setActiveView(v.id as AppView); setActiveFilter(null); }} className={`flex flex-col items-center gap-1 py-1.5 px-6 rounded-xl transition-all ${activeView === v.id ? 'bg-brand text-[#0f172a] shadow-lg shadow-brand/20 scale-105' : 'text-slate-500 hover:text-brand'}`}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d={v.icon} /></svg><span className="text-[8px] font-black uppercase tracking-tighter">{v.label}</span></button>
@@ -492,7 +499,7 @@ const App: React.FC = () => {
         </div>
       </nav>
 
-      {(showTicketForm || editingTicket) && <TicketForm onAdd={handleSaveTicket} onClose={() => { setShowTicketForm(false); setEditingTicket(null); }} initialData={editingTicket || undefined} users={users} isDarkMode={isDarkMode} />}
+      {(showTicketForm || editingTicket) && <TicketForm onAdd={handleSaveTicket} onClose={() => { setShowTicketForm(false); setEditingTicket(null); }} initialData={editingTicket || undefined} users={users} isDarkMode={isDarkMode} onResetKey={() => { setHasApiKey(false); }} />}
       {(showJobForm || editingJob) && <JobForm onSave={handleSaveJob} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} isDarkMode={isDarkMode} />}
       {noShowTicket && <NoShowForm ticket={noShowTicket} userName={sessionUser?.name || 'User'} onSave={handleSaveNoShow} onClose={() => setNoShowTicket(null)} isDarkMode={isDarkMode} />}
     </div>
