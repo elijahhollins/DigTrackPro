@@ -6,9 +6,16 @@ import { GoogleGenAI, Type } from "@google/genai";
  * Uses gemini-3-flash-preview for fast and accurate extraction of ticket metadata.
  */
 export const parseTicketData = async (input: string | { data: string; mimeType: string }) => {
-  // Always initialize GoogleGenAI with a fresh instance inside the service 
-  // to ensure it uses the latest API key from the environment.
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+  // CRITICAL: Always initialize GoogleGenAI immediately before making an API call 
+  // to ensure it uses the most up-to-date API key injected into process.env.
+  const apiKey = process.env.API_KEY;
+  
+  if (!apiKey) {
+    console.error("[Gemini] API_KEY not found in process.env");
+    throw new Error("API KEY MISSING: Ensure you have linked a Google Cloud project with the 'Connect AI' button.");
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
   
   try {
     const isMedia = typeof input !== 'string';
@@ -22,7 +29,6 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
       ? [{ inlineData: input as { data: string; mimeType: string } }, { text: promptText }]
       : [{ text: promptText }];
 
-    // Use ai.models.generateContent to query the model with both name and prompt
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview", 
       contents: { parts },
@@ -50,18 +56,16 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
       }
     });
 
-    // Extract text from the response using the .text property (not a method)
     const jsonStr = response.text?.trim() || "{}";
     const result = JSON.parse(jsonStr);
-    console.log("[Gemini Service] Extraction success:", result);
+    console.log("[Gemini] Extraction successful.", result);
     return result;
   } catch (error: any) {
-    console.error("[Gemini Service] API Call Error:", error);
+    console.error("[Gemini] Extraction failed:", error);
     
-    // Standardized error handling for model access
     if (error.message?.includes("entity was not found") || error.message?.includes("404")) {
-      throw new Error("ACCESS ERROR: Gemini 3 model access failed. Please ensure the API is enabled in your Google Cloud Project.");
+      throw new Error("ACCESS ERROR: Gemini 3 is not enabled in your Google Cloud Project. Please enable the 'Generative AI API'.");
     }
-    throw new Error(error.message || "Analysis failed.");
+    throw new Error(error.message || "Document analysis failed.");
   }
 };

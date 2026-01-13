@@ -48,35 +48,38 @@ const App: React.FC = () => {
     order: 'desc'
   });
 
-  // --- SMART THEME LOGIC ---
-  const applyBrandColor = (color: string) => {
-    document.documentElement.style.setProperty('--brand-primary', color);
-    let r = 0, g = 0, b = 0;
-    if (color.startsWith('#') && color.length === 7) {
-      r = parseInt(color.slice(1, 3), 16);
-      g = parseInt(color.slice(3, 5), 16);
-      b = parseInt(color.slice(5, 7), 16);
-    }
+  // --- THEME & COLOR LOGIC ---
+  const updateBrandColors = (hex: string) => {
+    document.documentElement.style.setProperty('--brand-primary', hex);
+    // Generate RGBA for rings/shadows
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
     document.documentElement.style.setProperty('--brand-ring', `rgba(${r}, ${g}, ${b}, 0.1)`);
-    document.documentElement.style.setProperty('--brand-shadow', `rgba(${r}, ${g}, ${b}, 0.2)`);
+    document.documentElement.style.setProperty('--brand-shadow', `rgba(${r}, ${g}, ${b}, 0.25)`);
   };
 
   useEffect(() => {
-    // Determine color based on ticket urgency
-    const activeStatuses = tickets.filter(t => !t.isArchived).map(t => getTicketStatus(t));
+    const activeTickets = tickets.filter(t => !t.isArchived);
+    const statuses = activeTickets.map(t => getTicketStatus(t));
     
-    let targetColor = '#3b82f6'; // Default: Electric Blue
-    if (activeStatuses.includes(TicketStatus.EXPIRED)) {
-      targetColor = '#e11d48'; // Urgent: Power Red
-    } else if (activeStatuses.includes(TicketStatus.REFRESH_NEEDED) || activeStatuses.includes(TicketStatus.EXTENDABLE)) {
-      targetColor = '#f59e0b'; // Warning: Safety Orange
-    } else if (activeStatuses.length > 0) {
-      targetColor = '#10b981'; // Good: Safety Green
+    let targetColor = '#3b82f6'; // Idle Blue
+
+    if (statuses.includes(TicketStatus.EXPIRED)) {
+      targetColor = '#e11d48'; // Critical Red
+    } else if (
+      statuses.includes(TicketStatus.REFRESH_NEEDED) || 
+      statuses.includes(TicketStatus.EXTENDABLE) || 
+      activeTickets.some(t => t.noShowRequested)
+    ) {
+      targetColor = '#f59e0b'; // Warning Orange
+    } else if (activeTickets.length > 0) {
+      targetColor = '#10b981'; // Healthy Green
     }
 
-    // Manual theme color override if user set it
-    const savedColor = localStorage.getItem('dig_theme_color');
-    applyBrandColor(savedColor || targetColor);
+    // Manual override check
+    const manualColor = localStorage.getItem('dig_theme_color');
+    updateBrandColors(manualColor || targetColor);
   }, [tickets]);
 
   const toggleDarkMode = () => {
@@ -90,40 +93,34 @@ const App: React.FC = () => {
     setSessionUser(null);
   };
 
-  /**
-   * Checks if an API key is available, prioritizing AI Studio project selection.
-   */
+  // --- API KEY HANDLING ---
   const checkApiKey = async () => {
-    if (window.aistudio?.hasSelectedApiKey) {
-      try {
-        const selected = await window.aistudio.hasSelectedApiKey();
-        setHasApiKey(selected);
-        return selected;
-      } catch (e) {
-        setHasApiKey(false);
-        return false; 
-      }
-    }
     const envKey = process.env.API_KEY;
-    setHasApiKey(!!envKey);
-    return !!envKey;
+    const aiStudioKey = await window.aistudio?.hasSelectedApiKey?.();
+    const active = !!(envKey || aiStudioKey);
+    console.info(`[DigTrack] API Key Active: ${active ? 'YES' : 'NO'}`);
+    setHasApiKey(active);
+    return active;
   };
 
-  /**
-   * Opens the AI Studio project selection dialog.
-   */
   const handleSelectApiKey = async () => {
-    if (window.aistudio?.openSelectKey) {
-      try {
+    try {
+      if (window.aistudio?.openSelectKey) {
         await window.aistudio.openSelectKey();
-        // As per guidelines, assume success after triggering selection
         setHasApiKey(true);
         initApp();
-      } catch (err) {
-        console.error("[App] Selection error:", err);
+      } else {
+        // Direct attempt failed, let's look for standard env fallback
+        const key = process.env.API_KEY;
+        if (key) {
+          setHasApiKey(true);
+          initApp();
+        } else {
+          console.warn("AI Studio object not found in this context.");
+        }
       }
-    } else {
-      alert("Platform Link Unavailable: Project selection is only available in the AI Studio environment.");
+    } catch (err) {
+      console.error("[DigTrack] Project selection failed", err);
     }
   };
 
@@ -160,6 +157,7 @@ const App: React.FC = () => {
       }
       setIsLoading(false);
     } catch (error) {
+      console.error("Init Error:", error);
       setIsLoading(false);
     }
   };
@@ -277,17 +275,17 @@ const App: React.FC = () => {
 
   return (
     <div className={`min-h-screen ${isDarkMode ? 'bg-[#0f172a] text-slate-100' : 'bg-slate-50 text-slate-900'} transition-all duration-500 pb-24`}>
-      <header className={`${isDarkMode ? 'bg-[#1e293b]/95 border-white/5' : 'bg-white/95 border-slate-200'} backdrop-blur-md border-b sticky top-0 z-40`}>
+      <header className={`${isDarkMode ? 'bg-[#1e293b]/95 border-white/5' : 'bg-white/95 border-slate-200'} backdrop-blur-md border-b sticky top-0 z-40 transition-all duration-500`}>
         <div className="max-w-[1400px] mx-auto px-4 h-14 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <div className="bg-brand p-2 rounded-xl shadow-lg shadow-brand/20 transition-colors duration-500">
+            <div className="bg-brand p-2 rounded-xl shadow-lg shadow-brand/20 transition-all duration-500 glow-brand">
               <svg className="w-4 h-4 text-[#0f172a]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
             </div>
             <h1 className="text-sm font-black uppercase tracking-tight hidden sm:block">DigTrack Pro</h1>
           </div>
           
           <div className="flex-1 max-w-sm relative">
-            <input type="text" placeholder="Search..." className={`w-full pl-8 pr-4 py-1.5 border rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-brand/5 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-100 border-slate-200'}`} value={globalSearch} onChange={e => setGlobalSearch(e.target.value)} />
+            <input type="text" placeholder="Search records..." className={`w-full pl-8 pr-4 py-1.5 border rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-100 border-slate-200'}`} value={globalSearch} onChange={e => setGlobalSearch(e.target.value)} />
             <svg className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
           </div>
 
@@ -304,7 +302,7 @@ const App: React.FC = () => {
             {isAdmin && (
               <div className="flex gap-1.5 ml-1">
                 <button onClick={() => { setEditingJob(null); setShowJobForm(true); }} className={`px-3 py-1.5 rounded-xl font-black uppercase tracking-widest text-[9px] border transition-all ${isDarkMode ? 'bg-white text-slate-900 border-white' : 'bg-slate-900 text-white border-slate-900'}`}>+ Job</button>
-                <button onClick={() => { setEditingTicket(null); setShowTicketForm(true); }} className="bg-brand text-[#0f172a] px-3 py-1.5 rounded-xl font-black uppercase tracking-widest text-[9px] shadow-sm transition-colors duration-500">+ Ticket</button>
+                <button onClick={() => { setEditingTicket(null); setShowTicketForm(true); }} className="bg-brand text-[#0f172a] px-3 py-1.5 rounded-xl font-black uppercase tracking-widest text-[9px] shadow-sm transition-all duration-500">+ Ticket</button>
               </div>
             )}
             <button onClick={handleSignOut} className="p-2 text-slate-400 hover:text-rose-500 ml-1">
@@ -316,11 +314,14 @@ const App: React.FC = () => {
 
       <main className="max-w-[1400px] mx-auto px-4 py-6 animate-in">
         {!hasApiKey && (
-          <div className="mb-6 p-8 rounded-3xl bg-rose-500/5 border border-rose-500/20 text-center animate-in">
-            <h2 className="text-base font-black uppercase tracking-widest mb-2">Connect Google Cloud</h2>
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-6 leading-relaxed">To enable AI Scanning, you must connect your project. This secures your Gemini API environment.</p>
+          <div className="mb-6 p-10 rounded-[2.5rem] bg-rose-500/5 border border-rose-500/10 text-center animate-in">
+             <div className="w-16 h-16 bg-rose-500 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl shadow-rose-500/30">
+                <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+             </div>
+            <h2 className="text-xl font-black uppercase tracking-widest mb-2 text-slate-800 dark:text-white">AI Studio Disconnected</h2>
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-8 max-w-sm mx-auto leading-relaxed">Connect your Google Cloud Project to enable high-speed ticket scanning and document OCR.</p>
             <div className="flex justify-center gap-4">
-              <button onClick={handleSelectApiKey} className="bg-rose-500 text-white px-8 py-3.5 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-rose-500/25">Connect Project</button>
+              <button onClick={handleSelectApiKey} className="bg-rose-500 text-white px-10 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-2xl shadow-rose-500/40 hover:scale-105 active:scale-95 transition-all">Link Project Now</button>
             </div>
           </div>
         )}
@@ -328,38 +329,38 @@ const App: React.FC = () => {
         {activeView === 'dashboard' && (
           <div className="space-y-6">
             <StatCards tickets={activeTickets} isDarkMode={isDarkMode} activeFilter={activeFilter} onFilterClick={setActiveFilter} />
-            <div className={`${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-200'} rounded-2xl shadow-sm border overflow-hidden`}>
+            <div className={`${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-200'} rounded-3xl shadow-sm border overflow-hidden`}>
               <div className="overflow-x-auto">
                 <table className="w-full text-left">
-                  <thead className={`${isDarkMode ? 'bg-black/20' : 'bg-slate-50'} border-b ${isDarkMode ? 'border-white/5' : 'border-slate-100'}`}>
+                  <thead className={`${isDarkMode ? 'bg-black/20' : 'bg-slate-50'} border-b border-black/5`}>
                     <tr>
-                      <th onClick={() => handleSort('jobNumber')} className="px-5 py-3 text-[10px] font-black uppercase tracking-widest cursor-pointer hover:text-brand">Job</th>
-                      <th className="px-5 py-3 text-[10px] font-black uppercase tracking-widest">Ticket #</th>
-                      <th className="px-5 py-3 text-[10px] font-black uppercase tracking-widest">Location</th>
-                      <th className="px-5 py-3 text-[10px] font-black uppercase tracking-widest text-center">Status</th>
-                      <th onClick={() => handleSort('expirationDate')} className="px-5 py-3 text-[10px] font-black uppercase tracking-widest cursor-pointer text-right">Expiration</th>
-                      <th className="px-5 py-3 text-[10px] font-black uppercase tracking-widest text-right">Actions</th>
+                      <th onClick={() => handleSort('jobNumber')} className="px-6 py-4 text-[10px] font-black uppercase tracking-widest cursor-pointer hover:text-brand transition-colors">Job</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest">Ticket #</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest">Location</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-center">Status</th>
+                      <th onClick={() => handleSort('expirationDate')} className="px-6 py-4 text-[10px] font-black uppercase tracking-widest cursor-pointer text-right">Expiration</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className={`divide-y ${isDarkMode ? 'divide-white/5' : 'divide-slate-100'}`}>
                     {filteredTickets.map(ticket => {
                       const status = getTicketStatus(ticket);
                       return (
-                        <tr key={ticket.id} onClick={() => isAdmin && setEditingTicket(ticket)} className={`transition-colors group ${isAdmin ? 'cursor-pointer' : ''} ${isDarkMode ? 'hover:bg-white/5' : 'hover:bg-slate-50'}`}>
-                          <td className="px-5 py-2.5 text-[12px] font-black">{ticket.jobNumber}</td>
-                          <td className="px-5 py-2.5 text-[11px] font-mono opacity-50">{ticket.ticketNo}</td>
-                          <td className="px-5 py-2.5 text-[12px] font-bold truncate max-w-[250px]">{ticket.address}</td>
-                          <td className="px-5 py-2.5 text-center">
+                        <tr key={ticket.id} onClick={() => isAdmin && setEditingTicket(ticket)} className={`transition-all group ${isAdmin ? 'cursor-pointer' : ''} ${isDarkMode ? 'hover:bg-white/5' : 'hover:bg-slate-50'}`}>
+                          <td className="px-6 py-3 text-[13px] font-black">{ticket.jobNumber}</td>
+                          <td className="px-6 py-3 text-[12px] font-mono opacity-50">{ticket.ticketNo}</td>
+                          <td className="px-6 py-3 text-[13px] font-bold truncate max-w-[250px]">{ticket.address}</td>
+                          <td className="px-6 py-3 text-center">
                             <div className="flex flex-col items-center gap-1">
                               <span className={`inline-flex px-2 py-0.5 rounded-md text-[9px] font-black uppercase border ${getStatusColor(status)}`}>{status}</span>
-                              {ticket.noShowRequested && <span className="inline-flex px-2 py-0.5 rounded-md text-[8px] font-black uppercase border bg-rose-50 text-rose-600 border-rose-200">No Show Req</span>}
+                              {ticket.noShowRequested && <span className="inline-flex px-2 py-0.5 rounded-md text-[8px] font-black uppercase border bg-rose-50 text-rose-600 border-rose-200">No Show</span>}
                             </div>
                           </td>
-                          <td className="px-5 py-2.5 text-[11px] font-bold text-right opacity-40">{new Date(ticket.expirationDate).toLocaleDateString()}</td>
-                          <td className="px-5 py-2.5 text-right">
-                            <div className="flex items-center justify-end gap-1.5">
-                              <button onClick={(e) => { e.stopPropagation(); if (ticket.noShowRequested) handleCancelNoShow(ticket, e); else setNoShowTicket(ticket); }} className={`p-2 rounded-lg transition-all ${ticket.noShowRequested ? 'bg-rose-500 text-white' : 'bg-rose-500/10 text-rose-500'}`}><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg></button>
-                              <button onClick={(e) => handleToggleRefresh(ticket, e)} className={`p-2 rounded-lg transition-all ${ticket.refreshRequested ? 'bg-amber-100 text-amber-600' : 'bg-black/5 text-slate-400'}`}><svg className={`w-3.5 h-3.5 ${ticket.refreshRequested ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357-2H15" /></svg></button>
+                          <td className="px-6 py-3 text-[12px] font-bold text-right opacity-40">{new Date(ticket.expirationDate).toLocaleDateString()}</td>
+                          <td className="px-6 py-3 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <button onClick={(e) => { e.stopPropagation(); if (ticket.noShowRequested) handleCancelNoShow(ticket, e); else setNoShowTicket(ticket); }} className={`p-2 rounded-xl transition-all ${ticket.noShowRequested ? 'bg-rose-500 text-white' : 'bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white'}`}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg></button>
+                              <button onClick={(e) => handleToggleRefresh(ticket, e)} className={`p-2 rounded-xl transition-all ${ticket.refreshRequested ? 'bg-amber-100 text-amber-600 border-amber-300' : 'bg-black/5 text-slate-400 hover:text-amber-500'}`}><svg className={`w-4 h-4 ${ticket.refreshRequested ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357-2H15" /></svg></button>
                             </div>
                           </td>
                         </tr>
@@ -374,19 +375,19 @@ const App: React.FC = () => {
         {activeView === 'calendar' && <CalendarView tickets={activeTickets} onEditTicket={(t) => isAdmin && setEditingTicket(t)} />}
         {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} notes={notes} isAdmin={isAdmin} isDarkMode={isDarkMode} onEditJob={(j) => isAdmin && setEditingJob(j)} onToggleComplete={handleToggleJobCompletion} onAddNote={async (note) => { const n = await apiService.addNote({...note, id: crypto.randomUUID(), timestamp: Date.now(), author: sessionUser.name}); setNotes(prev => [n, ...prev]); }} onViewPhotos={(j) => { setGlobalSearch(j); setActiveView('photos'); }} />}
         {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} initialSearch={globalSearch} isDarkMode={isDarkMode} onAddPhoto={async (metadata, file) => { const saved = await apiService.addPhoto(metadata, file); setPhotos(prev => [saved, ...prev]); return saved; }} onDeletePhoto={async (id) => { await apiService.deletePhoto(id); setPhotos(prev => prev.filter(p => p.id !== id)); }} />}
-        {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} isDarkMode={isDarkMode} onAddUser={async (u) => { const newUser = await apiService.addUser({...u}); setUsers(prev => [...prev, newUser]); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); setUsers(prev => prev.filter(u => u.id !== id)); }} onThemeChange={applyBrandColor} onToggleRole={() => {}} />}
+        {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} isDarkMode={isDarkMode} onAddUser={async (u) => { const newUser = await apiService.addUser({...u}); setUsers(prev => [...prev, newUser]); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); setUsers(prev => prev.filter(u => u.id !== id)); }} onThemeChange={updateBrandColors} onToggleRole={() => {}} />}
       </main>
 
       <nav className="fixed bottom-6 left-0 right-0 z-50 flex justify-center px-4 pointer-events-none">
-        <div className={`backdrop-blur-xl border shadow-2xl rounded-2xl p-1 flex items-center gap-0.5 pointer-events-auto ${isDarkMode ? 'bg-[#1e293b]/90 border-white/10' : 'bg-white/90 border-slate-200'}`}>
+        <div className={`backdrop-blur-xl border shadow-2xl rounded-3xl p-1.5 flex items-center gap-1 pointer-events-auto transition-all duration-500 ${isDarkMode ? 'bg-[#1e293b]/90 border-white/10' : 'bg-white/90 border-slate-200'}`}>
           {[
             { id: 'dashboard', label: 'Tickets', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1' },
-            { id: 'calendar', label: 'Cal', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
+            { id: 'calendar', label: 'Cal', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
             { id: 'jobs', label: 'Jobs', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2-2H7a2 2 0 00-2 2v16' },
             { id: 'photos', label: 'Media', icon: 'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z' },
             { id: 'team', label: 'Admin', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066' }
           ].map((v) => (
-            <button key={v.id} onClick={() => { setActiveView(v.id as AppView); setActiveFilter(null); }} className={`flex flex-col items-center gap-1 py-1.5 px-6 rounded-xl transition-all ${activeView === v.id ? 'bg-brand text-[#0f172a] shadow-lg shadow-brand/20 scale-105' : 'text-slate-500 hover:text-brand'}`}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d={v.icon} /></svg><span className="text-[8px] font-black uppercase tracking-tighter">{v.label}</span></button>
+            <button key={v.id} onClick={() => { setActiveView(v.id as AppView); setActiveFilter(null); }} className={`flex flex-col items-center gap-1 py-2 px-6 rounded-2xl transition-all ${activeView === v.id ? 'bg-brand text-[#0f172a] shadow-lg shadow-brand/20 scale-105' : 'text-slate-500 hover:text-brand'}`}><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d={v.icon} /></svg><span className="text-[8px] font-black uppercase tracking-tighter">{v.label}</span></button>
           ))}
         </div>
       </nav>
