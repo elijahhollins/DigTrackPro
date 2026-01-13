@@ -72,10 +72,10 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
       const base64Data = await blobToBase64(file);
       
       setScanStatus('Analyzing with Gemini AI...');
-      // Cast the result to any to avoid 'unknown' type propagation which can cause assignment errors in cleanData extraction
+      // Explicitly cast arguments to string to avoid 'unknown' type issues from File properties
       const parsed = await parseTicketData({
-        data: base64Data,
-        mimeType: file.type
+        data: base64Data as string,
+        mimeType: file.type as string
       }) as any;
       
       if (!parsed) throw new Error("AI returned no results.");
@@ -110,7 +110,6 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
     if (!batchInput.trim()) return;
     setIsParsing(true);
     try {
-      // Cast the result to any to ensure properties extracted from the AI response are compatible with the form state
       const parsed = await parseTicketData(batchInput) as any;
       const cleanData = Object.fromEntries(
         Object.entries(parsed).filter(([_, v]) => v !== null && v !== '')
