@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { DigTicket, UserRecord } from '../types.ts';
 import { parseTicketData } from '../services/geminiService.ts';
@@ -71,10 +72,11 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
       const base64Data = await blobToBase64(file);
       
       setScanStatus('Analyzing with Gemini AI...');
+      // Cast the result to any to avoid 'unknown' type propagation which can cause assignment errors in cleanData extraction
       const parsed = await parseTicketData({
         data: base64Data,
         mimeType: file.type
-      });
+      }) as any;
       
       if (!parsed) throw new Error("AI returned no results.");
 
@@ -108,7 +110,8 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
     if (!batchInput.trim()) return;
     setIsParsing(true);
     try {
-      const parsed = await parseTicketData(batchInput);
+      // Cast the result to any to ensure properties extracted from the AI response are compatible with the form state
+      const parsed = await parseTicketData(batchInput) as any;
       const cleanData = Object.fromEntries(
         Object.entries(parsed).filter(([_, v]) => v !== null && v !== '')
       );

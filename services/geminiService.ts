@@ -1,16 +1,20 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 
-const MAX_RETRIES = 1;
-
 export const parseTicketData = async (input: string | { data: string; mimeType: string }) => {
-  // Accessing the injected API key
+  // Check the environment variable injected by the platform
   const apiKey = process.env.API_KEY;
   
+  console.log("[Gemini Service] Checking for API Key...");
+  
   if (!apiKey) {
-    throw new Error("Missing Project Link: Click 'Setup AI' in the top header to connect your Google Cloud project.");
+    console.error("[Gemini Service] API_KEY is undefined in process.env.");
+    throw new Error("API KEY MISSING: Please click the 'Connect AI' button in the top right to link your Google Cloud Project. If you've already done this, refresh the page.");
   }
 
-  // Always initialize right before the call to get the freshest injected key
+  console.log("[Gemini Service] Key detected. Initializing model...");
+
+  // Initialize fresh on every call to use the most recent key injection
   const ai = new GoogleGenAI({ apiKey });
   
   try {
@@ -31,7 +35,7 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
       ? [{ inlineData: input }, { text: promptText }]
       : [{ text: promptText }];
 
-    // Using gemini-3-flash-preview as the default high-performance model
+    // Using gemini-3-flash-preview for high accuracy parsing
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview", 
       contents: { parts },
@@ -59,23 +63,22 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
     });
 
     const textOutput = response.text;
-    if (!textOutput) throw new Error("AI returned an empty response.");
+    if (!textOutput) throw new Error("AI returned an empty response. Check document clarity.");
     
     const result = JSON.parse(textOutput);
-    console.log("Gemini Extraction Result:", result);
+    console.log("[Gemini Service] Extraction successful:", result);
     return result;
   } catch (error: any) {
-    console.error("Gemini Service Error:", error);
+    console.error("[Gemini Service] Error during API call:", error);
     
-    // Platform rule: handle "entity not found" by prompting for re-selection
     if (error.message?.includes("Requested entity was not found")) {
-      throw new Error("MODEL ACCESS ERROR: The selected project might not have Gemini 3 enabled. Please check Google Cloud Console or re-select your project via 'Setup AI'.");
+      throw new Error("ACCESS DENIED: The Gemini 3 API is not enabled in your Google Cloud Project, or the model is not available for your project region. Please enable it in the Google Cloud Console.");
     }
 
     if (error.message?.includes("API_KEY_INVALID")) {
-      throw new Error("INVALID API KEY: Please re-select your project using 'Setup AI'.");
+      throw new Error("INVALID KEY: The project you selected is not providing a valid API Key. Try selecting a different project.");
     }
 
-    throw new Error(error.message || "Document analysis failed. Please check your internet connection and project settings.");
+    throw new Error(error.message || "Failed to analyze document. Check Console for details.");
   }
 };

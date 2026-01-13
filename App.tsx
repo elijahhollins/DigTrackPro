@@ -15,14 +15,14 @@ import NoShowForm from './components/NoShowForm.tsx';
 import Login from './components/Login.tsx';
 
 declare global {
-  // Fix: Property 'aistudio' must be of type 'AIStudio' to match environment definitions
   interface AIStudio {
     hasSelectedApiKey: () => Promise<boolean>;
     openSelectKey: () => Promise<void>;
   }
 
   interface Window {
-    aistudio: AIStudio;
+    // Corrected: Mark as optional to ensure identity with existing declarations and handle cases where it might be undefined
+    aistudio?: AIStudio;
   }
 }
 
@@ -36,7 +36,7 @@ const App: React.FC = () => {
   const [notes, setNotes] = useState<JobNote[]>([]);
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [hasApiKey, setHasApiKey] = useState(false); // Default to false to force initial check
+  const [hasApiKey, setHasApiKey] = useState(false);
   
   const [showTicketForm, setShowTicketForm] = useState(false);
   const [showJobForm, setShowJobForm] = useState(false);
@@ -78,27 +78,28 @@ const App: React.FC = () => {
     if (typeof window.aistudio !== 'undefined' && window.aistudio) {
       try {
         const selected = await window.aistudio.hasSelectedApiKey();
+        console.log("[App] AI Studio Project Linked:", selected);
         setHasApiKey(selected);
         return selected;
       } catch (e) {
-        console.warn("AI Studio Key Check failed", e);
-        return true; 
+        console.warn("[App] AI Studio Check Failed", e);
+        return false; 
       }
     }
-    // If not in AI Studio environment, assume key is provided via standard process.env
-    setHasApiKey(!!process.env.API_KEY);
-    return true;
+    return !!process.env.API_KEY;
   };
 
   const handleSelectApiKey = async () => {
     if (typeof window.aistudio !== 'undefined' && window.aistudio) {
       try {
         await window.aistudio.openSelectKey();
-        // Assume key selection was successful and proceed immediately to avoid race condition
+        // GUIDELINE: Assume success to avoid race condition with the platform injection
+        console.log("[App] Project Selection Triggered. Assuming Success.");
         setHasApiKey(true);
+        // Refresh local data states
         initApp();
       } catch (err) {
-        console.error("Project selection failed", err);
+        console.error("[App] Project Selection Failed", err);
       }
     }
   };
@@ -161,7 +162,7 @@ const App: React.FC = () => {
       setIsLoading(false);
 
     } catch (error: any) {
-      console.error("Initialization failed:", error);
+      console.error("[App] Init Failure:", error);
       setIsLoading(false);
     }
   };
@@ -217,8 +218,6 @@ const App: React.FC = () => {
       setShowTicketForm(false);
       setEditingTicket(null);
     } catch (error: any) {
-      // If we get an entity not found error from the AI inside the form, it will throw.
-      // We catch database errors here.
       alert(`Database Error: ${error.message}`);
     }
   };
@@ -491,7 +490,7 @@ const App: React.FC = () => {
             { id: 'dashboard', label: 'Tickets', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1' },
             { id: 'calendar', label: 'Cal', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
             { id: 'jobs', label: 'Jobs', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2-2H7a2 2 0 00-2 2v16' },
-            { id: 'photos', label: 'Media', icon: 'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z' },
+            { id: 'photos', label: 'Media', icon: 'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z' },
             { id: 'team', label: 'Admin', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066' }
           ].map((v) => (
             <button key={v.id} onClick={() => { setActiveView(v.id as AppView); setActiveFilter(null); }} className={`flex flex-col items-center gap-1 py-1.5 px-6 rounded-xl transition-all ${activeView === v.id ? 'bg-brand text-[#0f172a] shadow-lg shadow-brand/20 scale-105' : 'text-slate-500 hover:text-brand'}`}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d={v.icon} /></svg><span className="text-[8px] font-black uppercase tracking-tighter">{v.label}</span></button>
