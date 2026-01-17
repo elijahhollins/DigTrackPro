@@ -10,6 +10,7 @@ interface JobReviewProps {
   isAdmin: boolean;
   isDarkMode?: boolean;
   onEditJob: (job: Job) => void;
+  onDeleteJob: (job: Job) => void;
   onToggleComplete: (job: Job) => void;
   onAddNote: (note: Omit<JobNote, 'id' | 'timestamp' | 'author'>) => void;
   onViewPhotos: (jobNumber: string) => void;
@@ -17,7 +18,7 @@ interface JobReviewProps {
 
 type ViewMode = 'thumbnail' | 'list';
 
-const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, notes, isAdmin, isDarkMode, onEditJob, onToggleComplete, onAddNote, onViewPhotos }) => {
+const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, notes, isAdmin, isDarkMode, onEditJob, onDeleteJob, onToggleComplete, onAddNote, onViewPhotos }) => {
   const [hideCompleted, setHideCompleted] = useState(false);
   const [jobSearch, setJobSearch] = useState('');
   const [showHistoryFor, setShowHistoryFor] = useState<string | null>(null);
@@ -117,9 +118,14 @@ const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, notes, isAdmin, is
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16" /></svg>
                     </button>
                     {isAdmin && jobEntity && (
-                      <button onClick={() => onToggleComplete(jobEntity)} title={isComplete ? "Mark Active" : "Mark Complete"} className={`p-2 rounded-lg border transition-all ${isComplete ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-black/5 border-transparent text-slate-300'}`}>
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
-                      </button>
+                      <>
+                        <button onClick={() => onToggleComplete(jobEntity)} title={isComplete ? "Mark Active" : "Mark Complete"} className={`p-2 rounded-lg border transition-all ${isComplete ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-black/5 border-transparent text-slate-300 hover:text-emerald-500'}`}>
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
+                        </button>
+                        <button onClick={() => onDeleteJob(jobEntity)} title="Delete Job" className="p-2 rounded-lg bg-black/5 text-slate-300 hover:bg-rose-500 hover:text-white transition-all">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -157,7 +163,6 @@ const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, notes, isAdmin, is
                           {archivedTickets.map(t => (
                             <div key={t.id} className="flex items-center justify-between text-[9px] font-bold p-1.5 bg-black/5 rounded-lg opacity-60">
                               <span className="font-mono">{t.ticketNo}</span>
-                              {/* Fix: Use the correct property 'expires' instead of 'expirationDate' */}
                               <span className="text-slate-400">Exp: {new Date(t.expires).toLocaleDateString()}</span>
                             </div>
                           ))}
@@ -207,9 +212,14 @@ const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, notes, isAdmin, is
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16" /></svg>
                           </button>
                           {isAdmin && jobEntity && (
-                            <button onClick={() => onToggleComplete(jobEntity)} className={`p-1.5 rounded-lg border transition-all ${isComplete ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-black/5 border-transparent text-slate-400 hover:text-emerald-500'}`}>
-                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
-                            </button>
+                            <>
+                              <button onClick={() => onToggleComplete(jobEntity)} className={`p-1.5 rounded-lg border transition-all ${isComplete ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-black/5 border-transparent text-slate-400 hover:text-emerald-500'}`}>
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
+                              </button>
+                              <button onClick={() => onDeleteJob(jobEntity)} className="p-1.5 rounded-lg bg-black/5 text-slate-400 hover:text-rose-500 transition-all">
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                              </button>
+                            </>
                           )}
                         </div>
                       </td>

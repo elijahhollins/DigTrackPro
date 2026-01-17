@@ -14,16 +14,6 @@ import TeamManagement from './components/TeamManagement.tsx';
 import NoShowForm from './components/NoShowForm.tsx';
 import Login from './components/Login.tsx';
 
-declare global {
-  interface AIStudio {
-    hasSelectedApiKey: () => Promise<boolean>;
-    openSelectKey: () => Promise<void>;
-  }
-  interface Window {
-    aistudio?: AIStudio;
-  }
-}
-
 const App: React.FC = () => {
   const [sessionUser, setSessionUser] = useState<User | null>(null);
   const [activeView, setActiveView] = useState<AppView>('dashboard');
@@ -34,7 +24,6 @@ const App: React.FC = () => {
   const [notes, setNotes] = useState<JobNote[]>([]);
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [hasApiKey, setHasApiKey] = useState(false);
   
   const [showTicketForm, setShowTicketForm] = useState(false);
   const [showJobForm, setShowJobForm] = useState(false);
@@ -75,36 +64,9 @@ const App: React.FC = () => {
     localStorage.setItem('dig_theme_mode', next ? 'dark' : 'light');
   };
 
-  const checkApiKey = async () => {
-    const envKey = !!process.env.API_KEY || !!(window as any).process?.env?.API_KEY;
-    if (envKey) { setHasApiKey(true); return true; }
-    try {
-      if (window.aistudio?.hasSelectedApiKey) {
-        const selected = await window.aistudio.hasSelectedApiKey();
-        if (selected) { setHasApiKey(true); return true; }
-      }
-    } catch (e) { console.warn("AI Studio key check failed", e); }
-    return false;
-  };
-
-  const handleSelectApiKey = async () => {
-    if (window.aistudio?.openSelectKey) {
-      try {
-        await window.aistudio.openSelectKey();
-        setHasApiKey(true);
-        initApp();
-      } catch (e) { console.error("Failed to trigger key selection", e); }
-    } else {
-      const currentKey = !!process.env.API_KEY || !!(window as any).process?.env?.API_KEY;
-      if (!currentKey) alert("The AI API Key is missing.");
-      else { setHasApiKey(true); }
-    }
-  };
-
   const initApp = async () => {
     if (!isSupabaseConfigured()) { setIsLoading(false); return; }
     try {
-      await checkApiKey();
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { setSessionUser(null); setIsLoading(false); return; }
       const [allUsers, allTickets, allJobs, allPhotos, allNotes] = await Promise.allSettled([
@@ -153,6 +115,25 @@ const App: React.FC = () => {
       setShowTicketForm(false);
       setEditingTicket(null);
     } catch (error: any) { alert(error.message); }
+  };
+
+  const handleDeleteTicket = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm("Are you sure you want to permanently delete this ticket?")) return;
+    try {
+      await apiService.deleteTicket(id);
+      setTickets(prev => prev.filter(t => t.id !== id));
+    } catch (error: any) { alert("Delete failed: " + error.message); }
+  };
+
+  const handleDeleteJob = async (job: Job) => {
+    if (!confirm(`Permanently delete Job #${job.jobNumber}? This cannot be undone.`)) return;
+    try {
+      await apiService.deleteJob(job.id);
+      setJobs(prev => prev.filter(j => j.id !== job.id));
+      // Optionally clean up associated tickets locally too
+      setTickets(prev => prev.filter(t => t.jobNumber !== job.jobNumber));
+    } catch (error: any) { alert("Delete job failed: " + error.message); }
   };
 
   const handleToggleRefresh = async (ticket: DigTicket, e: React.MouseEvent) => {
@@ -214,12 +195,6 @@ const App: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-1.5">
-            {!hasApiKey && (
-              <button onClick={handleSelectApiKey} className="flex items-center gap-2 bg-brand text-[#0f172a] px-3 py-1.5 rounded-xl font-black uppercase text-[9px] tracking-widest shadow-lg shadow-brand/20 transition-all">
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                Connect AI
-              </button>
-            )}
             <button onClick={toggleDarkMode} className={`p-2 rounded-xl transition-all ${isDarkMode ? 'bg-white/5 text-amber-300' : 'bg-slate-100 text-slate-500'}`}>
               {isDarkMode ? <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M12 7a5 5 0 100 10 5 5 0 000-10z" /></svg> : <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>}
             </button>
@@ -269,17 +244,16 @@ const App: React.FC = () => {
                           <td className="px-6 py-3 text-[12px] font-bold text-right opacity-40">{new Date(ticket.expires).toLocaleDateString()}</td>
                           <td className="px-6 py-3 text-right">
                             <div className="flex items-center justify-end gap-2">
-                              {/* RESTORED NO SHOW BUTTON WITH LABEL */}
                               <button 
                                 onClick={(e) => { e.stopPropagation(); setNoShowTicket(ticket); }} 
-                                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border shadow-sm ${
+                                aria-label="Request No Show"
+                                className={`p-2 rounded-xl transition-all border shadow-sm ${
                                   ticket.noShowRequested 
                                     ? 'bg-rose-500 text-white border-rose-600 shadow-rose-500/20' 
                                     : 'bg-rose-500/10 text-rose-600 border-rose-200 hover:bg-rose-500 hover:text-white hover:shadow-rose-500/30'
                                 }`}
                               >
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
-                                {ticket.noShowRequested ? 'Event Logged' : 'No Show Req'}
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
                               </button>
 
                               <button 
@@ -289,6 +263,16 @@ const App: React.FC = () => {
                               >
                                 <svg className={`w-4 h-4 ${ticket.refreshRequested ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357-2H15" /></svg>
                               </button>
+
+                              {isAdmin && (
+                                <button 
+                                  onClick={(e) => handleDeleteTicket(ticket.id, e)}
+                                  className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all"
+                                  title="Delete Ticket"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -301,7 +285,7 @@ const App: React.FC = () => {
           </div>
         )}
         {activeView === 'calendar' && <CalendarView tickets={activeTickets} onEditTicket={(t) => isAdmin && setEditingTicket(t)} />}
-        {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} notes={notes} isAdmin={isAdmin} isDarkMode={isDarkMode} onEditJob={(j) => isAdmin && setEditingJob(j)} onToggleComplete={async (j) => { await apiService.saveJob({...j, isComplete: !j.isComplete}); initApp(); }} onAddNote={async (note) => { const n = await apiService.addNote({...note, id: crypto.randomUUID(), timestamp: Date.now(), author: sessionUser.name}); setNotes(prev => [n, ...prev]); }} onViewPhotos={(j) => { setGlobalSearch(j); setActiveView('photos'); }} />}
+        {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} notes={notes} isAdmin={isAdmin} isDarkMode={isDarkMode} onEditJob={(j) => isAdmin && setEditingJob(j)} onDeleteJob={handleDeleteJob} onToggleComplete={async (j) => { await apiService.saveJob({...j, isComplete: !j.isComplete}); initApp(); }} onAddNote={async (note) => { const n = await apiService.addNote({...note, id: crypto.randomUUID(), timestamp: Date.now(), author: sessionUser.name}); setNotes(prev => [n, ...prev]); }} onViewPhotos={(j) => { setGlobalSearch(j); setActiveView('photos'); }} />}
         {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} initialSearch={globalSearch} isDarkMode={isDarkMode} onAddPhoto={async (metadata, file) => { const saved = await apiService.addPhoto(metadata, file); setPhotos(prev => [saved, ...prev]); return saved; }} onDeletePhoto={async (id) => { await apiService.deletePhoto(id); setPhotos(prev => prev.filter(p => p.id !== id)); }} />}
         {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} isDarkMode={isDarkMode} onAddUser={async (u) => { const newUser = await apiService.addUser({...u}); setUsers(prev => [...prev, newUser]); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); setUsers(prev => prev.filter(u => u.id !== id)); }} onThemeChange={(hex) => applyThemeColor(hex, true)} />}
       </main>
@@ -328,7 +312,6 @@ const App: React.FC = () => {
           users={users} 
           jobs={jobs}
           isDarkMode={isDarkMode} 
-          onResetKey={() => setHasApiKey(false)} 
           onJobCreated={(newJob) => setJobs(prev => [...prev, newJob])}
         />
       )}

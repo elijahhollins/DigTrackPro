@@ -1,6 +1,7 @@
+
 import React, { useState } from 'react';
 import { UserRole, UserRecord, User } from '../types.ts';
-import { apiService, SQL_SCHEMA } from '../services/apiService.ts';
+import { apiService } from '../services/apiService.ts';
 
 interface TeamManagementProps {
   users: UserRecord[];
@@ -34,20 +35,6 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
   onToggleRole 
 }) => {
   const [isSyncing, setIsSyncing] = useState(false);
-  const [showSqlViewer, setShowSqlViewer] = useState(false);
-
-  const copyFixSql = () => {
-    try {
-      if (navigator.clipboard) {
-        navigator.clipboard.writeText(SQL_SCHEMA);
-        alert("SQL FIX COPIED!\n\n1. Go to your Supabase Dashboard\n2. Open the SQL Editor\n3. Paste this code and click 'RUN'");
-      } else {
-        setShowSqlViewer(true);
-      }
-    } catch (e) {
-      setShowSqlViewer(true);
-    }
-  };
 
   const forceSyncProfile = async () => {
     if (!sessionUser) return;
@@ -157,30 +144,6 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
           </table>
         </div>
       </section>
-
-      {/* Developer / SQL Tools */}
-      {isAdmin && (
-        <section className={`p-6 rounded-2xl border ${isDarkMode ? 'bg-rose-500/5 border-rose-500/20' : 'bg-rose-50 border-rose-100'}`}>
-          <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-            <div className="space-y-1">
-              <h3 className="text-xs font-black uppercase tracking-widest text-rose-600">Database Schema Maintenance</h3>
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Execute if tables or RLS policies fail to initialize</p>
-            </div>
-            <button 
-              onClick={copyFixSql}
-              className="bg-rose-600 text-white px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-rose-600/20 hover:scale-105 active:scale-95 transition-all"
-            >
-              Copy Database Fix Script
-            </button>
-          </div>
-          
-          {showSqlViewer && (
-            <div className="mt-4 p-4 bg-slate-900 rounded-xl overflow-x-auto">
-              <pre className="text-[10px] text-emerald-400 font-mono leading-relaxed">{SQL_SCHEMA}</pre>
-            </div>
-          )}
-        </section>
-      )}
     </div>
   );
 };

@@ -11,11 +11,10 @@ interface TicketFormProps {
   users: UserRecord[];
   jobs: Job[];
   isDarkMode?: boolean;
-  onResetKey: () => void;
   onJobCreated?: (job: Job) => void;
 }
 
-const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, users = [], jobs = [], isDarkMode, onResetKey, onJobCreated }) => {
+const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, users = [], jobs = [], isDarkMode, onJobCreated }) => {
   const [activeTab, setActiveTab] = useState<'manual' | 'batch' | 'pdf'>('manual');
   const [archiveOld, setArchiveOld] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -94,7 +93,7 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
           const newJob: Job = {
             id: crypto.randomUUID(),
             jobNumber: targetJobNumber,
-            customer: 'Auto-Created (AI)',
+            customer: '', // Removed "Auto-Created (AI)" text
             address: cleanData.street || '',
             city: cleanData.city || '',
             state: cleanData.state || '',
@@ -125,6 +124,7 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
           noShowRequested: false
         };
 
+        // This triggers parent state update and inclusion in counts immediately
         await onAdd(ticketToSave, false);
 
         // Save file as photo
@@ -134,15 +134,10 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
           caption: `AI Import: ${cleanData.ticketNo}`
         }, file);
 
-        // Update form state with the last parsed result
         setFormData(prev => ({ ...prev, ...cleanData }));
         successCount++;
       } catch (err: any) {
         console.error(`Failed to process ${file.name}:`, err);
-        if (err.message?.includes("ACCESS ERROR")) {
-          onResetKey();
-          break;
-        }
       }
     }
 
@@ -164,7 +159,6 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
       setFormData(prev => ({ ...prev, ...cleanData }));
       setActiveTab('manual');
     } catch (err: any) {
-      if (err.message?.includes("ACCESS ERROR")) onResetKey();
       alert("Extraction failed: " + err.message);
     } finally {
       setIsParsing(false);

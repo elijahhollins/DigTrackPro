@@ -185,6 +185,11 @@ export const apiService = {
     return mapJob(data);
   },
 
+  async deleteJob(id: string): Promise<void> {
+    const { error } = await supabase.from('jobs').delete().eq('id', id);
+    if (error) throw error;
+  },
+
   async getTickets(): Promise<DigTicket[]> {
     const { data, error } = await supabase.from('tickets').select('*');
     if (error) return [];
