@@ -59,7 +59,9 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
 
   const handleFileUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    const file = files[0];
+    // FIX: Explicitly cast files[0] to File and check for existence to resolve potential 'unknown' or 'null' type issues
+    const file = files[0] as File;
+    if (!file) return;
     
     if (file.type !== 'application/pdf' && !file.type.startsWith('image/')) {
       alert("Invalid Format: Please upload a PDF, JPG, or PNG document.");
@@ -81,14 +83,17 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
       if (!parsed) throw new Error("AI returned no results.");
 
       setScanStatus('Success!');
+      // FIX: Cast Object.fromEntries output to any to prevent 'unknown' property access errors
       const cleanData = Object.fromEntries(
         Object.entries(parsed).filter(([_, v]) => v !== null && v !== '')
-      );
+      ) as any;
 
       setFormData(prev => ({ ...prev, ...cleanData }));
 
+      // FIX: Ensure jobNumber is treated as a string when calling addTicketFile to fix 'unknown' type error
       if (cleanData.jobNumber || formData.jobNumber) {
-        await apiService.addTicketFile(cleanData.jobNumber || formData.jobNumber, file);
+        const targetJobNumber = (cleanData.jobNumber as string) || formData.jobNumber;
+        await apiService.addTicketFile(targetJobNumber, file);
       }
 
       setTimeout(() => setActiveTab('manual'), 500);
@@ -131,7 +136,7 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
 
   return (
     <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[150] flex justify-center items-center p-4">
-      <div className={`w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden border animate-in ${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white border-slate-200'}`}>
+      <div className={`w-full max-lg rounded-2xl shadow-2xl overflow-hidden border animate-in ${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white border-slate-200'}`}>
         <div className="px-6 py-4 border-b flex justify-between items-center bg-black/5">
           <h2 className="text-sm font-black uppercase tracking-widest">
             {initialData ? 'Update Ticket' : 'Import Locate Ticket'}

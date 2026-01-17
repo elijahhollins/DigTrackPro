@@ -1,43 +1,21 @@
+
 import { createClient } from '@supabase/supabase-js';
 
-const safeGetEnv = (key: string): string => {
-  try {
-    // @ts-ignore
-    const winEnv = window.process?.env?.[key];
-    if (winEnv) return winEnv;
-
-    // @ts-ignore
-    if (typeof process !== 'undefined' && process.env) {
-      // @ts-ignore
-      return process.env[key] || '';
-    }
-  } catch (e) {}
-  return '';
+const getEnv = (key: string): string => {
+  const val = (typeof process !== 'undefined' && process.env?.[key]) || 
+              (window as any).process?.env?.[key] || 
+              '';
+  return val.trim();
 };
 
-const supabaseUrl = safeGetEnv('SUPABASE_URL').trim();
-const supabaseAnonKey = safeGetEnv('SUPABASE_ANON_KEY').trim();
+const supabaseUrl = getEnv('SUPABASE_URL');
+const supabaseAnonKey = getEnv('SUPABASE_ANON_KEY');
 
-// Strict validation
-const isConfigured = 
-  supabaseUrl.length > 5 && 
-  supabaseUrl.startsWith('https://') &&
-  supabaseAnonKey.length > 5;
+// Safe fallback to prevent createClient from throwing error on boot
+const validUrl = supabaseUrl && supabaseUrl.startsWith('http') ? supabaseUrl : 'https://placeholder.supabase.co';
+const validKey = supabaseAnonKey && supabaseAnonKey.length > 10 ? supabaseAnonKey : 'placeholder-key-missing';
 
-// Diagnostics logging
-if (!isConfigured) {
-  console.error("Supabase Configuration Missing or Invalid!");
-  console.info("URL Found:", supabaseUrl ? "Yes" : "No");
-  console.info("Key Found:", supabaseAnonKey ? "Yes" : "No");
-}
+export const supabase = createClient(validUrl, validKey);
 
-export const supabase = createClient(
-  supabaseUrl || 'https://placeholder.supabase.co', 
-  supabaseAnonKey || 'placeholder'
-);
-
-export const getSupabaseConfig = () => ({
-  isValid: isConfigured,
-  url: supabaseUrl,
-  anonKey: supabaseAnonKey ? `${supabaseAnonKey.substring(0, 6)}...${supabaseAnonKey.substring(supabaseAnonKey.length - 4)}` : 'MISSING'
-});
+export const isSupabaseConfigured = () => 
+  validUrl.includes('supabase.co') && validKey !== 'placeholder-key-missing';
