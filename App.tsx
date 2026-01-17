@@ -82,31 +82,53 @@ const App: React.FC = () => {
   };
 
   const checkApiKey = async () => {
+    // 1. Primary check: injected environment variable
+    const envKey = !!process.env.API_KEY || !!(window as any).process?.env?.API_KEY;
+    if (envKey) {
+      setHasApiKey(true);
+      return true;
+    }
+
+    // 2. Secondary check: AI Studio project connection
     try {
-      const selected = await window.aistudio?.hasSelectedApiKey();
-      if (selected) {
-        setHasApiKey(true);
-        return true;
+      if (window.aistudio?.hasSelectedApiKey) {
+        const selected = await window.aistudio.hasSelectedApiKey();
+        if (selected) {
+          setHasApiKey(true);
+          return true;
+        }
       }
-    } catch (e) {}
-    const envKey = !!process.env.API_KEY;
-    setHasApiKey(envKey);
-    return envKey;
+    } catch (e) {
+      console.warn("AI Studio key check failed", e);
+    }
+
+    setHasApiKey(false);
+    return false;
   };
 
   const handleSelectApiKey = async () => {
     if (window.aistudio?.openSelectKey) {
-      await window.aistudio.openSelectKey();
-      setHasApiKey(true);
-      initApp();
+      try {
+        await window.aistudio.openSelectKey();
+        // Optimistically assume key selection was successful to improve UX
+        setHasApiKey(true);
+        initApp();
+      } catch (e) {
+        console.error("Failed to trigger key selection", e);
+      }
     } else {
-      alert("Please open this app in the AI Studio environment to link a project.");
+      // Manual/Production environment handling
+      const currentKey = !!process.env.API_KEY || !!(window as any).process?.env?.API_KEY;
+      if (!currentKey) {
+        alert("The AI API Key is missing. If you are a developer, ensure process.env.API_KEY is configured in your project settings.");
+      } else {
+        setHasApiKey(true);
+      }
     }
   };
 
   const initApp = async () => {
     if (!isSupabaseConfigured()) {
-      console.warn("Supabase not yet configured. Skipping data fetch.");
       setIsLoading(false);
       return;
     }
