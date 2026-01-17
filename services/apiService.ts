@@ -233,10 +233,12 @@ export const apiService = {
       city: ticket.city,
       state: ticket.state,
       call_in_date: ticket.callInDate,
+      // Fix: Use correct property from DigTicket interface
       work_date: ticket.workDate,
       expires: ticket.expires,
       site_contact: ticket.siteContact,
       refresh_requested: ticket.refreshRequested ?? false,
+      // Fix: Use correct property from DigTicket interface
       no_show_requested: ticket.noShowRequested ?? false,
       is_archived: ticket.isArchived ?? false
     }).select().single();
@@ -264,6 +266,11 @@ export const apiService = {
 
   async deleteTicket(id: string): Promise<void> {
     const { error } = await supabase.from('tickets').delete().eq('id', id);
+    if (error) throw error;
+  },
+
+  async deleteTicketsByJob(jobNumber: string): Promise<void> {
+    const { error } = await supabase.from('tickets').delete().eq('job_number', jobNumber);
     if (error) throw error;
   },
 
