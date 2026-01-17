@@ -48,7 +48,6 @@ const App: React.FC = () => {
     order: 'desc'
   });
 
-  // --- DYNAMIC COLOR ENGINE ---
   const applyThemeColor = (hex: string, save: boolean = false) => {
     document.documentElement.style.setProperty('--brand-primary', hex);
     const r = parseInt(hex.slice(1, 3), 16);
@@ -56,25 +55,16 @@ const App: React.FC = () => {
     const b = parseInt(hex.slice(5, 7), 16);
     document.documentElement.style.setProperty('--brand-ring', `rgba(${r}, ${g}, ${b}, 0.1)`);
     document.documentElement.style.setProperty('--brand-shadow', `rgba(${r}, ${g}, ${b}, 0.25)`);
-    
-    if (save) {
-      localStorage.setItem('dig_theme_color', hex);
-    }
+    if (save) localStorage.setItem('dig_theme_color', hex);
   };
 
   useEffect(() => {
     const activeTkts = tickets.filter(t => !t.isArchived);
     const statuses = activeTkts.map(t => getTicketStatus(t));
-    
-    let color = '#3b82f6'; // System Blue
-    if (statuses.includes(TicketStatus.EXPIRED)) {
-      color = '#e11d48'; // Urgent Red
-    } else if (statuses.includes(TicketStatus.REFRESH_NEEDED) || statuses.includes(TicketStatus.EXTENDABLE) || activeTkts.some(t => t.noShowRequested)) {
-      color = '#f59e0b'; // Warning Orange
-    } else if (activeTkts.length > 0) {
-      color = '#10b981'; // Healthy Green
-    }
-
+    let color = '#3b82f6';
+    if (statuses.includes(TicketStatus.EXPIRED)) color = '#e11d48';
+    else if (statuses.includes(TicketStatus.REFRESH_NEEDED) || statuses.includes(TicketStatus.EXTENDABLE) || activeTkts.some(t => t.noShowRequested)) color = '#f59e0b';
+    else if (activeTkts.length > 0) color = '#10b981';
     const manual = localStorage.getItem('dig_theme_color');
     applyThemeColor(manual || color);
   }, [tickets]);
@@ -87,23 +77,13 @@ const App: React.FC = () => {
 
   const checkApiKey = async () => {
     const envKey = !!process.env.API_KEY || !!(window as any).process?.env?.API_KEY;
-    if (envKey) {
-      setHasApiKey(true);
-      return true;
-    }
-
+    if (envKey) { setHasApiKey(true); return true; }
     try {
       if (window.aistudio?.hasSelectedApiKey) {
         const selected = await window.aistudio.hasSelectedApiKey();
-        if (selected) {
-          setHasApiKey(true);
-          return true;
-        }
+        if (selected) { setHasApiKey(true); return true; }
       }
-    } catch (e) {
-      console.warn("AI Studio key check failed", e);
-    }
-
+    } catch (e) { console.warn("AI Studio key check failed", e); }
     setHasApiKey(false);
     return false;
   };
@@ -114,35 +94,20 @@ const App: React.FC = () => {
         await window.aistudio.openSelectKey();
         setHasApiKey(true);
         initApp();
-      } catch (e) {
-        console.error("Failed to trigger key selection", e);
-      }
+      } catch (e) { console.error("Failed to trigger key selection", e); }
     } else {
       const currentKey = !!process.env.API_KEY || !!(window as any).process?.env?.API_KEY;
-      if (!currentKey) {
-        alert("The AI API Key is missing. Please add API_KEY to your environment variables or project secrets.");
-      } else {
-        setHasApiKey(true);
-      }
+      if (!currentKey) alert("The AI API Key is missing.");
+      else { setHasApiKey(true); }
     }
   };
 
   const initApp = async () => {
-    if (!isSupabaseConfigured()) {
-      setIsLoading(false);
-      return;
-    }
-
+    if (!isSupabaseConfigured()) { setIsLoading(false); return; }
     try {
       await checkApiKey();
       const { data: { session } } = await supabase.auth.getSession();
-      
-      if (!session) {
-        setSessionUser(null);
-        setIsLoading(false);
-        return;
-      }
-
+      if (!session) { setSessionUser(null); setIsLoading(false); return; }
       const [allUsers, allTickets, allJobs, allPhotos, allNotes] = await Promise.allSettled([
         apiService.getUsers(),
         apiService.getTickets(),
@@ -150,34 +115,18 @@ const App: React.FC = () => {
         apiService.getPhotos(),
         apiService.getNotes()
       ]);
-
       setUsers(allUsers.status === 'fulfilled' ? allUsers.value : []);
       setTickets(allTickets.status === 'fulfilled' ? allTickets.value : []);
       setJobs(allJobs.status === 'fulfilled' ? allJobs.value : []);
       setPhotos(allPhotos.status === 'fulfilled' ? allPhotos.value : []);
       setNotes(allNotes.status === 'fulfilled' ? allNotes.value : []);
-
       const matchedProfile = (allUsers.status === 'fulfilled' ? allUsers.value : []).find(u => u.id === session.user.id);
       if (matchedProfile) {
-        setSessionUser({
-          id: session.user.id,
-          name: matchedProfile.name,
-          username: matchedProfile.username,
-          role: matchedProfile.role
-        });
+        setSessionUser({ id: session.user.id, name: matchedProfile.name, username: matchedProfile.username, role: matchedProfile.role });
       } else {
-        setSessionUser({
-          id: session.user.id,
-          name: session.user.user_metadata?.display_name || 'New User',
-          username: session.user.email || '',
-          role: UserRole.CREW
-        });
+        setSessionUser({ id: session.user.id, name: session.user.user_metadata?.display_name || 'New User', username: session.user.email || '', role: UserRole.CREW });
       }
-    } catch (error) {
-      console.error("Critical Init Error:", error);
-    } finally {
-      setIsLoading(false);
-    }
+    } catch (error) { console.error("Critical Init Error:", error); } finally { setIsLoading(false); }
   };
 
   useEffect(() => {
@@ -187,12 +136,7 @@ const App: React.FC = () => {
   }, []);
 
   const handleSignOut = async () => {
-    try {
-      await supabase.auth.signOut();
-      setSessionUser(null);
-    } catch (error: any) {
-      console.error("Sign out error:", error.message);
-    }
+    try { await supabase.auth.signOut(); setSessionUser(null); } catch (error: any) { console.error("Sign out error:", error.message); }
   };
 
   const handleSaveTicket = async (data: Omit<DigTicket, 'id' | 'createdAt'>, archiveOld: boolean = false) => {
@@ -231,7 +175,7 @@ const App: React.FC = () => {
   const filteredTickets = useMemo(() => {
     let res = activeTickets.filter(t => {
       const s = globalSearch.toLowerCase().trim();
-      if (s && !t.ticketNo.toLowerCase().includes(s) && !t.address.toLowerCase().includes(s) && !t.jobNumber.toLowerCase().includes(s)) return false;
+      if (s && !t.ticketNo.toLowerCase().includes(s) && !t.street.toLowerCase().includes(s) && !t.jobNumber.toLowerCase().includes(s)) return false;
       if (activeFilter) {
         if (activeFilter === 'NO_SHOW') return t.noShowRequested;
         return getTicketStatus(t) === activeFilter;
@@ -304,9 +248,9 @@ const App: React.FC = () => {
                     <tr>
                       <th onClick={() => handleSort('jobNumber')} className="px-6 py-4 text-[10px] font-black uppercase tracking-widest cursor-pointer hover:text-brand transition-colors">Job</th>
                       <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest">Ticket #</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest">Location</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest">Street</th>
                       <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-center">Status</th>
-                      <th onClick={() => handleSort('expirationDate')} className="px-6 py-4 text-[10px] font-black uppercase tracking-widest cursor-pointer text-right">Expiration</th>
+                      <th onClick={() => handleSort('expires')} className="px-6 py-4 text-[10px] font-black uppercase tracking-widest cursor-pointer text-right">Expires</th>
                       <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-right">Actions</th>
                     </tr>
                   </thead>
@@ -317,13 +261,13 @@ const App: React.FC = () => {
                         <tr key={ticket.id} onClick={() => isAdmin && setEditingTicket(ticket)} className={`transition-all group ${isAdmin ? 'cursor-pointer' : ''} ${isDarkMode ? 'hover:bg-white/5' : 'hover:bg-slate-50'}`}>
                           <td className="px-6 py-3 text-[13px] font-black">{ticket.jobNumber}</td>
                           <td className="px-6 py-3 text-[12px] font-mono opacity-50">{ticket.ticketNo}</td>
-                          <td className="px-6 py-3 text-[13px] font-bold truncate max-w-[250px]">{ticket.address}</td>
+                          <td className="px-6 py-3 text-[13px] font-bold truncate max-w-[250px]">{ticket.street}</td>
                           <td className="px-6 py-3 text-center">
                             <div className="flex flex-col items-center gap-1">
                               <span className={`inline-flex px-2 py-0.5 rounded-md text-[9px] font-black uppercase border ${getStatusColor(status)}`}>{status}</span>
                             </div>
                           </td>
-                          <td className="px-6 py-3 text-[12px] font-bold text-right opacity-40">{new Date(ticket.expirationDate).toLocaleDateString()}</td>
+                          <td className="px-6 py-3 text-[12px] font-bold text-right opacity-40">{new Date(ticket.expires).toLocaleDateString()}</td>
                           <td className="px-6 py-3 text-right">
                             <div className="flex items-center justify-end gap-2">
                               <button onClick={(e) => handleToggleRefresh(ticket, e)} className={`p-2 rounded-xl transition-all ${ticket.refreshRequested ? 'bg-amber-100 text-amber-600 border-amber-300' : 'bg-black/5 text-slate-400 hover:text-brand'}`}><svg className={`w-4 h-4 ${ticket.refreshRequested ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357-2H15" /></svg></button>
@@ -358,7 +302,18 @@ const App: React.FC = () => {
         </div>
       </nav>
 
-      {(showTicketForm || editingTicket) && <TicketForm onAdd={handleSaveTicket} onClose={() => { setShowTicketForm(false); setEditingTicket(null); }} initialData={editingTicket || undefined} users={users} isDarkMode={isDarkMode} onResetKey={() => setHasApiKey(false)} />}
+      {(showTicketForm || editingTicket) && (
+        <TicketForm 
+          onAdd={handleSaveTicket} 
+          onClose={() => { setShowTicketForm(false); setEditingTicket(null); }} 
+          initialData={editingTicket || undefined} 
+          users={users} 
+          jobs={jobs}
+          isDarkMode={isDarkMode} 
+          onResetKey={() => setHasApiKey(false)} 
+          onJobCreated={(newJob) => setJobs(prev => [...prev, newJob])}
+        />
+      )}
       {(showJobForm || editingJob) && <JobForm onSave={async (j) => { await apiService.saveJob({...j, id: crypto.randomUUID(), createdAt: Date.now()}); initApp(); setShowJobForm(false); }} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} isDarkMode={isDarkMode} />}
       {noShowTicket && <NoShowForm ticket={noShowTicket} userName={sessionUser?.name || 'User'} onSave={async (r) => { await apiService.addNoShow(r); initApp(); setNoShowTicket(null); }} onClose={() => setNoShowTicket(null)} isDarkMode={isDarkMode} />}
     </div>

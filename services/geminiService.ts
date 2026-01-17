@@ -4,7 +4,6 @@ import { getEnv } from "../lib/supabaseClient.ts";
 
 /**
  * Specialized service for parsing locate tickets using Gemini AI.
- * Uses gemini-3-flash-preview for fast and accurate extraction of ticket metadata.
  */
 export const parseTicketData = async (input: string | { data: string; mimeType: string }) => {
   const apiKey = getEnv('API_KEY');
@@ -21,7 +20,7 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
     const promptText = isMedia 
       ? `ACT: Professional Construction Document Processor.
          TASK: Extract precise metadata from this 811 Locate Ticket.
-         FIELDS: ticketNo, jobNumber, address, county, city, state, callInDate, digStart, expirationDate.`
+         FIELDS: ticketNo, jobNumber, street, extent, county, city, state, callInDate, workDate, expires.`
       : `Extract locate ticket info from this text. Ensure dates are YYYY-MM-DD.\n\n"${input}"`;
 
     const parts = isMedia 
@@ -32,24 +31,25 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
       model: "gemini-3-flash-preview", 
       contents: { parts },
       config: {
-        systemInstruction: "You are a specialized 811 locate ticket parser. Return only valid JSON. Be extremely precise with ticket numbers and dates (YYYY-MM-DD).",
+        systemInstruction: "You are a specialized 811 locate ticket parser. Return only valid JSON. Be extremely precise with ticket numbers and dates (YYYY-MM-DD). The 'extent' field should describe the work area/boundaries mentioned in the ticket.",
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
             jobNumber: { type: Type.STRING },
             ticketNo: { type: Type.STRING },
-            address: { type: Type.STRING },
+            street: { type: Type.STRING },
+            extent: { type: Type.STRING },
             county: { type: Type.STRING },
             city: { type: Type.STRING },
             state: { type: Type.STRING },
             callInDate: { type: Type.STRING },
-            digStart: { type: Type.STRING },
-            expirationDate: { type: Type.STRING },
+            workDate: { type: Type.STRING },
+            expires: { type: Type.STRING },
             siteContact: { type: Type.STRING },
           },
-          required: ["ticketNo", "address"],
-          propertyOrdering: ["jobNumber", "ticketNo", "address", "county", "city", "state", "callInDate", "digStart", "expirationDate", "siteContact"]
+          required: ["ticketNo", "street", "workDate", "expires"],
+          propertyOrdering: ["jobNumber", "ticketNo", "street", "extent", "county", "city", "state", "callInDate", "workDate", "expires", "siteContact"]
         },
         temperature: 0.1,
       }
@@ -60,11 +60,9 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
     return result;
   } catch (error: any) {
     console.error("[Gemini] Parsing Error:", error);
-    
     if (error.message?.includes("API key not valid")) {
       throw new Error("INVALID KEY: The API key provided is not valid or has been restricted incorrectly.");
     }
-    
     throw new Error(error.message || "Document analysis failed.");
   }
 };

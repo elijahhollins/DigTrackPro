@@ -41,9 +41,8 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket }) =>
       const dayEvents: CalendarEvent[] = [];
       
       tickets.forEach(t => {
-        // Standard Date Logic
-        const start = new Date(t.digStart);
-        const expire = new Date(t.expirationDate);
+        const start = new Date(t.workDate);
+        const expire = new Date(t.expires);
         const refreshDate = new Date(expire);
         refreshDate.setDate(refreshDate.getDate() - 3);
 
@@ -51,7 +50,6 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket }) =>
         if (isSameDay(expire, cellDate)) dayEvents.push({ ticket: t, type: 'expire' });
         if (isSameDay(refreshDate, cellDate)) dayEvents.push({ ticket: t, type: 'refresh' });
 
-        // Request-based Logic (Show on Today if active)
         if (isSameDay(today, cellDate)) {
           if (t.noShowRequested) dayEvents.push({ ticket: t, type: 'noShowRequest' });
           if (t.refreshRequested) dayEvents.push({ ticket: t, type: 'manualRefreshRequest' });
@@ -70,8 +68,8 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket }) =>
     const results: CalendarEvent[] = [];
     
     tickets.forEach(t => {
-      const start = new Date(t.digStart);
-      const expire = new Date(t.expirationDate);
+      const start = new Date(t.workDate);
+      const expire = new Date(t.expires);
       const refreshDate = new Date(expire);
       refreshDate.setDate(refreshDate.getDate() - 3);
 
@@ -161,7 +159,6 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket }) =>
         </h3>
         
         <div className="space-y-6 flex-1 overflow-y-auto no-scrollbar pr-1">
-          {/* Priority Alerts Section */}
           {activeAlerts.length > 0 && selectedDay === new Date().getDate() && (
             <div className="space-y-3">
               <p className="text-[9px] font-black text-rose-500 uppercase tracking-[0.2em]">Priority Actions</p>
@@ -174,7 +171,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket }) =>
                        </span>
                        <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-ping" />
                     </div>
-                    <p className="text-xs font-black text-slate-800 truncate mb-1">#{t.jobNumber} • {t.address}</p>
+                    <p className="text-xs font-black text-slate-800 truncate mb-1">#{t.jobNumber} • {t.street}</p>
                     <p className="text-[9px] font-mono font-bold text-rose-400 uppercase tracking-tighter">CALL REQUIRED: {t.ticketNo}</p>
                  </div>
               ))}
@@ -191,14 +188,14 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket }) =>
                       ev.type === 'start' ? 'bg-blue-100 text-blue-700' : 
                       ev.type === 'expire' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-800'
                     }`}>
-                      {ev.type === 'start' ? 'Dig Start' : ev.type === 'expire' ? 'Expirations' : 'Refresh Window'}
+                      {ev.type === 'start' ? 'Dig Start' : ev.type === 'expire' ? 'Expires' : 'Refresh Window'}
                     </span>
                     <div className={`w-2.5 h-2.5 rounded-full border border-white shadow-sm ${
                       ev.type === 'start' ? 'bg-blue-500' : 
                       ev.type === 'expire' ? 'bg-red-600' : 'bg-orange-400'
                     }`} />
                   </div>
-                  <p className="text-xs font-black text-slate-800 truncate mb-1">#{ev.ticket.jobNumber} • {ev.ticket.address}</p>
+                  <p className="text-xs font-black text-slate-800 truncate mb-1">#{ev.ticket.jobNumber} • {ev.ticket.street}</p>
                   <p className="text-[9px] font-mono font-bold text-slate-400">TKT: {ev.ticket.ticketNo}</p>
                 </div>
               ))
@@ -208,32 +205,6 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket }) =>
                 <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest text-center">No Activity Scheduled</p>
               </div>
             )}
-          </div>
-
-          <div className="pt-6 border-t border-slate-100 mt-auto">
-            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Color Legend</h4>
-            <div className="space-y-3">
-              <div className="flex items-center gap-3 text-[10px] font-bold text-slate-600 uppercase">
-                <div className="w-3.5 h-3.5 rounded-full bg-blue-500 border-2 border-white shadow-sm" />
-                <span>Dig Start Work</span>
-              </div>
-              <div className="flex items-center gap-3 text-[10px] font-bold text-slate-600 uppercase">
-                <div className="w-3.5 h-3.5 rounded-full bg-orange-400 border-2 border-white shadow-sm" />
-                <span>Auto Refresh Window</span>
-              </div>
-              <div className="flex items-center gap-3 text-[10px] font-bold text-slate-600 uppercase">
-                <div className="w-3.5 h-3.5 rounded-full bg-red-600 border-2 border-white shadow-sm" />
-                <span>Ticket Expiration</span>
-              </div>
-              <div className="flex items-center gap-3 text-[10px] font-bold text-rose-500 uppercase">
-                <div className="w-3.5 h-3.5 rounded-full bg-rose-500 border-2 border-white shadow-sm ring-2 ring-rose-500/20" />
-                <span>Active No Show Req</span>
-              </div>
-              <div className="flex items-center gap-3 text-[10px] font-bold text-amber-500 uppercase">
-                <div className="w-3.5 h-3.5 rounded-full bg-amber-400 border-2 border-white shadow-sm ring-2 ring-amber-500/20" />
-                <span>Manual Refresh Req</span>
-              </div>
-            </div>
           </div>
         </div>
       </div>

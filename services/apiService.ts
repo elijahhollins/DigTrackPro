@@ -18,7 +18,7 @@ END $$;
 
 -- 2. TABLE INITIALIZATION
 create table if not exists jobs (id uuid primary key, job_number text, customer text, address text, city text, state text, county text, is_complete boolean default false, created_at timestamp with time zone default now());
-create table if not exists tickets (id uuid primary key, job_number text, ticket_no text, address text, county text, city text, state text, call_in_date text, dig_start text, expiration_date text, site_contact text, refresh_requested boolean default false, no_show_requested boolean default false, is_archived boolean default false, created_at timestamp with time zone default now());
+create table if not exists tickets (id uuid primary key, job_number text, ticket_no text, street text, extent text, county text, city text, state text, call_in_date text, work_date text, expires text, site_contact text, refresh_requested boolean default false, no_show_requested boolean default false, is_archived boolean default false, created_at timestamp with time zone default now());
 create table if not exists photos (id uuid primary key, job_number text, data_url text, caption text, created_at timestamp with time zone default now());
 create table if not exists notes (id uuid primary key, job_number text, text text, author text, timestamp bigint);
 create table if not exists profiles (id uuid primary key, name text, username text, role text);
@@ -27,14 +27,17 @@ create table if not exists no_shows (id uuid primary key, ticket_id uuid, job_nu
 -- 3. SCHEMA MIGRATION
 DO $$ 
 BEGIN 
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='refresh_requested') THEN
-        ALTER TABLE tickets ADD COLUMN refresh_requested boolean DEFAULT false;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='extent') THEN
+        ALTER TABLE tickets ADD COLUMN extent text;
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='no_show_requested') THEN
-        ALTER TABLE tickets ADD COLUMN no_show_requested boolean DEFAULT false;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='street') THEN
+        ALTER TABLE tickets RENAME COLUMN address TO street;
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='is_archived') THEN
-        ALTER TABLE tickets ADD COLUMN is_archived boolean DEFAULT false;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='work_date') THEN
+        ALTER TABLE tickets RENAME COLUMN dig_start TO work_date;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='expires') THEN
+        ALTER TABLE tickets RENAME COLUMN expiration_date TO expires;
     END IF;
 END $$;
 
@@ -125,13 +128,14 @@ export const apiService = {
         id: t.id,
         jobNumber: t.job_number,
         ticketNo: t.ticket_no,
-        address: t.address,
+        street: t.street,
+        extent: t.extent || '',
         county: t.county,
         city: t.city,
         state: t.state,
         callInDate: t.call_in_date,
-        digStart: t.dig_start,
-        expirationDate: t.expiration_date,
+        workDate: t.work_date,
+        expires: t.expires,
         siteContact: t.site_contact,
         refreshRequested: t.refresh_requested ?? false,
         noShowRequested: t.no_show_requested ?? false,
@@ -154,14 +158,14 @@ export const apiService = {
       id: ticket.id,
       job_number: ticket.jobNumber,
       ticket_no: ticket.ticketNo,
-      address: ticket.address,
+      street: ticket.street,
+      extent: ticket.extent,
       county: ticket.county,
       city: ticket.city,
       state: ticket.state,
-      // Fix: Use camelCase properties from DigTicket interface
       call_in_date: ticket.callInDate,
-      dig_start: ticket.digStart,
-      expiration_date: ticket.expirationDate,
+      work_date: ticket.workDate,
+      expires: ticket.expires,
       site_contact: ticket.siteContact,
       refresh_requested: ticket.refreshRequested ?? false,
       no_show_requested: ticket.noShowRequested ?? false,
@@ -173,13 +177,14 @@ export const apiService = {
         id: data.id,
         jobNumber: data.job_number,
         ticketNo: data.ticket_no,
-        address: data.address,
+        street: data.street,
+        extent: data.extent,
         county: data.county,
         city: data.city,
         state: data.state,
         callInDate: data.call_in_date,
-        digStart: data.dig_start,
-        expirationDate: data.expiration_date,
+        workDate: data.work_date,
+        expires: data.expires,
         siteContact: data.site_contact,
         refreshRequested: data.refresh_requested ?? false,
         noShowRequested: data.no_show_requested ?? false,
@@ -246,7 +251,6 @@ export const apiService = {
   async addTicketFile(jobNumber: string, file: File): Promise<string> {
     const id = generateUUID();
     const fileExt = file.name.split('.').pop();
-    // Save in a subfolder "tickets" within the job folder
     const filePath = `${jobNumber}/tickets/${id}.${fileExt}`;
     const { error: uploadError } = await supabase.storage.from('job-photos').upload(filePath, file);
     if (uploadError) throw uploadError;

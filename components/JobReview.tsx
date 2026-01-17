@@ -35,7 +35,8 @@ const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, notes, isAdmin, is
     });
     // Sort archived by expiration date descending
     Object.values(map).forEach(group => {
-      group.archived.sort((a, b) => new Date(b.expirationDate).getTime() - new Date(a.expirationDate).getTime());
+      // Fix: Use the correct property 'expires' from DigTicket interface
+      group.archived.sort((a, b) => new Date(b.expires).getTime() - new Date(a.expires).getTime());
     });
     return map;
   }, [tickets]);
@@ -156,7 +157,8 @@ const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, notes, isAdmin, is
                           {archivedTickets.map(t => (
                             <div key={t.id} className="flex items-center justify-between text-[9px] font-bold p-1.5 bg-black/5 rounded-lg opacity-60">
                               <span className="font-mono">{t.ticketNo}</span>
-                              <span className="text-slate-400">Exp: {new Date(t.expirationDate).toLocaleDateString()}</span>
+                              {/* Fix: Use the correct property 'expires' instead of 'expirationDate' */}
+                              <span className="text-slate-400">Exp: {new Date(t.expires).toLocaleDateString()}</span>
                             </div>
                           ))}
                         </div>

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { DigTicket, UserRecord } from '../types.ts';
+import { DigTicket, UserRecord, Job } from '../types.ts';
 import { parseTicketData } from '../services/geminiService.ts';
 import { apiService } from '../services/apiService.ts';
 
@@ -9,18 +9,20 @@ interface TicketFormProps {
   onClose: () => void;
   initialData?: DigTicket;
   users: UserRecord[];
+  jobs: Job[];
   isDarkMode?: boolean;
   onResetKey: () => void;
+  onJobCreated?: (job: Job) => void;
 }
 
-const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, users = [], isDarkMode, onResetKey }) => {
+const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, users = [], jobs = [], isDarkMode, onResetKey, onJobCreated }) => {
   const [activeTab, setActiveTab] = useState<'manual' | 'batch' | 'pdf'>('manual');
   const [archiveOld, setArchiveOld] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [scanStatus, setScanStatus] = useState<string>('');
   const [formData, setFormData] = useState({
-    jobNumber: '', ticketNo: '', address: '', county: '', city: '', state: '',
-    callInDate: '', digStart: '', expirationDate: '', siteContact: '',
+    jobNumber: '', ticketNo: '', street: '', extent: '', county: '', city: '', state: '',
+    callInDate: '', workDate: '', expires: '', siteContact: '',
   });
 
   const [batchInput, setBatchInput] = useState('');
@@ -32,13 +34,14 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
       setFormData({
         jobNumber: initialData.jobNumber || '',
         ticketNo: initialData.ticketNo || '',
-        address: initialData.address || '',
+        street: initialData.street || '',
+        extent: initialData.extent || '',
         county: initialData.county || '',
         city: initialData.city || '',
         state: initialData.state || '',
         callInDate: initialData.callInDate || '',
-        digStart: initialData.digStart || '',
-        expirationDate: initialData.expirationDate || '',
+        workDate: initialData.workDate || '',
+        expires: initialData.expires || '',
         siteContact: initialData.siteContact || '',
       });
       setArchiveOld(true);
@@ -59,55 +62,94 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
 
   const handleFileUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    // FIX: Explicitly cast files[0] to File and check for existence to resolve potential 'unknown' or 'null' type issues
-    const file = files[0] as File;
-    if (!file) return;
     
-    if (file.type !== 'application/pdf' && !file.type.startsWith('image/')) {
-      alert("Invalid Format: Please upload a PDF, JPG, or PNG document.");
-      return;
+    setIsParsing(true);
+    let successCount = 0;
+    const fileArray = Array.from(files);
+
+    for (let i = 0; i < fileArray.length; i++) {
+      const file = fileArray[i];
+      setScanStatus(`Reading document ${i + 1}/${fileArray.length}...`);
+      
+      try {
+        const base64Data = await blobToBase64(file);
+        setScanStatus(`AI Processing ${file.name}...`);
+        
+        const parsed = await parseTicketData({
+          data: base64Data,
+          mimeType: file.type
+        }) as any;
+        
+        if (!parsed) continue;
+
+        const cleanData = Object.fromEntries(
+          Object.entries(parsed).filter(([_, v]) => v !== null && v !== '')
+        ) as any;
+
+        // Auto-create job if missing
+        let targetJobNumber = cleanData.jobNumber || 'UNASSIGNED';
+        let existingJob = jobs.find(j => j.jobNumber === targetJobNumber);
+        
+        if (!existingJob && targetJobNumber !== 'UNASSIGNED') {
+          const newJob: Job = {
+            id: crypto.randomUUID(),
+            jobNumber: targetJobNumber,
+            customer: 'Auto-Created (AI)',
+            address: cleanData.street || '',
+            city: cleanData.city || '',
+            state: cleanData.state || '',
+            county: cleanData.county || '',
+            createdAt: Date.now(),
+            isComplete: false
+          };
+          const savedJob = await apiService.saveJob(newJob);
+          onJobCreated?.(savedJob);
+          existingJob = savedJob;
+        }
+
+        // Create the ticket
+        const ticketToSave: Omit<DigTicket, 'id' | 'createdAt'> = {
+          jobNumber: targetJobNumber,
+          ticketNo: cleanData.ticketNo || `AI-${Date.now()}`,
+          street: cleanData.street || '',
+          extent: cleanData.extent || '',
+          county: cleanData.county || '',
+          city: cleanData.city || '',
+          state: cleanData.state || '',
+          callInDate: cleanData.callInDate || new Date().toISOString().split('T')[0],
+          workDate: cleanData.workDate || '',
+          expires: cleanData.expires || '',
+          siteContact: cleanData.siteContact || '',
+          isArchived: false,
+          refreshRequested: false,
+          noShowRequested: false
+        };
+
+        await onAdd(ticketToSave, false);
+
+        // Save file as photo
+        await apiService.addPhoto({
+          jobNumber: targetJobNumber,
+          timestamp: Date.now(),
+          caption: `AI Import: ${cleanData.ticketNo}`
+        }, file);
+
+        // Update form state with the last parsed result
+        setFormData(prev => ({ ...prev, ...cleanData }));
+        successCount++;
+      } catch (err: any) {
+        console.error(`Failed to process ${file.name}:`, err);
+        if (err.message?.includes("ACCESS ERROR")) {
+          onResetKey();
+          break;
+        }
+      }
     }
 
-    setIsParsing(true);
-    setScanStatus('Reading document...');
-    try {
-      const base64Data = await blobToBase64(file);
-      
-      setScanStatus('Analyzing with Gemini AI...');
-      // Explicitly cast arguments to string to avoid 'unknown' type issues from File properties
-      const parsed = await parseTicketData({
-        data: base64Data as string,
-        mimeType: file.type as string
-      }) as any;
-      
-      if (!parsed) throw new Error("AI returned no results.");
-
-      setScanStatus('Success!');
-      // FIX: Cast Object.fromEntries output to any to prevent 'unknown' property access errors
-      const cleanData = Object.fromEntries(
-        Object.entries(parsed).filter(([_, v]) => v !== null && v !== '')
-      ) as any;
-
-      setFormData(prev => ({ ...prev, ...cleanData }));
-
-      // FIX: Ensure jobNumber is treated as a string when calling addTicketFile to fix 'unknown' type error
-      if (cleanData.jobNumber || formData.jobNumber) {
-        const targetJobNumber = (cleanData.jobNumber as string) || formData.jobNumber;
-        await apiService.addTicketFile(targetJobNumber, file);
-      }
-
-      setTimeout(() => setActiveTab('manual'), 500);
-    } catch (err: any) {
-      console.error("Analysis failed:", err);
-      
-      if (err.message?.includes("ACCESS ERROR")) {
-        onResetKey(); // Trigger the connect UI again
-      }
-      
-      alert(`Scanning Error: ${err.message}`);
-      setScanStatus('Error');
-    } finally {
-      setIsParsing(false);
+    setScanStatus(`Imported ${successCount} tickets successfully.`);
+    setIsParsing(false);
+    if (successCount > 0) {
+      setTimeout(() => onClose(), 1500);
     }
   };
 
@@ -132,11 +174,12 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onAdd(formData, archiveOld);
+    onClose();
   };
 
   return (
     <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[150] flex justify-center items-center p-4">
-      <div className={`w-full max-lg rounded-2xl shadow-2xl overflow-hidden border animate-in ${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white border-slate-200'}`}>
+      <div className={`w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden border animate-in ${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white border-slate-200'}`}>
         <div className="px-6 py-4 border-b flex justify-between items-center bg-black/5">
           <h2 className="text-sm font-black uppercase tracking-widest">
             {initialData ? 'Update Ticket' : 'Import Locate Ticket'}
@@ -150,7 +193,7 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
           <div className="flex p-1.5 gap-1 bg-black/5 mx-6 mt-4 rounded-xl">
             {['manual', 'batch', 'pdf'].map(tab => (
               <button key={tab} onClick={() => setActiveTab(tab as any)} className={`flex-1 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all ${activeTab === tab ? 'bg-brand text-slate-900 shadow-sm' : 'text-slate-500'}`}>
-                {tab === 'pdf' ? 'Scan Document' : tab}
+                {tab === 'pdf' ? 'Batch Scan' : tab}
               </button>
             ))}
           </div>
@@ -170,17 +213,21 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
                 </div>
               </div>
               <div className="space-y-1">
-                <label className="text-[9px] font-black uppercase text-slate-400">Work Address</label>
-                <input required className={`w-full px-3 py-2 border rounded-lg text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} />
+                <label className="text-[9px] font-black uppercase text-slate-400">Street</label>
+                <input required className={`w-full px-3 py-2 border rounded-lg text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.street} onChange={e => setFormData({...formData, street: e.target.value})} />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[9px] font-black uppercase text-slate-400">Extent</label>
+                <textarea rows={2} className={`w-full px-3 py-2 border rounded-lg text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.extent} onChange={e => setFormData({...formData, extent: e.target.value})} placeholder="Describe the work area boundaries..." />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase text-slate-400">Legal Start Date</label>
-                  <input type="date" className={`w-full px-3 py-2 border rounded-lg text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.digStart} onChange={e => setFormData({...formData, digStart: e.target.value})} />
+                  <label className="text-[9px] font-black uppercase text-slate-400">Work Date</label>
+                  <input type="date" required className={`w-full px-3 py-2 border rounded-lg text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.workDate} onChange={e => setFormData({...formData, workDate: e.target.value})} />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase text-slate-400">Expiration Date</label>
-                  <input type="date" className={`w-full px-3 py-2 border rounded-lg text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.expirationDate} onChange={e => setFormData({...formData, expirationDate: e.target.value})} />
+                  <label className="text-[9px] font-black uppercase text-slate-400">Expires</label>
+                  <input type="date" required className={`w-full px-3 py-2 border rounded-lg text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.expires} onChange={e => setFormData({...formData, expires: e.target.value})} />
                 </div>
               </div>
 
@@ -230,14 +277,15 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
                 </div>
                 <div className="text-center px-4">
                   <p className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-500">
-                    {isParsing ? (scanStatus || 'AI Parsing Ticket...') : isDragging ? 'Release to Start' : 'Drop Ticket PDF or Image'}
+                    {isParsing ? (scanStatus || 'AI Parsing Tickets...') : isDragging ? 'Release to Start' : 'Select Multiple PDFs/Images'}
                   </p>
                   <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1 opacity-60">
-                    Supports PDFs and high-res images
+                    Supports multiple files at once
                   </p>
                 </div>
                 <input 
                   type="file" 
+                  multiple
                   ref={fileInputRef} 
                   className="hidden" 
                   accept="application/pdf,image/*" 

@@ -40,13 +40,14 @@ export interface DigTicket {
   id: string;
   jobNumber: string;
   ticketNo: string;
-  address: string;
+  street: string;
+  extent: string;
   county: string;
   city: string;
   state: string;
   callInDate: string;
-  digStart: string;
-  expirationDate: string;
+  workDate: string;
+  expires: string;
   siteContact: string;
   createdAt: number;
   refreshRequested?: boolean;
