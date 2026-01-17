@@ -12,7 +12,7 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
   
   if (!apiKey) {
     console.error("[Gemini] API_KEY not found in process.env");
-    throw new Error("API KEY MISSING: Ensure you have linked a Google Cloud project with the 'Connect AI' button.");
+    throw new Error("API KEY MISSING: Please click the 'Connect AI' button to link your project.");
   }
 
   const ai = new GoogleGenAI({ apiKey });
@@ -64,7 +64,7 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
     console.error("[Gemini] Extraction failed:", error);
     
     if (error.message?.includes("entity was not found") || error.message?.includes("404")) {
-      throw new Error("ACCESS ERROR: Gemini 3 is not enabled in your Google Cloud Project. Please enable the 'Generative AI API'.");
+      throw new Error("ACCESS ERROR: Gemini 3 is not enabled in your Google Cloud Project. Please enable 'Generative AI API'.");
     }
     throw new Error(error.message || "Document analysis failed.");
   }

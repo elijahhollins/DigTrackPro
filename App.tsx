@@ -48,10 +48,9 @@ const App: React.FC = () => {
     order: 'desc'
   });
 
-  // --- THEME & COLOR LOGIC ---
-  const updateBrandColors = (hex: string) => {
+  // --- SMART THEME ENGINE ---
+  const applyThemeColor = (hex: string) => {
     document.documentElement.style.setProperty('--brand-primary', hex);
-    // Generate RGBA for rings/shadows
     const r = parseInt(hex.slice(1, 3), 16);
     const g = parseInt(hex.slice(3, 5), 16);
     const b = parseInt(hex.slice(5, 7), 16);
@@ -60,26 +59,20 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    const activeTickets = tickets.filter(t => !t.isArchived);
-    const statuses = activeTickets.map(t => getTicketStatus(t));
+    const activeTkts = tickets.filter(t => !t.isArchived);
+    const statuses = activeTkts.map(t => getTicketStatus(t));
     
-    let targetColor = '#3b82f6'; // Idle Blue
-
+    let color = '#3b82f6'; // Default Blue
     if (statuses.includes(TicketStatus.EXPIRED)) {
-      targetColor = '#e11d48'; // Critical Red
-    } else if (
-      statuses.includes(TicketStatus.REFRESH_NEEDED) || 
-      statuses.includes(TicketStatus.EXTENDABLE) || 
-      activeTickets.some(t => t.noShowRequested)
-    ) {
-      targetColor = '#f59e0b'; // Warning Orange
-    } else if (activeTickets.length > 0) {
-      targetColor = '#10b981'; // Healthy Green
+      color = '#e11d48'; // Urgent Red
+    } else if (statuses.includes(TicketStatus.REFRESH_NEEDED) || statuses.includes(TicketStatus.EXTENDABLE) || activeTkts.some(t => t.noShowRequested)) {
+      color = '#f59e0b'; // Warning Orange
+    } else if (activeTkts.length > 0) {
+      color = '#10b981'; // Good Green
     }
 
-    // Manual override check
-    const manualColor = localStorage.getItem('dig_theme_color');
-    updateBrandColors(manualColor || targetColor);
+    const manual = localStorage.getItem('dig_theme_color');
+    applyThemeColor(manual || color);
   }, [tickets]);
 
   const toggleDarkMode = () => {
@@ -88,39 +81,27 @@ const App: React.FC = () => {
     localStorage.setItem('dig_theme_mode', next ? 'dark' : 'light');
   };
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    setSessionUser(null);
-  };
-
-  // --- API KEY HANDLING ---
   const checkApiKey = async () => {
-    const envKey = process.env.API_KEY;
-    const aiStudioKey = await window.aistudio?.hasSelectedApiKey?.();
-    const active = !!(envKey || aiStudioKey);
-    console.info(`[DigTrack] API Key Active: ${active ? 'YES' : 'NO'}`);
-    setHasApiKey(active);
-    return active;
+    try {
+      if (window.aistudio?.hasSelectedApiKey) {
+        const selected = await window.aistudio.hasSelectedApiKey();
+        setHasApiKey(selected);
+        return selected;
+      }
+    } catch (e) {}
+    const envKey = !!process.env.API_KEY;
+    setHasApiKey(envKey);
+    return envKey;
   };
 
   const handleSelectApiKey = async () => {
-    try {
-      if (window.aistudio?.openSelectKey) {
-        await window.aistudio.openSelectKey();
-        setHasApiKey(true);
-        initApp();
-      } else {
-        // Direct attempt failed, let's look for standard env fallback
-        const key = process.env.API_KEY;
-        if (key) {
-          setHasApiKey(true);
-          initApp();
-        } else {
-          console.warn("AI Studio object not found in this context.");
-        }
-      }
-    } catch (err) {
-      console.error("[DigTrack] Project selection failed", err);
+    if (window.aistudio?.openSelectKey) {
+      await window.aistudio.openSelectKey();
+      // Guideline: assume success and proceed
+      setHasApiKey(true);
+      initApp();
+    } else {
+      alert("AI Studio environment not detected. Ensure you are using the platform preview.");
     }
   };
 
@@ -128,36 +109,48 @@ const App: React.FC = () => {
     try {
       await checkApiKey();
       const { data: { session } } = await supabase.auth.getSession();
+      
       if (!session) {
         setSessionUser(null);
         setIsLoading(false);
         return;
       }
-      const [allUsers, allTickets, allJobs, allPhotos, allNotes] = await Promise.all([
+
+      // Parallel fetch to speed up loading
+      const [allUsers, allTickets, allJobs, allPhotos, allNotes] = await Promise.allSettled([
         apiService.getUsers(),
         apiService.getTickets(),
         apiService.getJobs(),
         apiService.getPhotos(),
         apiService.getNotes()
       ]);
-      setUsers(allUsers);
-      setTickets(allTickets);
-      setJobs(allJobs);
-      setPhotos(allPhotos);
-      setNotes(allNotes);
-      const sessionId = session.user.id;
-      const matchedProfile = allUsers.find(u => u.id === sessionId);
+
+      setUsers(allUsers.status === 'fulfilled' ? allUsers.value : []);
+      setTickets(allTickets.status === 'fulfilled' ? allTickets.value : []);
+      setJobs(allJobs.status === 'fulfilled' ? allJobs.value : []);
+      setPhotos(allPhotos.status === 'fulfilled' ? allPhotos.value : []);
+      setNotes(allNotes.status === 'fulfilled' ? allNotes.value : []);
+
+      const matchedProfile = (allUsers.status === 'fulfilled' ? allUsers.value : []).find(u => u.id === session.user.id);
       if (matchedProfile) {
         setSessionUser({
-          id: sessionId,
+          id: session.user.id,
           name: matchedProfile.name,
           username: matchedProfile.username,
           role: matchedProfile.role
         });
+      } else {
+        // Fallback for new user without profile record yet
+        setSessionUser({
+          id: session.user.id,
+          name: session.user.user_metadata?.display_name || 'New User',
+          username: session.user.email || '',
+          role: UserRole.CREW
+        });
       }
-      setIsLoading(false);
     } catch (error) {
-      console.error("Init Error:", error);
+      console.error("Initialization error:", error);
+    } finally {
       setIsLoading(false);
     }
   };
@@ -238,6 +231,15 @@ const App: React.FC = () => {
       await apiService.saveJob(updated);
       setJobs(prev => prev.map(j => j.id === job.id ? updated : j));
     } catch (error: any) { alert(error.message); }
+  };
+
+  // Add missing handleSignOut function
+  const handleSignOut = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (error: any) {
+      console.error("Sign out error:", error.message);
+    }
   };
 
   const handleSort = (field: SortField) => setSortConfig(p => ({ field, order: p.field === field && p.order === 'asc' ? 'desc' : 'asc' }));
@@ -375,14 +377,14 @@ const App: React.FC = () => {
         {activeView === 'calendar' && <CalendarView tickets={activeTickets} onEditTicket={(t) => isAdmin && setEditingTicket(t)} />}
         {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} notes={notes} isAdmin={isAdmin} isDarkMode={isDarkMode} onEditJob={(j) => isAdmin && setEditingJob(j)} onToggleComplete={handleToggleJobCompletion} onAddNote={async (note) => { const n = await apiService.addNote({...note, id: crypto.randomUUID(), timestamp: Date.now(), author: sessionUser.name}); setNotes(prev => [n, ...prev]); }} onViewPhotos={(j) => { setGlobalSearch(j); setActiveView('photos'); }} />}
         {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} initialSearch={globalSearch} isDarkMode={isDarkMode} onAddPhoto={async (metadata, file) => { const saved = await apiService.addPhoto(metadata, file); setPhotos(prev => [saved, ...prev]); return saved; }} onDeletePhoto={async (id) => { await apiService.deletePhoto(id); setPhotos(prev => prev.filter(p => p.id !== id)); }} />}
-        {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} isDarkMode={isDarkMode} onAddUser={async (u) => { const newUser = await apiService.addUser({...u}); setUsers(prev => [...prev, newUser]); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); setUsers(prev => prev.filter(u => u.id !== id)); }} onThemeChange={updateBrandColors} onToggleRole={() => {}} />}
+        {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} isDarkMode={isDarkMode} onAddUser={async (u) => { const newUser = await apiService.addUser({...u}); setUsers(prev => [...prev, newUser]); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); setUsers(prev => prev.filter(u => u.id !== id)); }} onThemeChange={applyThemeColor} onToggleRole={() => {}} />}
       </main>
 
       <nav className="fixed bottom-6 left-0 right-0 z-50 flex justify-center px-4 pointer-events-none">
         <div className={`backdrop-blur-xl border shadow-2xl rounded-3xl p-1.5 flex items-center gap-1 pointer-events-auto transition-all duration-500 ${isDarkMode ? 'bg-[#1e293b]/90 border-white/10' : 'bg-white/90 border-slate-200'}`}>
           {[
             { id: 'dashboard', label: 'Tickets', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1' },
-            { id: 'calendar', label: 'Cal', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
+            { id: 'calendar', label: 'Cal', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
             { id: 'jobs', label: 'Jobs', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2-2H7a2 2 0 00-2 2v16' },
             { id: 'photos', label: 'Media', icon: 'M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z' },
             { id: 'team', label: 'Admin', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066' }
