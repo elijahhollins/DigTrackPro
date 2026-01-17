@@ -49,13 +49,17 @@ const App: React.FC = () => {
   });
 
   // --- DYNAMIC COLOR ENGINE ---
-  const applyThemeColor = (hex: string) => {
+  const applyThemeColor = (hex: string, save: boolean = false) => {
     document.documentElement.style.setProperty('--brand-primary', hex);
     const r = parseInt(hex.slice(1, 3), 16);
     const g = parseInt(hex.slice(3, 5), 16);
     const b = parseInt(hex.slice(5, 7), 16);
     document.documentElement.style.setProperty('--brand-ring', `rgba(${r}, ${g}, ${b}, 0.1)`);
     document.documentElement.style.setProperty('--brand-shadow', `rgba(${r}, ${g}, ${b}, 0.25)`);
+    
+    if (save) {
+      localStorage.setItem('dig_theme_color', hex);
+    }
   };
 
   useEffect(() => {
@@ -82,14 +86,12 @@ const App: React.FC = () => {
   };
 
   const checkApiKey = async () => {
-    // 1. Primary check: injected environment variable
     const envKey = !!process.env.API_KEY || !!(window as any).process?.env?.API_KEY;
     if (envKey) {
       setHasApiKey(true);
       return true;
     }
 
-    // 2. Secondary check: AI Studio project connection
     try {
       if (window.aistudio?.hasSelectedApiKey) {
         const selected = await window.aistudio.hasSelectedApiKey();
@@ -110,17 +112,15 @@ const App: React.FC = () => {
     if (window.aistudio?.openSelectKey) {
       try {
         await window.aistudio.openSelectKey();
-        // Optimistically assume key selection was successful to improve UX
         setHasApiKey(true);
         initApp();
       } catch (e) {
         console.error("Failed to trigger key selection", e);
       }
     } else {
-      // Manual/Production environment handling
       const currentKey = !!process.env.API_KEY || !!(window as any).process?.env?.API_KEY;
       if (!currentKey) {
-        alert("The AI API Key is missing. If you are a developer, ensure process.env.API_KEY is configured in your project settings.");
+        alert("The AI API Key is missing. Please add API_KEY to your environment variables or project secrets.");
       } else {
         setHasApiKey(true);
       }
@@ -341,7 +341,7 @@ const App: React.FC = () => {
         {activeView === 'calendar' && <CalendarView tickets={activeTickets} onEditTicket={(t) => isAdmin && setEditingTicket(t)} />}
         {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} notes={notes} isAdmin={isAdmin} isDarkMode={isDarkMode} onEditJob={(j) => isAdmin && setEditingJob(j)} onToggleComplete={async (j) => { await apiService.saveJob({...j, isComplete: !j.isComplete}); initApp(); }} onAddNote={async (note) => { const n = await apiService.addNote({...note, id: crypto.randomUUID(), timestamp: Date.now(), author: sessionUser.name}); setNotes(prev => [n, ...prev]); }} onViewPhotos={(j) => { setGlobalSearch(j); setActiveView('photos'); }} />}
         {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} initialSearch={globalSearch} isDarkMode={isDarkMode} onAddPhoto={async (metadata, file) => { const saved = await apiService.addPhoto(metadata, file); setPhotos(prev => [saved, ...prev]); return saved; }} onDeletePhoto={async (id) => { await apiService.deletePhoto(id); setPhotos(prev => prev.filter(p => p.id !== id)); }} />}
-        {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} isDarkMode={isDarkMode} onAddUser={async (u) => { const newUser = await apiService.addUser({...u}); setUsers(prev => [...prev, newUser]); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); setUsers(prev => prev.filter(u => u.id !== id)); }} onThemeChange={applyThemeColor} />}
+        {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} isDarkMode={isDarkMode} onAddUser={async (u) => { const newUser = await apiService.addUser({...u}); setUsers(prev => [...prev, newUser]); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); setUsers(prev => prev.filter(u => u.id !== id)); }} onThemeChange={(hex) => applyThemeColor(hex, true)} />}
       </main>
 
       <nav className="fixed bottom-6 left-0 right-0 z-50 flex justify-center px-4 pointer-events-none">

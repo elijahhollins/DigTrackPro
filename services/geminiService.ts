@@ -1,18 +1,17 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
+import { getEnv } from "../lib/supabaseClient.ts";
 
 /**
  * Specialized service for parsing locate tickets using Gemini AI.
  * Uses gemini-3-flash-preview for fast and accurate extraction of ticket metadata.
  */
 export const parseTicketData = async (input: string | { data: string; mimeType: string }) => {
-  // CRITICAL: Always initialize GoogleGenAI immediately before making an API call 
-  // to ensure it uses the most up-to-date API key injected into process.env.
-  const apiKey = process.env.API_KEY;
+  const apiKey = getEnv('API_KEY');
   
   if (!apiKey) {
-    console.error("[Gemini] API_KEY not found in process.env");
-    throw new Error("API KEY MISSING: Please click the 'Connect AI' button to link your project.");
+    console.error("[Gemini] API_KEY not found. Ensure VITE_API_KEY is set in Vercel.");
+    throw new Error("CONFIGURATION ERROR: API Key is not configured. Please check your environment variables.");
   }
 
   const ai = new GoogleGenAI({ apiKey });
@@ -58,14 +57,14 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
 
     const jsonStr = response.text?.trim() || "{}";
     const result = JSON.parse(jsonStr);
-    console.log("[Gemini] Extraction successful.", result);
     return result;
   } catch (error: any) {
-    console.error("[Gemini] Extraction failed:", error);
+    console.error("[Gemini] Parsing Error:", error);
     
-    if (error.message?.includes("entity was not found") || error.message?.includes("404")) {
-      throw new Error("ACCESS ERROR: Gemini 3 is not enabled in your Google Cloud Project. Please enable 'Generative AI API'.");
+    if (error.message?.includes("API key not valid")) {
+      throw new Error("INVALID KEY: The API key provided is not valid or has been restricted incorrectly.");
     }
+    
     throw new Error(error.message || "Document analysis failed.");
   }
 };
