@@ -13,7 +13,9 @@
       // Polyfill process.env for web compatibility
       window.process = window.process || { env: {} };
       window.process.env.SUPABASE_URL = "https://fusubnzndmngjfgatzrq.supabase.co";
-      window.process.env.SUPABASE_ANON_KEY = "sb_publishable_i7zCb2wHVAV1eL36EDbVCw_1EnSvNml";
+      // NOTE: This key (sb_publishable_...) looks incorrect for Supabase. 
+      // Please replace it with your Project API 'anon' 'public' key (JWT starting with eyJ...).
+      window.process.env.SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1c3VibnpuZG1uZ2pmZ2F0enJxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNTQ5NzcsImV4cCI6MjA4MjkzMDk3N30.O5Vp5R_KxAUpi8esYjqCHrjmyG3PzkNj1gDxpaNuKtI";
     </script>
     <style>
         :root {
