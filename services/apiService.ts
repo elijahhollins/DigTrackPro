@@ -17,26 +17,90 @@ BEGIN
 END $$;
 
 -- 2. TABLE INITIALIZATION
-create table if not exists jobs (id uuid primary key, job_number text, customer text, address text, city text, state text, county text, is_complete boolean default false, created_at timestamp with time zone default now());
-create table if not exists tickets (id uuid primary key, job_number text, ticket_no text, street text, extent text, county text, city text, state text, call_in_date text, work_date text, expires text, site_contact text, refresh_requested boolean default false, no_show_requested boolean default false, is_archived boolean default false, created_at timestamp with time zone default now());
-create table if not exists photos (id uuid primary key, job_number text, data_url text, caption text, created_at timestamp with time zone default now());
-create table if not exists notes (id uuid primary key, job_number text, text text, author text, timestamp bigint);
-create table if not exists profiles (id uuid primary key, name text, username text, role text);
-create table if not exists no_shows (id uuid primary key, ticket_id uuid, job_number text, utilities text[], companies text, author text, timestamp bigint);
+create table if not exists jobs (
+    id uuid primary key, 
+    job_number text, 
+    customer text, 
+    address text, 
+    city text, 
+    state text, 
+    county text, 
+    is_complete boolean default false, 
+    created_at timestamp with time zone default now()
+);
 
--- 3. SCHEMA MIGRATION
+create table if not exists tickets (
+    id uuid primary key, 
+    job_number text, 
+    ticket_no text, 
+    street text, 
+    extent text, 
+    county text, 
+    city text, 
+    state text, 
+    call_in_date text, 
+    work_date text, 
+    expires text, 
+    site_contact text, 
+    refresh_requested boolean default false, 
+    no_show_requested boolean default false, 
+    is_archived boolean default false, 
+    created_at timestamp with time zone default now()
+);
+
+create table if not exists photos (
+    id uuid primary key, 
+    job_number text, 
+    data_url text, 
+    caption text, 
+    created_at timestamp with time zone default now()
+);
+
+create table if not exists notes (
+    id uuid primary key, 
+    job_number text, 
+    text text, 
+    author text, 
+    timestamp bigint
+);
+
+create table if not exists profiles (
+    id uuid primary key, 
+    name text, 
+    username text, 
+    role text
+);
+
+create table if not exists no_shows (
+    id uuid primary key, 
+    ticket_id uuid, 
+    job_number text, 
+    utilities text[], 
+    companies text, 
+    author text, 
+    timestamp bigint
+);
+
+-- 3. SCHEMA MIGRATION / COLUMN RENAMING
 DO $$ 
 BEGIN 
+    -- Add Extent if missing
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='extent') THEN
         ALTER TABLE tickets ADD COLUMN extent text;
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='street') THEN
+
+    -- Handle Street (Renamed from address)
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='address') THEN
         ALTER TABLE tickets RENAME COLUMN address TO street;
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='work_date') THEN
+
+    -- Handle Work Date (Renamed from dig_start)
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='dig_start') THEN
         ALTER TABLE tickets RENAME COLUMN dig_start TO work_date;
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='expires') THEN
+
+    -- Handle Expires (Renamed from expiration_date)
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='expiration_date') THEN
         ALTER TABLE tickets RENAME COLUMN expiration_date TO expires;
     END IF;
 END $$;
@@ -209,6 +273,9 @@ export const apiService = {
       timestamp: noShow.timestamp
     }]);
     if (error) throw error;
+    
+    // Also update the ticket flag
+    await supabase.from('tickets').update({ no_show_requested: true }).eq('id', noShow.ticketId);
   },
 
   async getNoShows(): Promise<NoShowRecord[]> {

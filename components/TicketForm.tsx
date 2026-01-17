@@ -204,29 +204,29 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase text-slate-400">Job #</label>
+                  <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest ml-1">Job #</label>
                   <input required className={`w-full px-3 py-2 border rounded-lg text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.jobNumber} onChange={e => setFormData({...formData, jobNumber: e.target.value})} />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase text-slate-400">Ticket #</label>
+                  <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest ml-1">Ticket</label>
                   <input required className={`w-full px-3 py-2 border rounded-lg text-xs font-bold font-mono outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.ticketNo} onChange={e => setFormData({...formData, ticketNo: e.target.value})} />
                 </div>
               </div>
               <div className="space-y-1">
-                <label className="text-[9px] font-black uppercase text-slate-400">Street</label>
+                <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest ml-1">Street</label>
                 <input required className={`w-full px-3 py-2 border rounded-lg text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.street} onChange={e => setFormData({...formData, street: e.target.value})} />
               </div>
               <div className="space-y-1">
-                <label className="text-[9px] font-black uppercase text-slate-400">Extent</label>
+                <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest ml-1">Extent</label>
                 <textarea rows={2} className={`w-full px-3 py-2 border rounded-lg text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.extent} onChange={e => setFormData({...formData, extent: e.target.value})} placeholder="Describe the work area boundaries..." />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase text-slate-400">Work Date</label>
+                  <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest ml-1">Work Date</label>
                   <input type="date" required className={`w-full px-3 py-2 border rounded-lg text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.workDate} onChange={e => setFormData({...formData, workDate: e.target.value})} />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[9px] font-black uppercase text-slate-400">Expires</label>
+                  <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest ml-1">Expires</label>
                   <input type="date" required className={`w-full px-3 py-2 border rounded-lg text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.expires} onChange={e => setFormData({...formData, expires: e.target.value})} />
                 </div>
               </div>

@@ -84,7 +84,6 @@ const App: React.FC = () => {
         if (selected) { setHasApiKey(true); return true; }
       }
     } catch (e) { console.warn("AI Studio key check failed", e); }
-    setHasApiKey(false);
     return false;
   };
 
@@ -246,12 +245,12 @@ const App: React.FC = () => {
                 <table className="w-full text-left">
                   <thead className={`${isDarkMode ? 'bg-black/20' : 'bg-slate-50'} border-b border-black/5`}>
                     <tr>
-                      <th onClick={() => handleSort('jobNumber')} className="px-6 py-4 text-[10px] font-black uppercase tracking-widest cursor-pointer hover:text-brand transition-colors">Job</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest">Ticket #</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest">Street</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-center">Status</th>
-                      <th onClick={() => handleSort('expires')} className="px-6 py-4 text-[10px] font-black uppercase tracking-widest cursor-pointer text-right">Expires</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-right">Actions</th>
+                      <th onClick={() => handleSort('jobNumber')} className="px-6 py-4 text-[10px] font-black uppercase tracking-widest cursor-pointer hover:text-brand transition-colors text-slate-400">Job</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Ticket</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Street</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-center text-slate-400">Status</th>
+                      <th onClick={() => handleSort('expires')} className="px-6 py-4 text-[10px] font-black uppercase tracking-widest cursor-pointer text-right text-slate-400">Expires</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-right text-slate-400">Actions</th>
                     </tr>
                   </thead>
                   <tbody className={`divide-y ${isDarkMode ? 'divide-white/5' : 'divide-slate-100'}`}>
@@ -270,7 +269,26 @@ const App: React.FC = () => {
                           <td className="px-6 py-3 text-[12px] font-bold text-right opacity-40">{new Date(ticket.expires).toLocaleDateString()}</td>
                           <td className="px-6 py-3 text-right">
                             <div className="flex items-center justify-end gap-2">
-                              <button onClick={(e) => handleToggleRefresh(ticket, e)} className={`p-2 rounded-xl transition-all ${ticket.refreshRequested ? 'bg-amber-100 text-amber-600 border-amber-300' : 'bg-black/5 text-slate-400 hover:text-brand'}`}><svg className={`w-4 h-4 ${ticket.refreshRequested ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357-2H15" /></svg></button>
+                              {/* RESTORED NO SHOW BUTTON WITH LABEL */}
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); setNoShowTicket(ticket); }} 
+                                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border shadow-sm ${
+                                  ticket.noShowRequested 
+                                    ? 'bg-rose-500 text-white border-rose-600 shadow-rose-500/20' 
+                                    : 'bg-rose-500/10 text-rose-600 border-rose-200 hover:bg-rose-500 hover:text-white hover:shadow-rose-500/30'
+                                }`}
+                              >
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
+                                {ticket.noShowRequested ? 'Event Logged' : 'No Show Req'}
+                              </button>
+
+                              <button 
+                                onClick={(e) => handleToggleRefresh(ticket, e)} 
+                                title="Toggle Manual Refresh"
+                                className={`p-2 rounded-xl transition-all border ${ticket.refreshRequested ? 'bg-amber-100 text-amber-600 border-amber-300' : 'bg-black/5 text-slate-400 border-transparent hover:text-brand hover:border-brand/20'}`}
+                              >
+                                <svg className={`w-4 h-4 ${ticket.refreshRequested ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357-2H15" /></svg>
+                              </button>
                             </div>
                           </td>
                         </tr>

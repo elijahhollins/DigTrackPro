@@ -1,19 +1,12 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { getEnv } from "../lib/supabaseClient.ts";
 
 /**
  * Specialized service for parsing locate tickets using Gemini AI.
  */
 export const parseTicketData = async (input: string | { data: string; mimeType: string }) => {
-  const apiKey = getEnv('API_KEY');
-  
-  if (!apiKey) {
-    console.error("[Gemini] API_KEY not found. Ensure VITE_API_KEY is set in Vercel.");
-    throw new Error("CONFIGURATION ERROR: API Key is not configured. Please check your environment variables.");
-  }
-
-  const ai = new GoogleGenAI({ apiKey });
+  // Always use process.env.API_KEY directly per coding guidelines.
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   try {
     const isMedia = typeof input !== 'string';
@@ -55,6 +48,7 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
       }
     });
 
+    // The GenerateContentResponse has a text property (not a method).
     const jsonStr = response.text?.trim() || "{}";
     const result = JSON.parse(jsonStr);
     return result;
