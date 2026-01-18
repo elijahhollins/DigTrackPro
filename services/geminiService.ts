@@ -5,8 +5,15 @@ import { GoogleGenAI, Type } from "@google/genai";
  * Specialized service for parsing locate tickets using Gemini AI.
  */
 export const parseTicketData = async (input: string | { data: string; mimeType: string }) => {
-  // Always use process.env.API_KEY directly per coding guidelines.
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  // STRICT GUIDELINE: Use process.env.API_KEY directly as a literal string.
+  // This ensures Vite's static replacement works correctly.
+  const apiKey = process.env.API_KEY;
+  
+  if (!apiKey) {
+    throw new Error("API_KEY is not configured in the environment.");
+  }
+  
+  const ai = new GoogleGenAI({ apiKey });
   
   try {
     const isMedia = typeof input !== 'string';
@@ -48,15 +55,10 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
       }
     });
 
-    // The GenerateContentResponse has a text property (not a method).
     const jsonStr = response.text?.trim() || "{}";
-    const result = JSON.parse(jsonStr);
-    return result;
+    return JSON.parse(jsonStr);
   } catch (error: any) {
     console.error("[Gemini] Parsing Error:", error);
-    if (error.message?.includes("API key not valid")) {
-      throw new Error("INVALID KEY: The API key provided is not valid or has been restricted incorrectly.");
-    }
     throw new Error(error.message || "Document analysis failed.");
   }
 };
