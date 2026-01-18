@@ -20,7 +20,6 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
   const [archiveOld, setArchiveOld] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [scanStatus, setScanStatus] = useState<string>('');
-  const [showSuccessGlow, setShowSuccessGlow] = useState(false);
   const [formData, setFormData] = useState({
     jobNumber: '', ticketNo: '', street: '', extent: '', county: '', city: '', state: '',
     callInDate: '', workDate: '', expires: '', siteContact: '',
@@ -71,14 +70,16 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
 
     for (let i = 0; i < fileArray.length; i++) {
       const file = fileArray[i];
-      setScanStatus(`Analyzing File ${i + 1}/${fileArray.length}...`);
+      setScanStatus(`Reading ${i + 1}/${fileArray.length}...`);
       
       try {
         const base64Data = await blobToBase64(file);
+        setScanStatus(`AI Parsing ${file.name}...`);
+        
         const parsed = await parseTicketData({
           data: base64Data,
           mimeType: file.type
-        });
+        }) as any;
         
         if (!parsed) continue;
 
@@ -126,23 +127,15 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
         setFormData(prev => ({ ...prev, ...cleanData }));
         successCount++;
       } catch (err: any) {
-        console.error(`AI Error for ${file.name}:`, err);
-        setScanStatus(`Error: ${err.message}`);
+        console.error(`Failed to process ${file.name}:`, err);
       }
     }
 
+    setScanStatus(`Imported ${successCount} tickets.`);
+    setIsParsing(false);
+    onProcessingChange?.(false);
     if (successCount > 0) {
-      setScanStatus(`Success! Imported ${successCount} tickets.`);
-      setShowSuccessGlow(true);
-      setTimeout(() => {
-        setIsParsing(false);
-        onProcessingChange?.(false);
-        onClose();
-      }, 1500);
-    } else {
-      setIsParsing(false);
-      onProcessingChange?.(false);
-      alert("AI extraction failed. Please ensure the files are clear and readable.");
+      setTimeout(() => onClose(), 1500);
     }
   };
 
@@ -150,23 +143,16 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
     if (!batchInput.trim()) return;
     setIsParsing(true);
     onProcessingChange?.(true);
-    setScanStatus('Running Neural Analysis...');
     try {
       const parsed = await parseTicketData(batchInput) as any;
       const cleanData = Object.fromEntries(
         Object.entries(parsed).filter(([_, v]) => v !== null && v !== '')
       );
       setFormData(prev => ({ ...prev, ...cleanData }));
-      setScanStatus('Success! Metadata mapped.');
-      setShowSuccessGlow(true);
-      setTimeout(() => {
-        setActiveTab('manual');
-        setIsParsing(false);
-        onProcessingChange?.(false);
-        setShowSuccessGlow(false);
-      }, 1000);
+      setActiveTab('manual');
     } catch (err: any) {
       alert("Extraction failed: " + err.message);
+    } finally {
       setIsParsing(false);
       onProcessingChange?.(false);
     }
@@ -179,18 +165,18 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
   };
 
   return (
-    <div className={`fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[150] flex justify-center items-center p-4 transition-all duration-500 ${showSuccessGlow ? 'bg-emerald-500/20' : ''}`}>
-      <div className={`w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden border animate-in transition-all duration-500 ${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white border-slate-200'} ${showSuccessGlow ? 'border-emerald-500 ring-4 ring-emerald-500/20' : ''}`}>
+    <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[150] flex justify-center items-center p-4">
+      <div className={`w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden border animate-in ${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white border-slate-200'}`}>
         <div className="px-6 py-4 border-b flex justify-between items-center bg-black/5">
-          <h2 className={`text-sm font-black uppercase tracking-widest transition-colors ${isParsing ? 'text-purple-500' : showSuccessGlow ? 'text-emerald-500' : ''}`}>
-            {isParsing ? 'AI Extraction Active' : showSuccessGlow ? 'Analysis Complete' : initialData ? 'Update Record' : 'Site Manifest Import'}
+          <h2 className={`text-sm font-black uppercase tracking-widest ${isParsing ? 'text-purple-500' : ''}`}>
+            {isParsing ? 'AI Processing Active' : initialData ? 'Update Ticket' : 'Import Locate Ticket'}
           </h2>
           <button onClick={onClose} className="p-1 opacity-50 hover:opacity-100 transition-opacity">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
 
-        {!initialData && !isParsing && !showSuccessGlow && (
+        {!initialData && !isParsing && (
           <div className="flex p-1.5 gap-1 bg-black/5 mx-6 mt-4 rounded-xl">
             {['manual', 'batch', 'pdf'].map(tab => (
               <button key={tab} onClick={() => setActiveTab(tab as any)} className={`flex-1 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all ${activeTab === tab ? 'bg-brand text-slate-900 shadow-sm' : 'text-slate-500'}`}>
@@ -201,16 +187,14 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
         )}
 
         <div className="p-6">
-          {activeTab === 'manual' || isParsing || showSuccessGlow ? (
+          {activeTab === 'manual' || isParsing ? (
             <form onSubmit={handleSubmit} className="space-y-4">
-              {(isParsing || showSuccessGlow) && (
-                <div className={`p-4 border rounded-2xl flex items-center gap-4 transition-all ${showSuccessGlow ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-purple-500/10 border-purple-500/20 animate-pulse'}`}>
-                  <div className={`w-10 h-10 border-4 rounded-full shrink-0 flex items-center justify-center ${showSuccessGlow ? 'bg-emerald-500 border-emerald-500 text-white scale-110' : 'border-purple-500 border-t-transparent animate-spin'}`}>
-                    {showSuccessGlow && <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>}
-                  </div>
+              {isParsing && (
+                <div className="p-4 bg-purple-500/10 border border-purple-500/20 rounded-2xl flex items-center gap-4 animate-pulse">
+                  <div className="w-10 h-10 border-4 border-purple-500 border-t-transparent rounded-full animate-spin shrink-0" />
                   <div>
-                    <p className={`text-[10px] font-black uppercase tracking-widest ${showSuccessGlow ? 'text-emerald-500' : 'text-purple-500'}`}>{scanStatus || 'Parsing Construction Log...'}</p>
-                    <p className="text-[8px] font-bold text-slate-500 uppercase">Automated Document Intelligence</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-purple-500">{scanStatus || 'Analyzing Document...'}</p>
+                    <p className="text-[8px] font-bold text-slate-500 uppercase">Extracting construction metadata</p>
                   </div>
                 </div>
               )}
@@ -226,12 +210,12 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
                 </div>
               </div>
               <div className="space-y-1">
-                <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest ml-1">Location Street</label>
+                <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest ml-1">Street</label>
                 <input required className={`w-full px-3 py-2 border rounded-lg text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.street} onChange={e => setFormData({...formData, street: e.target.value})} />
               </div>
               <div className="space-y-1">
-                <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest ml-1">Work Extent / Boundaries</label>
-                <textarea rows={2} className={`w-full px-3 py-2 border rounded-lg text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.extent} onChange={e => setFormData({...formData, extent: e.target.value})} placeholder="Area description..." />
+                <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest ml-1">Extent</label>
+                <textarea rows={2} className={`w-full px-3 py-2 border rounded-lg text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.extent} onChange={e => setFormData({...formData, extent: e.target.value})} placeholder="Describe the work area boundaries..." />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
@@ -244,15 +228,15 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
                 </div>
               </div>
 
-              <button type="submit" disabled={isParsing || showSuccessGlow} className={`w-full py-3.5 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg mt-2 transition-all active:scale-[0.98] ${isParsing ? 'bg-slate-700 text-slate-500 cursor-not-allowed' : showSuccessGlow ? 'bg-emerald-500 text-white cursor-default' : 'bg-brand text-[#0f172a] shadow-brand/10'}`}>
-                {isParsing ? 'Processing...' : showSuccessGlow ? 'Syncing...' : 'Save Ticket Record'}
+              <button type="submit" disabled={isParsing} className={`w-full py-3.5 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg mt-2 transition-all active:scale-[0.98] ${isParsing ? 'bg-slate-700 text-slate-500 cursor-not-allowed' : 'bg-brand text-[#0f172a] shadow-brand/10'}`}>
+                {isParsing ? 'Processing AI Data...' : 'Save Ticket Record'}
               </button>
             </form>
           ) : activeTab === 'batch' ? (
             <div className="space-y-4">
-              <textarea rows={8} className={`w-full px-4 py-3 border rounded-xl text-xs font-semibold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder:text-slate-700' : 'bg-slate-50 border-slate-200 text-slate-900 placeholder:text-slate-400'}`} placeholder="Paste raw ticket text here..." value={batchInput} onChange={e => setBatchInput(e.target.value)} />
+              <textarea rows={8} className={`w-full px-4 py-3 border rounded-xl text-xs font-semibold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder:text-slate-700' : 'bg-slate-50 border-slate-200 text-slate-900 placeholder:text-slate-400'}`} placeholder="Paste the full text of the ticket email or PDF here..." value={batchInput} onChange={e => setBatchInput(e.target.value)} />
               <button onClick={handleAiParse} disabled={isParsing || !batchInput.trim()} className="w-full bg-brand text-[#0f172a] py-3.5 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-brand/10 flex items-center justify-center gap-2 transition-all">
-                {isParsing ? <div className="w-4 h-4 border-2 border-[#0f172a] border-t-transparent rounded-full animate-spin" /> : 'Run Neural Extraction'}
+                {isParsing ? <div className="w-4 h-4 border-2 border-[#0f172a] border-t-transparent rounded-full animate-spin" /> : 'Run AI Extraction'}
               </button>
             </div>
           ) : (
@@ -261,7 +245,7 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
                 onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
                 onDragLeave={() => setIsDragging(false)}
                 onDrop={(e) => { e.preventDefault(); setIsDragging(false); handleFileUpload(e.dataTransfer.files); }}
-                onClick={() => !isParsing && fileInputRef.current?.click()}
+                onClick={() => fileInputRef.current?.click()}
                 className={`relative h-[240px] rounded-[2.5rem] border-2 border-dashed transition-all flex flex-col items-center justify-center gap-4 overflow-hidden group cursor-pointer ${
                   isDragging ? 'bg-brand/10 border-brand scale-[0.98]' : 'bg-black/5 border-slate-200 hover:border-brand/40'
                 } ${isParsing ? 'opacity-50 pointer-events-none' : ''}`}
@@ -275,10 +259,10 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
                 </div>
                 <div className="text-center px-4">
                   <p className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-500">
-                    {isParsing ? 'AI Parsing Tickets...' : isDragging ? 'Release to Start' : 'Select PDFs / Photos'}
+                    {isParsing ? 'AI Parsing Tickets...' : isDragging ? 'Release to Start' : 'Select Multiple PDFs/Images'}
                   </p>
                   <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1 opacity-60">
-                    Neural engine processes multiple logs
+                    Supports multiple files at once
                   </p>
                 </div>
                 <input 
