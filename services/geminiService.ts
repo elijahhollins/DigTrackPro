@@ -1,13 +1,13 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 
-// Instantiate at the module level to allow build-time replacement of process.env.API_KEY
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
 /**
  * Specialized service for parsing locate tickets using Gemini AI.
  */
 export const parseTicketData = async (input: string | { data: string; mimeType: string }) => {
+  // STRICT GUIDELINE: Instantiate right before use to ensure process.env.API_KEY is available.
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  
   try {
     const isMedia = typeof input !== 'string';
     const promptText = isMedia 
