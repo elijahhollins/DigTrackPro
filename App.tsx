@@ -24,6 +24,7 @@ const App: React.FC = () => {
   const [notes, setNotes] = useState<JobNote[]>([]);
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isProcessing, setIsProcessing] = useState(false);
   
   const [showTicketForm, setShowTicketForm] = useState(false);
   const [showJobForm, setShowJobForm] = useState(false);
@@ -48,15 +49,22 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
+    // If global processing is active, use the vibrant purple
+    if (isProcessing) {
+      applyThemeColor('#a855f7');
+      return;
+    }
+
     const activeTkts = tickets.filter(t => !t.isArchived);
     const statuses = activeTkts.map(t => getTicketStatus(t));
     let color = '#3b82f6';
     if (statuses.includes(TicketStatus.EXPIRED)) color = '#e11d48';
     else if (statuses.includes(TicketStatus.REFRESH_NEEDED) || statuses.includes(TicketStatus.EXTENDABLE) || activeTkts.some(t => t.noShowRequested)) color = '#f59e0b';
     else if (activeTkts.length > 0) color = '#10b981';
+    
     const manual = localStorage.getItem('dig_theme_color');
     applyThemeColor(manual || color);
-  }, [tickets]);
+  }, [tickets, isProcessing]);
 
   const toggleDarkMode = () => {
     const next = !isDarkMode;
@@ -122,7 +130,6 @@ const App: React.FC = () => {
     if (!confirm("Are you sure you want to permanently delete this ticket?")) return;
     try {
       await apiService.deleteTicket(id);
-      // Immediately refresh from DB to ensure local state is synced
       await initApp();
     } catch (error: any) { alert("Delete failed: " + error.message); }
   };
@@ -130,11 +137,8 @@ const App: React.FC = () => {
   const handleDeleteJob = async (job: Job) => {
     if (!confirm(`Permanently delete Job #${job.jobNumber} and ALL its tickets? This cannot be undone.`)) return;
     try {
-      // Step 1: Purge all associated tickets from DB
       await apiService.deleteTicketsByJob(job.jobNumber);
-      // Step 2: Delete the job itself
       await apiService.deleteJob(job.id);
-      // Step 3: Refresh local state from DB
       await initApp();
     } catch (error: any) { alert("Delete job failed: " + error.message); }
   };
@@ -186,8 +190,8 @@ const App: React.FC = () => {
       <header className={`${isDarkMode ? 'bg-[#1e293b]/95 border-white/5' : 'bg-white/95 border-slate-200'} backdrop-blur-md border-b sticky top-0 z-40 transition-all duration-500`}>
         <div className="max-w-[1400px] mx-auto px-4 h-14 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <div className="bg-brand p-2 rounded-xl shadow-lg shadow-brand/20 transition-all duration-500 glow-brand">
-              <svg className="w-4 h-4 text-[#0f172a]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+            <div className={`p-2 rounded-xl shadow-lg transition-all duration-500 glow-brand ${isProcessing ? 'bg-purple-500 shadow-purple-500/30' : 'bg-brand shadow-brand/20'}`}>
+              <svg className={`w-4 h-4 text-[#0f172a] ${isProcessing ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
             </div>
             <h1 className="text-sm font-black uppercase tracking-tight hidden sm:block">DigTrack Pro</h1>
           </div>
@@ -318,6 +322,7 @@ const App: React.FC = () => {
           users={users} 
           jobs={jobs}
           isDarkMode={isDarkMode} 
+          onProcessingChange={setIsProcessing}
           onJobCreated={(newJob) => setJobs(prev => [...prev, newJob])}
         />
       )}

@@ -84,22 +84,22 @@ create table if not exists no_shows (
 -- 3. SCHEMA MIGRATION / COLUMN RENAMING
 DO $$ 
 BEGIN 
-    -- Add Extent if missing
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='extent') THEN
         ALTER TABLE tickets ADD COLUMN extent text;
     END IF;
 
-    -- Handle Street (Renamed from address)
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='site_contact') THEN
+        ALTER TABLE tickets ADD COLUMN site_contact text;
+    END IF;
+
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='address') THEN
         ALTER TABLE tickets RENAME COLUMN address TO street;
     END IF;
 
-    -- Handle Work Date (Renamed from dig_start)
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='dig_start') THEN
         ALTER TABLE tickets RENAME COLUMN dig_start TO work_date;
     END IF;
 
-    -- Handle Expires (Renamed from expiration_date)
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='expiration_date') THEN
         ALTER TABLE tickets RENAME COLUMN expiration_date TO expires;
     END IF;
@@ -137,6 +137,25 @@ const mapJob = (data: any): Job => ({
   county: data.county || '',
   createdAt: data.created_at ? new Date(data.created_at).getTime() : Date.now(),
   isComplete: data.is_complete ?? false
+});
+
+const mapTicket = (t: any): DigTicket => ({
+  id: t.id,
+  jobNumber: t.job_number || '',
+  ticketNo: t.ticket_no || '',
+  street: t.street || '',
+  extent: t.extent || '',
+  county: t.county || '',
+  city: t.city || '',
+  state: t.state || '',
+  callInDate: t.call_in_date || '',
+  workDate: t.work_date || '',
+  expires: t.expires || '',
+  siteContact: t.site_contact || '',
+  refreshRequested: t.refresh_requested ?? false,
+  noShowRequested: t.no_show_requested ?? false,
+  isArchived: t.is_archived ?? false,
+  createdAt: t.created_at ? new Date(t.created_at).getTime() : Date.now()
 });
 
 export const apiService = {
@@ -193,24 +212,7 @@ export const apiService = {
   async getTickets(): Promise<DigTicket[]> {
     const { data, error } = await supabase.from('tickets').select('*');
     if (error) return [];
-    return (data || []).map(t => ({
-        id: t.id,
-        jobNumber: t.job_number,
-        ticketNo: t.ticket_no,
-        street: t.street,
-        extent: t.extent || '',
-        county: t.county,
-        city: t.city,
-        state: t.state,
-        callInDate: t.call_in_date,
-        workDate: t.work_date,
-        expires: t.expires,
-        siteContact: t.site_contact,
-        refreshRequested: t.refresh_requested ?? false,
-        noShowRequested: t.no_show_requested ?? false,
-        isArchived: t.is_archived ?? false,
-        createdAt: new Date(t.created_at).getTime()
-    }));
+    return (data || []).map(mapTicket);
   },
 
   async saveTicket(ticket: DigTicket, archiveExisting: boolean = false): Promise<DigTicket> {
@@ -233,35 +235,16 @@ export const apiService = {
       city: ticket.city,
       state: ticket.state,
       call_in_date: ticket.callInDate,
-      // Fix: Use correct property from DigTicket interface
       work_date: ticket.workDate,
       expires: ticket.expires,
       site_contact: ticket.siteContact,
       refresh_requested: ticket.refreshRequested ?? false,
-      // Fix: Use correct property from DigTicket interface
       no_show_requested: ticket.noShowRequested ?? false,
       is_archived: ticket.isArchived ?? false
     }).select().single();
 
     if (error) throw error;
-    return {
-        id: data.id,
-        jobNumber: data.job_number,
-        ticketNo: data.ticket_no,
-        street: data.street,
-        extent: data.extent,
-        county: data.county,
-        city: data.city,
-        state: data.state,
-        callInDate: data.call_in_date,
-        workDate: data.work_date,
-        expires: data.expires,
-        siteContact: data.site_contact,
-        refreshRequested: data.refresh_requested ?? false,
-        noShowRequested: data.no_show_requested ?? false,
-        isArchived: data.is_archived ?? false,
-        createdAt: new Date(data.created_at).getTime()
-    };
+    return mapTicket(data);
   },
 
   async deleteTicket(id: string): Promise<void> {
@@ -286,7 +269,6 @@ export const apiService = {
     }]);
     if (error) throw error;
     
-    // Also update the ticket flag
     await supabase.from('tickets').update({ no_show_requested: true }).eq('id', noShow.ticketId);
   },
 
