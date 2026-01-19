@@ -2,12 +2,17 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
 /**
+ * Initialize GenAI at the module level.
+ * This ensures that environment variables like process.env.API_KEY are 
+ * correctly injected by build tools/deployment platforms like Vercel.
+ */
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+/**
  * Specialized service for parsing locate tickets using Gemini AI.
+ * This service extracts structured metadata from 811 locate tickets (text or media).
  */
 export const parseTicketData = async (input: string | { data: string; mimeType: string }) => {
-  // STRICT GUIDELINE: Instantiate right before use to ensure process.env.API_KEY is available.
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  
   try {
     const isMedia = typeof input !== 'string';
     const promptText = isMedia 
@@ -21,6 +26,7 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
       ? [{ inlineData: input as { data: string; mimeType: string } }, { text: promptText }]
       : [{ text: promptText }];
 
+    // Using gemini-3-flash-preview for high speed and consistent compatibility across all API key tiers.
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview", 
       contents: { parts },
@@ -52,6 +58,6 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
     return JSON.parse(jsonStr);
   } catch (error: any) {
     console.error("[Gemini] Extraction Failure:", error);
-    throw new Error(error.message || "AI Analysis failed.");
+    throw new Error(error.message || "AI Analysis failed. Check if API Key is configured.");
   }
 };
