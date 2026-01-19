@@ -2,17 +2,14 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
 /**
- * Initialize GenAI at the module level.
- * This ensures that environment variables like process.env.API_KEY are 
- * correctly injected by build tools/deployment platforms like Vercel.
- */
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
-/**
  * Specialized service for parsing locate tickets using Gemini AI.
  * This service extracts structured metadata from 811 locate tickets (text or media).
  */
 export const parseTicketData = async (input: string | { data: string; mimeType: string }) => {
+  // Initialize right before use to ensure process.env.API_KEY is available 
+  // and to prevent top-level reference errors in browser environments.
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  
   try {
     const isMedia = typeof input !== 'string';
     const promptText = isMedia 
