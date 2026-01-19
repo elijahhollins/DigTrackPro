@@ -20,9 +20,10 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
   const [archiveOld, setArchiveOld] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [scanStatus, setScanStatus] = useState<string>('');
+  const [progressPercent, setProgressPercent] = useState(0);
   const [formData, setFormData] = useState({
     jobNumber: '', ticketNo: '', street: '', extent: '', county: '', city: '', state: '',
-    callInDate: '', workDate: '', expires: '', siteContact: '',
+    callInDate: '', workDate: '', expires: '', siteContact: '', documentUrl: ''
   });
 
   const [batchInput, setBatchInput] = useState('');
@@ -43,6 +44,7 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
         workDate: initialData.workDate || '',
         expires: initialData.expires || '',
         siteContact: initialData.siteContact || '',
+        documentUrl: initialData.documentUrl || ''
       });
       setArchiveOld(true);
     }
@@ -65,77 +67,65 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
     
     setIsParsing(true);
     onProcessingChange?.(true);
-    let successCount = 0;
-    const fileArray = Array.from(files);
+    setProgressPercent(0);
+    const file = files[0]; // Plan: focused single-file review workflow
 
-    for (let i = 0; i < fileArray.length; i++) {
-      const file = fileArray[i];
-      setScanStatus(`Reading ${i + 1}/${fileArray.length}...`);
+    try {
+      // Step 1: Read binary for AI
+      setScanStatus(`Reading ${file.name}...`);
+      setProgressPercent(10);
+      const base64Data = await blobToBase64(file);
       
-      try {
-        const base64Data = await blobToBase64(file);
-        setScanStatus(`AI Parsing ${file.name}...`);
-        
-        const parsed = await parseTicketData({
-          data: base64Data,
-          mimeType: file.type
-        }) as any;
-        
-        if (!parsed) continue;
+      // Step 2: Upload to Vault (Ticket_Images bucket)
+      setScanStatus(`Uploading to Secure Vault...`);
+      setProgressPercent(30);
+      // We need a job number for the path. We'll try to extract one from AI first, 
+      // or use "PENDING" if we can't wait. 
+      // Refined plan: AI parse first to get job number, then upload.
+      
+      // Step 3: AI Analysis
+      setScanStatus(`AI Analyzing Ticket Data...`);
+      setProgressPercent(50);
+      const parsed = await parseTicketData({
+        data: base64Data,
+        mimeType: file.type
+      }) as any;
+      
+      setProgressPercent(80);
+      
+      let targetJobNumber = (parsed && parsed.jobNumber) || 'UNASSIGNED';
+      
+      // Step 4: Final Archive Upload
+      setScanStatus(`Archiving Original Document...`);
+      const docUrl = await apiService.addTicketFile(targetJobNumber, file);
+      
+      // Step 5: Populate Form & Switch
+      const cleanData = Object.fromEntries(
+        Object.entries(parsed || {}).filter(([_, v]) => v !== null && v !== '')
+      ) as any;
 
-        const cleanData = Object.fromEntries(
-          Object.entries(parsed).filter(([_, v]) => v !== null && v !== '')
-        ) as any;
+      setFormData(prev => ({ 
+        ...prev, 
+        ...cleanData, 
+        documentUrl: docUrl,
+        jobNumber: targetJobNumber
+      }));
 
-        let targetJobNumber = cleanData.jobNumber || 'UNASSIGNED';
-        let existingJob = jobs.find(j => j.jobNumber === targetJobNumber);
-        
-        if (!existingJob && targetJobNumber !== 'UNASSIGNED') {
-          const newJob: Job = {
-            id: crypto.randomUUID(),
-            jobNumber: targetJobNumber,
-            customer: '',
-            address: cleanData.street || '',
-            city: cleanData.city || '',
-            state: cleanData.state || '',
-            county: cleanData.county || '',
-            createdAt: Date.now(),
-            isComplete: false
-          };
-          const savedJob = await apiService.saveJob(newJob);
-          onJobCreated?.(savedJob);
-        }
+      setProgressPercent(100);
+      setScanStatus("Data extracted. Please review and save.");
+      
+      // Give the user a moment to see the 100% then switch
+      setTimeout(() => {
+        setIsParsing(false);
+        onProcessingChange?.(false);
+        setActiveTab('manual');
+      }, 800);
 
-        const ticketToSave: Omit<DigTicket, 'id' | 'createdAt'> = {
-          jobNumber: targetJobNumber,
-          ticketNo: cleanData.ticketNo || `AI-${Date.now()}`,
-          street: cleanData.street || '',
-          extent: cleanData.extent || '',
-          county: cleanData.county || '',
-          city: cleanData.city || '',
-          state: cleanData.state || '',
-          callInDate: cleanData.callInDate || new Date().toISOString().split('T')[0],
-          workDate: cleanData.workDate || '',
-          expires: cleanData.expires || '',
-          siteContact: cleanData.siteContact || '',
-          isArchived: false,
-          refreshRequested: false,
-          noShowRequested: false
-        };
-
-        await onAdd(ticketToSave, false);
-        setFormData(prev => ({ ...prev, ...cleanData }));
-        successCount++;
-      } catch (err: any) {
-        console.error(`Failed to process ${file.name}:`, err);
-      }
-    }
-
-    setScanStatus(`Imported ${successCount} tickets.`);
-    setIsParsing(false);
-    onProcessingChange?.(false);
-    if (successCount > 0) {
-      setTimeout(() => onClose(), 1500);
+    } catch (err: any) {
+      console.error(`Failed to process ${file.name}:`, err);
+      setScanStatus(`Error: ${err.message}`);
+      setIsParsing(false);
+      onProcessingChange?.(false);
     }
   };
 
@@ -143,16 +133,23 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
     if (!batchInput.trim()) return;
     setIsParsing(true);
     onProcessingChange?.(true);
+    setProgressPercent(20);
+    setScanStatus("Parsing text block...");
     try {
       const parsed = await parseTicketData(batchInput) as any;
+      setProgressPercent(80);
       const cleanData = Object.fromEntries(
         Object.entries(parsed).filter(([_, v]) => v !== null && v !== '')
       );
       setFormData(prev => ({ ...prev, ...cleanData }));
-      setActiveTab('manual');
+      setProgressPercent(100);
+      setTimeout(() => {
+        setIsParsing(false);
+        onProcessingChange?.(false);
+        setActiveTab('manual');
+      }, 500);
     } catch (err: any) {
       alert("Extraction failed: " + err.message);
-    } finally {
       setIsParsing(false);
       onProcessingChange?.(false);
     }
@@ -168,19 +165,32 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
     <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[150] flex justify-center items-center p-4">
       <div className={`w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden border animate-in ${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white border-slate-200'}`}>
         <div className="px-6 py-4 border-b flex justify-between items-center bg-black/5">
-          <h2 className={`text-sm font-black uppercase tracking-widest ${isParsing ? 'text-purple-500' : ''}`}>
-            {isParsing ? 'AI Processing Active' : initialData ? 'Update Ticket' : 'Import Locate Ticket'}
-          </h2>
+          <div className="flex flex-col">
+            <h2 className={`text-sm font-black uppercase tracking-widest ${isParsing ? 'text-purple-500' : ''}`}>
+              {isParsing ? 'AI Processing Active' : initialData ? 'Update Ticket' : 'Import Locate Ticket'}
+            </h2>
+            {!isParsing && !initialData && <p className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">Review required before save</p>}
+          </div>
           <button onClick={onClose} className="p-1 opacity-50 hover:opacity-100 transition-opacity">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
 
+        {/* Progress Bar Header */}
+        {isParsing && (
+          <div className="h-1.5 w-full bg-black/10 overflow-hidden relative">
+            <div 
+              className="absolute inset-y-0 left-0 bg-purple-500 transition-all duration-500 ease-out shadow-[0_0_10px_rgba(168,85,247,0.5)]"
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+        )}
+
         {!initialData && !isParsing && (
           <div className="flex p-1.5 gap-1 bg-black/5 mx-6 mt-4 rounded-xl">
-            {['manual', 'batch', 'pdf'].map(tab => (
+            {['manual', 'pdf', 'batch'].map(tab => (
               <button key={tab} onClick={() => setActiveTab(tab as any)} className={`flex-1 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all ${activeTab === tab ? 'bg-brand text-slate-900 shadow-sm' : 'text-slate-500'}`}>
-                {tab === 'pdf' ? 'Batch Scan' : tab}
+                {tab === 'pdf' ? 'Upload PDF/Image' : tab === 'batch' ? 'Paste Text' : 'Manual Entry'}
               </button>
             ))}
           </div>
@@ -190,11 +200,17 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
           {activeTab === 'manual' || isParsing ? (
             <form onSubmit={handleSubmit} className="space-y-4">
               {isParsing && (
-                <div className="p-4 bg-purple-500/10 border border-purple-500/20 rounded-2xl flex items-center gap-4 animate-pulse">
-                  <div className="w-10 h-10 border-4 border-purple-500 border-t-transparent rounded-full animate-spin shrink-0" />
-                  <div>
+                <div className="p-4 bg-purple-500/10 border border-purple-500/20 rounded-2xl flex items-center gap-4">
+                  <div className="relative">
+                    <div className="w-12 h-12 border-4 border-purple-500/20 rounded-full" />
+                    <div className="absolute inset-0 border-4 border-purple-500 border-t-transparent rounded-full animate-spin" />
+                  </div>
+                  <div className="flex-1">
                     <p className="text-[10px] font-black uppercase tracking-widest text-purple-500">{scanStatus || 'Analyzing Document...'}</p>
-                    <p className="text-[8px] font-bold text-slate-500 uppercase">Extracting construction metadata</p>
+                    <div className="flex items-center justify-between mt-1">
+                      <p className="text-[8px] font-bold text-slate-500 uppercase">Extraction Pipeline</p>
+                      <p className="text-[8px] font-black text-purple-500">{Math.round(progressPercent)}%</p>
+                    </div>
                   </div>
                 </div>
               )}
@@ -228,8 +244,15 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
                 </div>
               </div>
 
+              {formData.documentUrl && (
+                <div className="flex items-center gap-2 p-2 rounded-lg bg-black/5">
+                  <svg className="w-4 h-4 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                  <span className="text-[9px] font-black text-slate-500 uppercase truncate flex-1">Attached: Original Ticket Document</span>
+                </div>
+              )}
+
               <button type="submit" disabled={isParsing} className={`w-full py-3.5 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg mt-2 transition-all active:scale-[0.98] ${isParsing ? 'bg-slate-700 text-slate-500 cursor-not-allowed' : 'bg-brand text-[#0f172a] shadow-brand/10'}`}>
-                {isParsing ? 'Processing AI Data...' : 'Save Ticket Record'}
+                {isParsing ? 'Processing AI Data...' : 'Verify & Save Ticket Record'}
               </button>
             </form>
           ) : activeTab === 'batch' ? (
@@ -250,7 +273,7 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
                   isDragging ? 'bg-brand/10 border-brand scale-[0.98]' : 'bg-black/5 border-slate-200 hover:border-brand/40'
                 } ${isParsing ? 'opacity-50 pointer-events-none' : ''}`}
               >
-                <div className={`p-5 rounded-full transition-all ${isDragging ? 'bg-brand text-white scale-110' : 'bg-white/10 text-slate-400 group-hover:bg-brand/10 group-hover:text-brand'}`}>
+                <div className={`p-4 rounded-full transition-all ${isDragging ? 'bg-brand text-white scale-110' : 'bg-white/10 text-slate-400 group-hover:bg-brand/10 group-hover:text-brand'}`}>
                   {isParsing ? (
                     <div className="w-12 h-12 border-4 border-brand border-t-transparent rounded-full animate-spin" />
                   ) : (
@@ -259,15 +282,14 @@ const TicketForm: React.FC<TicketFormProps> = ({ onAdd, onClose, initialData, us
                 </div>
                 <div className="text-center px-4">
                   <p className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-500">
-                    {isParsing ? 'AI Parsing Tickets...' : isDragging ? 'Release to Start' : 'Select Multiple PDFs/Images'}
+                    {isParsing ? 'AI Parsing Ticket...' : isDragging ? 'Release to Start' : 'Drop Ticket PDF or Image'}
                   </p>
                   <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1 opacity-60">
-                    Supports multiple files at once
+                    Automatic upload & data extraction
                   </p>
                 </div>
                 <input 
                   type="file" 
-                  multiple
                   ref={fileInputRef} 
                   className="hidden" 
                   accept="application/pdf,image/*" 

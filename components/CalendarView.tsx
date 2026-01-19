@@ -6,6 +6,7 @@ import { getTicketStatus } from '../utils/dateUtils.ts';
 interface CalendarViewProps {
   tickets: DigTicket[];
   onEditTicket: (ticket: DigTicket) => void;
+  onViewDoc?: (url: string) => void;
 }
 
 type CalendarEvent = {
@@ -13,7 +14,7 @@ type CalendarEvent = {
   type: 'start' | 'refresh' | 'expire' | 'noShowRequest' | 'manualRefreshRequest';
 };
 
-const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket }) => {
+const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onViewDoc }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState<number | null>(new Date().getDate());
 
@@ -172,7 +173,12 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket }) =>
                        <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-ping" />
                     </div>
                     <p className="text-xs font-black text-slate-800 truncate mb-1">#{t.jobNumber} • {t.street}</p>
-                    <p className="text-[9px] font-mono font-bold text-rose-400 uppercase tracking-tighter">CALL REQUIRED: {t.ticketNo}</p>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); if (t.documentUrl) onViewDoc?.(t.documentUrl); }}
+                      className={`text-[9px] font-mono font-bold uppercase tracking-tighter transition-colors ${t.documentUrl ? 'text-rose-400 hover:text-brand hover:underline cursor-zoom-in' : 'text-rose-400 cursor-default'}`}
+                    >
+                      CALL REQUIRED: {t.ticketNo}
+                    </button>
                  </div>
               ))}
             </div>
@@ -196,7 +202,12 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket }) =>
                     }`} />
                   </div>
                   <p className="text-xs font-black text-slate-800 truncate mb-1">#{ev.ticket.jobNumber} • {ev.ticket.street}</p>
-                  <p className="text-[9px] font-mono font-bold text-slate-400">TKT: {ev.ticket.ticketNo}</p>
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); if (ev.ticket.documentUrl) onViewDoc?.(ev.ticket.documentUrl); }}
+                    className={`text-[9px] font-mono font-bold transition-colors ${ev.ticket.documentUrl ? 'text-slate-400 hover:text-brand hover:underline cursor-zoom-in' : 'text-slate-400 cursor-default'}`}
+                  >
+                    TKT: {ev.ticket.ticketNo}
+                  </button>
                 </div>
               ))
             ) : selectedDay && activeAlerts.length === 0 && (

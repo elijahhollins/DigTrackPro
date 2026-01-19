@@ -14,11 +14,12 @@ interface JobReviewProps {
   onToggleComplete: (job: Job) => void;
   onAddNote: (note: Omit<JobNote, 'id' | 'timestamp' | 'author'>) => void;
   onViewPhotos: (jobNumber: string) => void;
+  onViewDoc?: (url: string) => void;
 }
 
 type ViewMode = 'thumbnail' | 'list';
 
-const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, notes, isAdmin, isDarkMode, onEditJob, onDeleteJob, onToggleComplete, onAddNote, onViewPhotos }) => {
+const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, notes, isAdmin, isDarkMode, onEditJob, onDeleteJob, onToggleComplete, onAddNote, onViewPhotos, onViewDoc }) => {
   const [hideCompleted, setHideCompleted] = useState(false);
   const [jobSearch, setJobSearch] = useState('');
   const [showHistoryFor, setShowHistoryFor] = useState<string | null>(null);
@@ -36,7 +37,6 @@ const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, notes, isAdmin, is
     });
     // Sort archived by expiration date descending
     Object.values(map).forEach(group => {
-      // Fix: Use the correct property 'expires' from DigTicket interface
       group.archived.sort((a, b) => new Date(b.expires).getTime() - new Date(a.expires).getTime());
     });
     return map;
@@ -139,7 +139,12 @@ const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, notes, isAdmin, is
                     const s = getTicketStatus(t);
                     return (
                       <div key={t.id} className="flex items-center justify-between text-[10px] font-bold py-1">
-                        <span className="opacity-40 font-mono truncate max-w-[120px]">{t.ticketNo}</span>
+                        <button 
+                          onClick={() => t.documentUrl && onViewDoc?.(t.documentUrl)} 
+                          className={`opacity-40 font-mono truncate max-w-[120px] transition-colors ${t.documentUrl ? 'hover:text-brand hover:underline cursor-zoom-in' : 'cursor-default'}`}
+                        >
+                          {t.ticketNo}
+                        </button>
                         <span className={`px-1.5 py-0.5 rounded-md border uppercase text-[8px] ${getStatusColor(s)}`}>{s}</span>
                       </div>
                     );
@@ -162,7 +167,12 @@ const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, notes, isAdmin, is
                         <div className="mt-2 space-y-1 animate-in">
                           {archivedTickets.map(t => (
                             <div key={t.id} className="flex items-center justify-between text-[9px] font-bold p-1.5 bg-black/5 rounded-lg opacity-60">
-                              <span className="font-mono">{t.ticketNo}</span>
+                              <button 
+                                onClick={() => t.documentUrl && onViewDoc?.(t.documentUrl)} 
+                                className={`font-mono transition-colors ${t.documentUrl ? 'hover:text-brand hover:underline cursor-zoom-in' : 'cursor-default'}`}
+                              >
+                                {t.ticketNo}
+                              </button>
                               <span className="text-slate-400">Exp: {new Date(t.expires).toLocaleDateString()}</span>
                             </div>
                           ))}

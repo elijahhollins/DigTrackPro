@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, User, UserRole, Job, JobNote, UserRecord, NoShowRecord } from './types.ts';
 import { getTicketStatus, getStatusColor } from './utils/dateUtils.ts';
@@ -35,6 +36,7 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   const [hasApiKey, setHasApiKey] = useState(false);
+  const [viewingDocUrl, setViewingDocUrl] = useState<string | null>(null);
   
   const [showTicketForm, setShowTicketForm] = useState(false);
   const [showJobForm, setShowJobForm] = useState(false);
@@ -302,7 +304,15 @@ const App: React.FC = () => {
                       return (
                         <tr key={ticket.id} onClick={() => isAdmin && setEditingTicket(ticket)} className={`transition-all group ${isAdmin ? 'cursor-pointer' : ''} ${isDarkMode ? 'hover:bg-white/5' : 'hover:bg-slate-50'}`}>
                           <td className="px-6 py-3 text-[13px] font-black">{ticket.jobNumber}</td>
-                          <td className="px-6 py-3 text-[12px] font-mono opacity-50">{ticket.ticketNo}</td>
+                          <td className="px-6 py-3 text-[12px] font-mono opacity-50">
+                             <button 
+                               onClick={(e) => { e.stopPropagation(); if (ticket.documentUrl) setViewingDocUrl(ticket.documentUrl); }} 
+                               className={`hover:text-brand hover:underline transition-colors ${ticket.documentUrl ? 'cursor-zoom-in' : 'cursor-default'}`}
+                               title={ticket.documentUrl ? "View Original Ticket" : "No document available"}
+                             >
+                               {ticket.ticketNo}
+                             </button>
+                          </td>
                           <td className="px-6 py-3 text-[13px] font-bold truncate max-w-[250px]">{ticket.street}</td>
                           <td className="px-6 py-3 text-center">
                             <div className="flex flex-col items-center gap-1">
@@ -352,11 +362,35 @@ const App: React.FC = () => {
             </div>
           </div>
         )}
-        {activeView === 'calendar' && <CalendarView tickets={activeTickets} onEditTicket={(t) => isAdmin && setEditingTicket(t)} />}
-        {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} notes={notes} isAdmin={isAdmin} isDarkMode={isDarkMode} onEditJob={(j) => isAdmin && setEditingJob(j)} onDeleteJob={handleDeleteJob} onToggleComplete={async (j) => { await apiService.saveJob({...j, isComplete: !j.isComplete}); initApp(); }} onAddNote={async (note) => { const n = await apiService.addNote({...note, id: crypto.randomUUID(), timestamp: Date.now(), author: sessionUser.name}); setNotes(prev => [n, ...prev]); }} onViewPhotos={(j) => { setGlobalSearch(j); setActiveView('photos'); }} />}
+        {activeView === 'calendar' && <CalendarView tickets={activeTickets} onEditTicket={(t) => isAdmin && setEditingTicket(t)} onViewDoc={setViewingDocUrl} />}
+        {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} notes={notes} isAdmin={isAdmin} isDarkMode={isDarkMode} onEditJob={(j) => isAdmin && setEditingJob(j)} onDeleteJob={handleDeleteJob} onToggleComplete={async (j) => { await apiService.saveJob({...j, isComplete: !j.isComplete}); initApp(); }} onAddNote={async (note) => { const n = await apiService.addNote({...note, id: crypto.randomUUID(), timestamp: Date.now(), author: sessionUser.name}); setNotes(prev => [n, ...prev]); }} onViewPhotos={(j) => { setGlobalSearch(j); setActiveView('photos'); }} onViewDoc={setViewingDocUrl} />}
         {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} initialSearch={globalSearch} isDarkMode={isDarkMode} onAddPhoto={async (metadata, file) => { const saved = await apiService.addPhoto(metadata, file); setPhotos(prev => [saved, ...prev]); return saved; }} onDeletePhoto={async (id) => { await apiService.deletePhoto(id); setPhotos(prev => prev.filter(p => p.id !== id)); }} />}
         {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} isDarkMode={isDarkMode} onAddUser={async (u) => { const newUser = await apiService.addUser({...u}); setUsers(prev => [...prev, newUser]); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); setUsers(prev => prev.filter(u => u.id !== id)); }} onThemeChange={(hex) => applyThemeColor(hex, true)} />}
       </main>
+
+      {/* Document Viewer Modal */}
+      {viewingDocUrl && (
+        <div className="fixed inset-0 z-[300] bg-slate-950/90 backdrop-blur-md flex flex-col p-4 sm:p-10 animate-in">
+          <div className="flex justify-between items-center mb-6 max-w-5xl mx-auto w-full">
+            <h2 className="text-white font-black uppercase tracking-widest text-sm">Ticket Document Archive</h2>
+            <button 
+              onClick={() => setViewingDocUrl(null)}
+              className="p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all active:scale-90"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+          </div>
+          <div className="flex-1 max-w-5xl mx-auto w-full rounded-3xl overflow-hidden border border-white/10 bg-black shadow-2xl">
+            {viewingDocUrl.toLowerCase().endsWith('.pdf') ? (
+              <iframe src={`${viewingDocUrl}#toolbar=0`} className="w-full h-full border-none" />
+            ) : (
+              <div className="w-full h-full overflow-auto flex items-center justify-center p-4">
+                 <img src={viewingDocUrl} className="max-w-full h-auto shadow-2xl rounded-lg" alt="Ticket Document" />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <nav className="fixed bottom-6 left-0 right-0 z-50 flex justify-center px-4 pointer-events-none">
         <div className={`backdrop-blur-xl border shadow-2xl rounded-3xl p-1.5 flex items-center gap-1 pointer-events-auto transition-all duration-500 ${isDarkMode ? 'bg-[#1e293b]/90 border-white/10' : 'bg-white/90 border-slate-200'}`}>

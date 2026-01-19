@@ -53,6 +53,7 @@ export interface DigTicket {
   refreshRequested?: boolean;
   noShowRequested?: boolean;
   isArchived?: boolean;
+  documentUrl?: string;
 }
 
 export interface NoShowRecord {

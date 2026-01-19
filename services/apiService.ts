@@ -45,6 +45,7 @@ create table if not exists tickets (
     refresh_requested boolean default false, 
     no_show_requested boolean default false, 
     is_archived boolean default false, 
+    document_url text,
     created_at timestamp with time zone default now()
 );
 
@@ -87,6 +88,11 @@ BEGIN
     -- Add Extent if missing
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='extent') THEN
         ALTER TABLE tickets ADD COLUMN extent text;
+    END IF;
+
+    -- Add document_url if missing
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='document_url') THEN
+        ALTER TABLE tickets ADD COLUMN document_url text;
     END IF;
 
     -- Handle Street (Renamed from address)
@@ -209,6 +215,7 @@ export const apiService = {
         refreshRequested: t.refresh_requested ?? false,
         noShowRequested: t.no_show_requested ?? false,
         isArchived: t.is_archived ?? false,
+        documentUrl: t.document_url || '',
         createdAt: new Date(t.created_at).getTime()
     }));
   },
@@ -233,14 +240,13 @@ export const apiService = {
       city: ticket.city,
       state: ticket.state,
       call_in_date: ticket.callInDate,
-      // Fix: Use correct property from DigTicket interface
       work_date: ticket.workDate,
       expires: ticket.expires,
       site_contact: ticket.siteContact,
       refresh_requested: ticket.refreshRequested ?? false,
-      // Fix: Use correct property from DigTicket interface
       no_show_requested: ticket.noShowRequested ?? false,
-      is_archived: ticket.isArchived ?? false
+      is_archived: ticket.isArchived ?? false,
+      document_url: ticket.documentUrl
     }).select().single();
 
     if (error) throw error;
@@ -260,6 +266,7 @@ export const apiService = {
         refreshRequested: data.refresh_requested ?? false,
         noShowRequested: data.no_show_requested ?? false,
         isArchived: data.is_archived ?? false,
+        documentUrl: data.document_url || '',
         createdAt: new Date(data.created_at).getTime()
     };
   },
@@ -331,9 +338,10 @@ export const apiService = {
     const id = generateUUID();
     const fileExt = file.name.split('.').pop();
     const filePath = `${jobNumber}/tickets/${id}.${fileExt}`;
-    const { error: uploadError } = await supabase.storage.from('job-photos').upload(filePath, file);
+    // Change to 'Ticket_Images' bucket
+    const { error: uploadError } = await supabase.storage.from('Ticket_Images').upload(filePath, file);
     if (uploadError) throw uploadError;
-    const { data: { publicUrl } } = supabase.storage.from('job-photos').getPublicUrl(filePath);
+    const { data: { publicUrl } } = supabase.storage.from('Ticket_Images').getPublicUrl(filePath);
     return publicUrl;
   },
 
