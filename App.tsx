@@ -1,9 +1,8 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, User, UserRole, Job, JobNote, UserRecord, NoShowRecord } from './types.ts';
 import { getTicketStatus, getStatusColor } from './utils/dateUtils.ts';
 import { apiService } from './services/apiService.ts';
-import { supabase, isSupabaseConfigured } from './lib/supabaseClient.ts';
+import { supabase, isSupabaseConfigured, getEnv } from './lib/supabaseClient.ts';
 import TicketForm from './components/TicketForm.tsx';
 import JobForm from './components/JobForm.tsx';
 import StatCards from './components/StatCards.tsx';
@@ -13,6 +12,16 @@ import CalendarView from './components/CalendarView.tsx';
 import TeamManagement from './components/TeamManagement.tsx';
 import NoShowForm from './components/NoShowForm.tsx';
 import Login from './components/Login.tsx';
+
+declare global {
+  interface AIStudio {
+    hasSelectedApiKey: () => Promise<boolean>;
+    openSelectKey: () => Promise<void>;
+  }
+  interface Window {
+    aistudio?: AIStudio;
+  }
+}
 
 const App: React.FC = () => {
   const [sessionUser, setSessionUser] = useState<User | null>(null);
@@ -25,6 +34,7 @@ const App: React.FC = () => {
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [hasApiKey, setHasApiKey] = useState(false);
   
   const [showTicketForm, setShowTicketForm] = useState(false);
   const [showJobForm, setShowJobForm] = useState(false);
@@ -49,7 +59,6 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    // If global processing is active, use the vibrant purple
     if (isProcessing) {
       applyThemeColor('#a855f7');
       return;
@@ -72,9 +81,52 @@ const App: React.FC = () => {
     localStorage.setItem('dig_theme_mode', next ? 'dark' : 'light');
   };
 
+  const checkApiKey = async () => {
+    const key = getEnv('API_KEY');
+    if (key) {
+      setHasApiKey(true);
+      return true;
+    }
+
+    try {
+      if (window.aistudio?.hasSelectedApiKey) {
+        const selected = await window.aistudio.hasSelectedApiKey();
+        if (selected) {
+          setHasApiKey(true);
+          return true;
+        }
+      }
+    } catch (e) {
+      console.warn("AI Studio key check failed", e);
+    }
+
+    setHasApiKey(false);
+    return false;
+  };
+
+  const handleSelectApiKey = async () => {
+    if (window.aistudio?.openSelectKey) {
+      try {
+        await window.aistudio.openSelectKey();
+        setHasApiKey(true);
+        initApp();
+      } catch (e) {
+        console.error("Failed to trigger key selection", e);
+      }
+    } else {
+      const key = getEnv('API_KEY');
+      if (!key) {
+        alert("The AI API Key is missing. Please add VITE_API_KEY to your environment variables or project secrets.");
+      } else {
+        setHasApiKey(true);
+      }
+    }
+  };
+
   const initApp = async () => {
     if (!isSupabaseConfigured()) { setIsLoading(false); return; }
     try {
+      await checkApiKey();
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { setSessionUser(null); setIsLoading(false); return; }
       const [allUsers, allTickets, allJobs, allPhotos, allNotes] = await Promise.allSettled([
@@ -202,6 +254,12 @@ const App: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-1.5">
+            {!hasApiKey && (
+              <button onClick={handleSelectApiKey} className="flex items-center gap-2 bg-brand text-[#0f172a] px-3 py-1.5 rounded-xl font-black uppercase text-[9px] tracking-widest shadow-lg shadow-brand/20 transition-all">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                Connect AI
+              </button>
+            )}
             <button onClick={toggleDarkMode} className={`p-2 rounded-xl transition-all ${isDarkMode ? 'bg-white/5 text-amber-300' : 'bg-slate-100 text-slate-500'}`}>
               {isDarkMode ? <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M12 7a5 5 0 100 10 5 5 0 000-10z" /></svg> : <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>}
             </button>

@@ -1,14 +1,20 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
+import { getEnv } from "../lib/supabaseClient.ts";
 
 /**
  * Specialized service for parsing locate tickets using Gemini AI.
  * This service extracts structured metadata from 811 locate tickets (text or media).
  */
 export const parseTicketData = async (input: string | { data: string; mimeType: string }) => {
-  // Initialize right before use to ensure process.env.API_KEY is available 
-  // and to prevent top-level reference errors in browser environments.
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = getEnv('API_KEY');
+
+  if (!apiKey) {
+    console.error("[Gemini] API_KEY not found.");
+    throw new Error("CONFIGURATION ERROR: API Key is not configured. Please check your environment variables or click 'Connect AI'.");
+  }
+
+  // Initialize right before use to ensure the most up-to-date API key is used
+  const ai = new GoogleGenAI({ apiKey });
   
   try {
     const isMedia = typeof input !== 'string';
