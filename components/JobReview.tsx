@@ -110,7 +110,13 @@ const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, notes, isAdmin, is
               <div key={jobNum} className={`p-5 rounded-2xl border transition-all flex flex-col h-full ${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-100 shadow-sm'} ${isComplete ? 'opacity-50 grayscale-[0.2]' : ''}`}>
                 <div className="flex justify-between items-start mb-4">
                   <div>
-                    <h3 className={`text-sm font-black uppercase tracking-tight ${isComplete ? 'text-slate-400' : ''}`}>Job #{jobNum}</h3>
+                    <button 
+                      onClick={() => jobEntity && onEditJob(jobEntity)}
+                      className={`text-sm font-black uppercase tracking-tight text-left hover:text-brand transition-colors ${isComplete ? 'text-slate-400' : ''}`}
+                      title={isAdmin ? "Edit Job Details" : ""}
+                    >
+                      Job #{jobNum}
+                    </button>
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1 truncate max-w-[180px]">{jobEntity?.customer || 'Unknown Client'}</p>
                   </div>
                   <div className="flex gap-1.5">
@@ -206,7 +212,14 @@ const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, notes, isAdmin, is
                   
                   return (
                     <tr key={jobNum} className={`group hover:bg-slate-500/5 transition-all ${isComplete ? 'opacity-50' : ''}`}>
-                      <td className="px-5 py-3 text-xs font-black">#{jobNum}</td>
+                      <td className="px-5 py-3">
+                        <button 
+                          onClick={() => jobEntity && onEditJob(jobEntity)}
+                          className="text-xs font-black uppercase hover:text-brand transition-colors"
+                        >
+                          #{jobNum}
+                        </button>
+                      </td>
                       <td className="px-5 py-3 text-xs font-bold text-slate-500 truncate max-w-[200px]">{jobEntity?.customer || 'Unknown Client'}</td>
                       <td className="px-5 py-3 text-center">
                         <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-black border ${activeTickets.length > 0 ? 'bg-brand/10 border-brand/20 text-brand' : 'bg-slate-100 border-slate-200 text-slate-400'}`}>
@@ -224,7 +237,7 @@ const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, notes, isAdmin, is
                           {isAdmin && jobEntity && (
                             <>
                               <button onClick={() => onToggleComplete(jobEntity)} className={`p-1.5 rounded-lg border transition-all ${isComplete ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-black/5 border-transparent text-slate-400 hover:text-emerald-500'}`}>
-                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="24" d="M5 13l4 4L19 7" /></svg>
                               </button>
                               <button onClick={() => onDeleteJob(jobEntity)} className="p-1.5 rounded-lg bg-black/5 text-slate-400 hover:text-rose-500 transition-all">
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>

@@ -50,6 +50,9 @@ const App: React.FC = () => {
     order: 'desc'
   });
 
+  // State to track expanded job rows in the dashboard
+  const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
+
   const applyThemeColor = (hex: string, save: boolean = false) => {
     document.documentElement.style.setProperty('--brand-primary', hex);
     const r = parseInt(hex.slice(1, 3), 16);
@@ -174,8 +177,7 @@ const App: React.FC = () => {
         if (index > -1) return prev.map(t => t.id === saved.id ? saved : t);
         return [saved, ...prev];
       });
-      setShowTicketForm(false);
-      setEditingTicket(null);
+      // Closure handled by TicketForm itself or by App's onClose callback
     } catch (error: any) { alert(error.message); }
   };
 
@@ -206,6 +208,16 @@ const App: React.FC = () => {
     } catch (error: any) { alert(error.message); }
   };
 
+  const handleRemoveNoShow = async (ticket: DigTicket) => {
+    if (!confirm(`Remove the No Show event log for Ticket #${ticket.ticketNo}? This will clear the status.`)) return;
+    try {
+      await apiService.deleteNoShow(ticket.id);
+      setTickets(prev => prev.map(t => t.id === ticket.id ? { ...t, noShowRequested: false } : t));
+    } catch (error: any) {
+      alert("Failed to clear no show status: " + error.message);
+    }
+  };
+
   const handleSort = (field: SortField) => setSortConfig(p => ({ field, order: p.field === field && p.order === 'asc' ? 'desc' : 'asc' }));
 
   const activeTickets = useMemo(() => {
@@ -233,6 +245,27 @@ const App: React.FC = () => {
     });
     return res;
   }, [activeTickets, globalSearch, sortConfig, activeFilter]);
+
+  // Group tickets by Job Number for the Dashboard view
+  const groupedTickets = useMemo(() => {
+    const map = new Map<string, DigTicket[]>();
+    filteredTickets.forEach(t => {
+      const group = map.get(t.jobNumber) || [];
+      group.push(t);
+      map.set(t.jobNumber, group);
+    });
+    return map;
+  }, [filteredTickets]);
+
+  const toggleJobExpansion = (jobNumber: string) => {
+    const next = new Set(expandedJobs);
+    if (next.has(jobNumber)) {
+      next.delete(jobNumber);
+    } else {
+      next.add(jobNumber);
+    }
+    setExpandedJobs(next);
+  };
 
   if (isLoading) return <div className="min-h-screen bg-[#0f172a] flex flex-col items-center justify-center"><div className="w-8 h-8 border-2 border-brand border-t-transparent rounded-full animate-spin mb-4" /><p className="text-[9px] font-black uppercase tracking-widest opacity-40">Synchronizing Vault...</p></div>;
   if (!sessionUser) return <Login onLogin={setSessionUser} />;
@@ -290,70 +323,157 @@ const App: React.FC = () => {
                 <table className="w-full text-left">
                   <thead className={`${isDarkMode ? 'bg-black/20' : 'bg-slate-50'} border-b border-black/5`}>
                     <tr>
-                      <th onClick={() => handleSort('jobNumber')} className="px-6 py-4 text-[10px] font-black uppercase tracking-widest cursor-pointer hover:text-brand transition-colors text-slate-400">Job</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Ticket</th>
-                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Street</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Job Details</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Tickets</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Address Info</th>
                       <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-center text-slate-400">Status</th>
-                      <th onClick={() => handleSort('expires')} className="px-6 py-4 text-[10px] font-black uppercase tracking-widest cursor-pointer text-right text-slate-400">Expires</th>
+                      <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-right text-slate-400">Expiration</th>
                       <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-right text-slate-400">Actions</th>
                     </tr>
                   </thead>
                   <tbody className={`divide-y ${isDarkMode ? 'divide-white/5' : 'divide-slate-100'}`}>
-                    {filteredTickets.map(ticket => {
-                      const status = getTicketStatus(ticket);
+                    {Array.from(groupedTickets.keys()).map(jobNum => {
+                      const jobTickets = groupedTickets.get(jobNum)!;
+                      const jobEntity = jobs.find(j => j.jobNumber === jobNum);
+                      const isExpanded = expandedJobs.has(jobNum);
+                      
+                      // Calculate aggregate status: worst case
+                      const statuses = jobTickets.map(t => getTicketStatus(t));
+                      let aggregateStatus = TicketStatus.VALID;
+                      if (statuses.includes(TicketStatus.EXPIRED)) aggregateStatus = TicketStatus.EXPIRED;
+                      else if (statuses.includes(TicketStatus.REFRESH_NEEDED) || statuses.includes(TicketStatus.EXTENDABLE)) aggregateStatus = TicketStatus.REFRESH_NEEDED;
+                      
                       return (
-                        <tr key={ticket.id} onClick={() => isAdmin && setEditingTicket(ticket)} className={`transition-all group ${isAdmin ? 'cursor-pointer' : ''} ${isDarkMode ? 'hover:bg-white/5' : 'hover:bg-slate-50'}`}>
-                          <td className="px-6 py-3 text-[13px] font-black">{ticket.jobNumber}</td>
-                          <td className="px-6 py-3 text-[12px] font-mono opacity-50">
-                             <button 
-                               onClick={(e) => { e.stopPropagation(); if (ticket.documentUrl) setViewingDocUrl(ticket.documentUrl); }} 
-                               className={`hover:text-brand hover:underline transition-colors ${ticket.documentUrl ? 'cursor-zoom-in' : 'cursor-default'}`}
-                               title={ticket.documentUrl ? "View Original Ticket" : "No document available"}
-                             >
-                               {ticket.ticketNo}
-                             </button>
-                          </td>
-                          <td className="px-6 py-3 text-[13px] font-bold truncate max-w-[250px]">{ticket.street}</td>
-                          <td className="px-6 py-3 text-center">
-                            <div className="flex flex-col items-center gap-1">
-                              <span className={`inline-flex px-2 py-0.5 rounded-md text-[9px] font-black uppercase border ${getStatusColor(status)}`}>{status}</span>
-                            </div>
-                          </td>
-                          <td className="px-6 py-3 text-[12px] font-bold text-right opacity-40">{new Date(ticket.expires).toLocaleDateString()}</td>
-                          <td className="px-6 py-3 text-right">
-                            <div className="flex items-center justify-end gap-2">
-                              <button 
-                                onClick={(e) => { e.stopPropagation(); setNoShowTicket(ticket); }} 
-                                aria-label="Request No Show"
-                                className={`p-2 rounded-xl transition-all border shadow-sm ${
-                                  ticket.noShowRequested 
-                                    ? 'bg-rose-500 text-white border-rose-600 shadow-rose-500/20' 
-                                    : 'bg-rose-500/10 text-rose-600 border-rose-200 hover:bg-rose-500 hover:text-white hover:shadow-rose-500/30'
-                                }`}
-                              >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
-                              </button>
-
-                              <button 
-                                onClick={(e) => handleToggleRefresh(ticket, e)} 
-                                title="Toggle Manual Refresh"
-                                className={`p-2 rounded-xl transition-all border ${ticket.refreshRequested ? 'bg-amber-100 text-amber-600 border-amber-300' : 'bg-black/5 text-slate-400 border-transparent hover:text-brand hover:border-brand/20'}`}
-                              >
-                                <svg className={`w-4 h-4 ${ticket.refreshRequested ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357-2H15" /></svg>
-                              </button>
-
+                        <React.Fragment key={jobNum}>
+                          {/* JOB ROW (THE HEADER) */}
+                          <tr 
+                            onClick={() => toggleJobExpansion(jobNum)} 
+                            className={`transition-all cursor-pointer border-l-4 ${isExpanded ? 'border-brand' : 'border-transparent'} ${isDarkMode ? 'hover:bg-white/5 bg-white/2' : 'hover:bg-slate-50 bg-slate-50/30'}`}
+                          >
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-3">
+                                <svg className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-90 text-brand' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
+                                <button 
+                                  onClick={(e) => { 
+                                    e.stopPropagation(); 
+                                    if (isAdmin && jobEntity) setEditingJob(jobEntity); 
+                                  }}
+                                  className={`text-[13px] font-black hover:text-brand transition-colors ${isAdmin && jobEntity ? 'cursor-pointer' : 'cursor-default'}`}
+                                >
+                                  JOB #{jobNum}
+                                </button>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-black/5 px-2 py-0.5 rounded-md">
+                                {jobTickets.length} {jobTickets.length === 1 ? 'Ticket' : 'Tickets'}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex flex-col">
+                                <span className="text-[11px] font-black uppercase tracking-tight truncate max-w-[200px]">
+                                  {jobEntity?.customer || 'Direct Client'}
+                                </span>
+                                <span className="text-[9px] font-bold text-slate-400 truncate max-w-[200px]">
+                                  {jobEntity?.address || 'Field Location'}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                              <div className={`w-2 h-2 rounded-full mx-auto ${
+                                aggregateStatus === TicketStatus.EXPIRED ? 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.5)]' :
+                                aggregateStatus === TicketStatus.REFRESH_NEEDED ? 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]' :
+                                'bg-emerald-500'
+                              }`} />
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <span className="text-[10px] font-bold opacity-40 uppercase tracking-widest">
+                                {isExpanded ? 'Collapse' : 'Expand to View'}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-right">
                               {isAdmin && (
                                 <button 
-                                  onClick={(e) => handleDeleteTicket(ticket.id, e)}
-                                  className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all"
-                                  title="Delete Ticket"
+                                  onClick={(e) => { e.stopPropagation(); jobEntity && handleDeleteJob(jobEntity); }}
+                                  className="p-2 text-slate-300 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100"
                                 >
                                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                                 </button>
                               )}
-                            </div>
-                          </td>
-                        </tr>
+                            </td>
+                          </tr>
+
+                          {/* EXPANDED TICKET ROWS */}
+                          {isExpanded && jobTickets.map((ticket, idx) => {
+                            const status = getTicketStatus(ticket);
+                            return (
+                              <tr 
+                                key={ticket.id} 
+                                onClick={() => isAdmin && setEditingTicket(ticket)} 
+                                className={`animate-in transition-all group ${isAdmin ? 'cursor-pointer' : ''} ${isDarkMode ? 'bg-white/1' : 'bg-slate-50/10'} border-l-4 border-slate-500/10`}
+                              >
+                                <td className="px-6 py-2.5 pl-12 opacity-40">
+                                   <div className="w-full h-px bg-slate-500/10 relative">
+                                      <div className="absolute top-0 left-0 w-2 h-2 -mt-[3px] border-l-2 border-b-2 border-slate-500/20" />
+                                   </div>
+                                </td>
+                                <td className="px-6 py-2.5 text-[11px] font-mono font-bold tracking-tight">
+                                   <button 
+                                     onClick={(e) => { e.stopPropagation(); if (ticket.documentUrl) setViewingDocUrl(ticket.documentUrl); }} 
+                                     className={`hover:text-brand hover:underline transition-colors ${ticket.documentUrl ? 'cursor-zoom-in text-brand/80' : 'cursor-default text-slate-500'}`}
+                                   >
+                                     {ticket.ticketNo}
+                                   </button>
+                                </td>
+                                <td className="px-6 py-2.5 text-[12px] font-bold truncate max-w-[250px]">{ticket.street}</td>
+                                <td className="px-6 py-2.5 text-center">
+                                  <span className={`inline-flex px-1.5 py-0.5 rounded text-[8px] font-black uppercase border ${getStatusColor(status)}`}>{status}</span>
+                                </td>
+                                <td className="px-6 py-2.5 text-[11px] font-bold text-right opacity-60">
+                                  {new Date(ticket.expires).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                </td>
+                                <td className="px-6 py-2.5 text-right">
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    <button 
+                                      onClick={(e) => { 
+                                        e.stopPropagation(); 
+                                        if (ticket.noShowRequested) {
+                                          handleRemoveNoShow(ticket);
+                                        } else {
+                                          setNoShowTicket(ticket);
+                                        }
+                                      }} 
+                                      className={`p-1.5 rounded-lg transition-all border ${
+                                        ticket.noShowRequested 
+                                          ? 'bg-rose-500 text-white border-rose-600' 
+                                          : 'bg-rose-500/5 text-rose-500 border-rose-500/10 hover:bg-rose-500 hover:text-white'
+                                      }`}
+                                      title={ticket.noShowRequested ? "Remove No Show Alert" : "Log No Show Call"}
+                                    >
+                                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
+                                    </button>
+
+                                    <button 
+                                      onClick={(e) => handleToggleRefresh(ticket, e)} 
+                                      className={`p-1.5 rounded-lg transition-all border ${ticket.refreshRequested ? 'bg-amber-100 text-amber-600 border-amber-300' : 'bg-black/5 text-slate-400 border-transparent hover:text-brand hover:border-brand/20'}`}
+                                    >
+                                      <svg className={`w-3.5 h-3.5 ${ticket.refreshRequested ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357-2H15" /></svg>
+                                    </button>
+
+                                    {isAdmin && (
+                                      <button 
+                                        onClick={(e) => handleDeleteTicket(ticket.id, e)}
+                                        className="p-1.5 text-slate-400 hover:text-rose-500 transition-all"
+                                      >
+                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </React.Fragment>
                       );
                     })}
                   </tbody>
@@ -418,7 +538,16 @@ const App: React.FC = () => {
           onJobCreated={(newJob) => setJobs(prev => [...prev, newJob])}
         />
       )}
-      {(showJobForm || editingJob) && <JobForm onSave={async (j) => { await apiService.saveJob({...j, id: crypto.randomUUID(), createdAt: Date.now()}); initApp(); setShowJobForm(false); }} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} isDarkMode={isDarkMode} />}
+      {(showJobForm || editingJob) && <JobForm onSave={async (j) => { 
+        if (editingJob) {
+          await apiService.saveJob({...editingJob, ...j});
+        } else {
+          await apiService.saveJob({...j, id: crypto.randomUUID(), createdAt: Date.now()}); 
+        }
+        initApp(); 
+        setShowJobForm(false); 
+        setEditingJob(null);
+      }} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} isDarkMode={isDarkMode} />}
       {noShowTicket && <NoShowForm ticket={noShowTicket} userName={sessionUser?.name || 'User'} onSave={async (r) => { await apiService.addNoShow(r); initApp(); setNoShowTicket(null); }} onClose={() => setNoShowTicket(null)} isDarkMode={isDarkMode} />}
     </div>
   );

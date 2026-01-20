@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { getEnv } from "../lib/supabaseClient.ts";
 
@@ -21,9 +22,9 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
     const promptText = isMedia 
       ? `ACT: Professional Construction Document Processor.
          TASK: Extract precise metadata from this 811 Locate Ticket image/PDF.
-         FIELDS: ticketNo, jobNumber, street, extent, county, city, state, callInDate, workDate, expires, siteContact.
-         INSTRUCTION: Ensure dates are in YYYY-MM-DD format. If a field is missing, return "".`
-      : `Extract structured locate ticket info from this text. Ensure dates are YYYY-MM-DD.\n\n"${input}"`;
+         FIELDS: ticketNo, jobNumber, street, crossStreet, place, extent, county, city, state, callInDate, workDate, expires, siteContact.
+         INSTRUCTION: Specifically identify State, County, Place, and Cross St fields. Ensure dates are in YYYY-MM-DD format. If a field is missing, return "".`
+      : `Extract structured locate ticket info from this text. Look specifically for State, County, Place, and Cross St. Ensure dates are YYYY-MM-DD.\n\n"${input}"`;
 
     const parts = isMedia 
       ? [{ inlineData: input as { data: string; mimeType: string } }, { text: promptText }]
@@ -34,7 +35,7 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
       model: "gemini-3-flash-preview", 
       contents: { parts },
       config: {
-        systemInstruction: "You are a specialized 811 locate ticket parser. Return ONLY valid JSON. Be extremely precise with ticket numbers and dates (YYYY-MM-DD). The 'extent' field should describe the specific work area boundaries mentioned in the document.",
+        systemInstruction: "You are a specialized 811 locate ticket parser. Return ONLY valid JSON. Be extremely precise with ticket numbers, locations (State, County, Place, Cross St), and dates (YYYY-MM-DD). The 'extent' field should describe the specific work area boundaries mentioned in the document.",
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -42,6 +43,8 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
             jobNumber: { type: Type.STRING },
             ticketNo: { type: Type.STRING },
             street: { type: Type.STRING },
+            crossStreet: { type: Type.STRING },
+            place: { type: Type.STRING },
             extent: { type: Type.STRING },
             county: { type: Type.STRING },
             city: { type: Type.STRING },

@@ -34,6 +34,8 @@ create table if not exists tickets (
     job_number text, 
     ticket_no text, 
     street text, 
+    cross_street text,
+    place text,
     extent text, 
     county text, 
     city text, 
@@ -93,6 +95,16 @@ BEGIN
     -- Add document_url if missing
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='document_url') THEN
         ALTER TABLE tickets ADD COLUMN document_url text;
+    END IF;
+
+    -- Add cross_street if missing
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='cross_street') THEN
+        ALTER TABLE tickets ADD COLUMN cross_street text;
+    END IF;
+
+    -- Add place if missing
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='place') THEN
+        ALTER TABLE tickets ADD COLUMN place text;
     END IF;
 
     -- Handle Street (Renamed from address)
@@ -204,6 +216,8 @@ export const apiService = {
         jobNumber: t.job_number,
         ticketNo: t.ticket_no,
         street: t.street,
+        crossStreet: t.cross_street || '',
+        place: t.place || '',
         extent: t.extent || '',
         county: t.county,
         city: t.city,
@@ -233,15 +247,20 @@ export const apiService = {
     const { data, error } = await supabase.from('tickets').upsert({
       id: ticket.id,
       job_number: ticket.jobNumber,
+      // Fix: Access property using camelCase as defined in DigTicket interface
       ticket_no: ticket.ticketNo,
       street: ticket.street,
+      cross_street: ticket.crossStreet,
+      place: ticket.place,
       extent: ticket.extent,
       county: ticket.county,
       city: ticket.city,
       state: ticket.state,
+      // Fix: Access properties using camelCase as defined in DigTicket interface
       call_in_date: ticket.callInDate,
       work_date: ticket.workDate,
       expires: ticket.expires,
+      // Fix: Access properties using camelCase as defined in DigTicket interface
       site_contact: ticket.siteContact,
       refresh_requested: ticket.refreshRequested ?? false,
       no_show_requested: ticket.noShowRequested ?? false,
@@ -255,6 +274,8 @@ export const apiService = {
         jobNumber: data.job_number,
         ticketNo: data.ticket_no,
         street: data.street,
+        crossStreet: data.cross_street || '',
+        place: data.place || '',
         extent: data.extent,
         county: data.county,
         city: data.city,
@@ -295,6 +316,15 @@ export const apiService = {
     
     // Also update the ticket flag
     await supabase.from('tickets').update({ no_show_requested: true }).eq('id', noShow.ticketId);
+  },
+
+  async deleteNoShow(ticketId: string): Promise<void> {
+    const { error: deleteError } = await supabase.from('no_shows').delete().eq('ticket_id', ticketId);
+    if (deleteError) throw deleteError;
+    
+    // Reset the flag on the ticket
+    const { error: updateError } = await supabase.from('tickets').update({ no_show_requested: false }).eq('id', ticketId);
+    if (updateError) throw updateError;
   },
 
   async getNoShows(): Promise<NoShowRecord[]> {

@@ -41,6 +41,8 @@ export interface DigTicket {
   jobNumber: string;
   ticketNo: string;
   street: string;
+  crossStreet: string;
+  place: string;
   extent: string;
   county: string;
   city: string;
