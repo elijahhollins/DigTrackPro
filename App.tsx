@@ -42,6 +42,7 @@ const App: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [hasApiKey, setHasApiKey] = useState(false);
   const [viewingDocUrl, setViewingDocUrl] = useState<string | null>(null);
+  const [mediaFolderFilter, setMediaFolderFilter] = useState<string | null>(null);
   
   const [showTicketForm, setShowTicketForm] = useState(false);
   const [showJobForm, setShowJobForm] = useState(false);
@@ -302,9 +303,9 @@ const App: React.FC = () => {
   const handleToggleJobCompletion = async (job: Job) => {
     try {
       const updatedJob = { ...job, isComplete: !job.isComplete };
-      await apiService.saveJob(updatedJob);
-      setSelectedJobSummary(updatedJob);
-      await initApp();
+      const saved = await apiService.saveJob(updatedJob);
+      setJobs(prev => prev.map(j => j.id === saved.id ? saved : j));
+      setSelectedJobSummary(saved);
     } catch (error: any) {
       alert("Status toggle failed: " + error.message);
     }
@@ -383,7 +384,7 @@ const App: React.FC = () => {
   const isAdmin = sessionUser.role === UserRole.ADMIN;
 
   const NAV_ITEMS: { id: AppView; label: string; icon: React.ReactNode }[] = [
-    { id: 'dashboard', label: 'Vault', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg> },
+    { id: 'dashboard', label: 'Vault', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg> },
     { id: 'jobs', label: 'Projects', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg> },
     { id: 'calendar', label: 'Schedule', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
     { id: 'photos', label: 'Media', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
@@ -410,7 +411,10 @@ const App: React.FC = () => {
               return (
                 <button
                   key={item.id}
-                  onClick={() => setActiveView(item.id)}
+                  onClick={() => {
+                    setActiveView(item.id);
+                    if (item.id !== 'photos') setMediaFolderFilter(null);
+                  }}
                   className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all relative ${
                     isActive 
                     ? 'bg-brand text-slate-900 shadow-lg shadow-brand/10 nav-item-active' 
@@ -652,7 +656,7 @@ const App: React.FC = () => {
         )}
 
         {activeView === 'photos' && (
-          <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} onAddPhoto={(data, file) => apiService.addPhoto(data, file)} onDeletePhoto={(id) => apiService.deletePhoto(id)} />
+          <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} onAddPhoto={(data, file) => apiService.addPhoto(data, file)} onDeletePhoto={(id) => apiService.deletePhoto(id)} initialSearch={mediaFolderFilter} />
         )}
 
         {activeView === 'team' && (
@@ -671,11 +675,28 @@ const App: React.FC = () => {
 
         {(showJobForm || editingJob) && (
           <JobForm onSave={async (data) => {
-              const job: Job = editingJob ? { ...editingJob, ...data } : { ...data, id: crypto.randomUUID(), createdAt: Date.now(), isComplete: false };
-              await apiService.saveJob(job);
-              setShowJobForm(false);
-              setEditingJob(null);
-              await initApp();
+              try {
+                const job: Job = editingJob 
+                  ? { ...editingJob, ...data } 
+                  : { ...data, id: crypto.randomUUID(), createdAt: Date.now(), isComplete: false };
+                
+                const saved = await apiService.saveJob(job);
+                
+                // Optimistic Local State Update for instantaneous UI feedback
+                setJobs(prev => {
+                  const exists = prev.findIndex(j => j.id === saved.id);
+                  if (exists > -1) return prev.map(j => j.id === saved.id ? saved : j);
+                  return [...prev, saved];
+                });
+
+                setShowJobForm(false);
+                setEditingJob(null);
+                
+                // Background refresh to ensure consistency
+                initApp();
+              } catch (err: any) {
+                alert("Failed to save project changes: " + err.message);
+              }
             }} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} isDarkMode={isDarkMode} />
         )}
 
@@ -691,6 +712,7 @@ const App: React.FC = () => {
             }}
             onToggleComplete={() => handleToggleJobCompletion(selectedJobSummary)}
             onViewMedia={() => {
+              setMediaFolderFilter(selectedJobSummary.jobNumber);
               setActiveView('photos');
               setSelectedJobSummary(null);
             }}

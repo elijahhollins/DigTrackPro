@@ -16,11 +16,13 @@ interface JobReviewProps {
  * JobReview Component
  * Provides a high-level overview of projects and their associated locate tickets.
  * Supports switching between grid and list views.
+ * Default view is 'list' with expandable job rows.
  */
 export const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, isAdmin, isDarkMode, onJobSelect, onViewDoc }) => {
-  const [viewMode, setViewMode] = useState<'thumbnail' | 'list'>('thumbnail');
+  const [viewMode, setViewMode] = useState<'thumbnail' | 'list'>('list');
   const [hideCompleted, setHideCompleted] = useState(false);
   const [showHistoryFor, setShowHistoryFor] = useState<string | null>(null);
+  const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
 
   const groupedTickets = useMemo(() => {
     const groups: Record<string, { active: DigTicket[], archived: DigTicket[] }> = {};
@@ -34,12 +36,27 @@ export const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, isAdmin, is
 
   const allJobNumbers = useMemo(() => {
     let numbers = Object.keys(groupedTickets);
+    // Also include jobs that might not have tickets yet
+    jobs.forEach(j => {
+      if (!numbers.includes(j.jobNumber)) numbers.push(j.jobNumber);
+    });
+
     if (hideCompleted) {
       const completedJobs = new Set(jobs.filter(j => j.isComplete).map(j => j.jobNumber));
       numbers = numbers.filter(n => !completedJobs.has(n));
     }
     return numbers.sort((a, b) => b.localeCompare(a));
   }, [groupedTickets, hideCompleted, jobs]);
+
+  const toggleJobExpansion = (jobNum: string) => {
+    const next = new Set(expandedJobs);
+    if (next.has(jobNum)) {
+      next.delete(jobNum);
+    } else {
+      next.add(jobNum);
+    }
+    setExpandedJobs(next);
+  };
 
   return (
     <div className="space-y-6">
@@ -143,20 +160,87 @@ export const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, isAdmin, is
             <tbody className={`divide-y ${isDarkMode ? 'divide-white/5' : 'divide-slate-100'}`}>
               {allJobNumbers.map(jobNum => {
                 const jobEntity = jobs.find(j => j.jobNumber === jobNum);
-                const activeCount = groupedTickets[jobNum]?.active.length || 0;
+                const jobTickets = groupedTickets[jobNum] || { active: [], archived: [] };
+                const activeCount = jobTickets.active.length;
+                const isExpanded = expandedJobs.has(jobNum);
+
                 return (
-                  <tr key={jobNum} className={`transition-all hover:bg-black/5 ${jobEntity?.isComplete ? 'opacity-40' : ''}`}>
-                    <td className="px-6 py-4">
-                      <button onClick={() => jobEntity && onJobSelect(jobEntity)} className={`text-xs font-black uppercase hover:text-brand ${isDarkMode ? 'text-white' : 'text-black'}`}>#{jobNum}</button>
-                    </td>
-                    <td className="px-6 py-4 text-xs font-bold">{jobEntity?.customer || 'Direct'}</td>
-                    <td className="px-6 py-4">
-                      <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase ${jobEntity?.isComplete ? 'bg-emerald-500/10 text-emerald-500' : 'bg-blue-500/10 text-blue-500'}`}>
-                        {jobEntity?.isComplete ? 'Closed' : 'Active'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-right text-xs font-black">{activeCount}</td>
-                  </tr>
+                  <React.Fragment key={jobNum}>
+                    <tr 
+                      onClick={() => toggleJobExpansion(jobNum)} 
+                      className={`transition-all hover:bg-black/5 cursor-pointer group ${jobEntity?.isComplete ? 'opacity-40' : ''} ${isExpanded ? (isDarkMode ? 'bg-white/5' : 'bg-slate-50') : ''}`}
+                    >
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className={`transition-transform duration-200 ${isExpanded ? 'rotate-90 text-brand' : 'text-slate-400 opacity-40'}`}>
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M9 5l7 7-7 7" /></svg>
+                          </div>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); jobEntity && onJobSelect(jobEntity); }} 
+                            className={`text-xs font-black uppercase hover:text-brand transition-colors ${isDarkMode ? 'text-white' : 'text-black'}`}
+                          >
+                            #{jobNum}
+                          </button>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-xs font-bold">{jobEntity?.customer || 'Direct'}</td>
+                      <td className="px-6 py-4">
+                        <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase ${jobEntity?.isComplete ? 'bg-emerald-500/10 text-emerald-500' : 'bg-blue-500/10 text-blue-500'}`}>
+                          {jobEntity?.isComplete ? 'Closed' : 'Active'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-right text-xs font-black">{activeCount} Assets</td>
+                    </tr>
+                    {isExpanded && (
+                      <tr className={`${isDarkMode ? 'bg-black/10' : 'bg-slate-50/50'}`}>
+                        <td colSpan={4} className="px-12 py-4">
+                          <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
+                            {jobTickets.active.length > 0 ? (
+                              <div className="space-y-1">
+                                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-2">Active Vault Entries</p>
+                                {jobTickets.active.map(t => {
+                                  const s = getTicketStatus(t);
+                                  return (
+                                    <div key={t.id} className="flex items-center justify-between py-2 border-b border-black/5 last:border-0">
+                                      <div className="flex items-center gap-4">
+                                        <button 
+                                          onClick={() => t.documentUrl && onViewDoc?.(t.documentUrl)} 
+                                          className={`text-[10px] font-mono font-bold transition-colors ${t.documentUrl ? 'hover:text-brand hover:underline cursor-zoom-in text-brand/80' : isDarkMode ? 'opacity-40 text-slate-500' : 'text-slate-600'}`}
+                                        >
+                                          {t.ticketNo}
+                                        </button>
+                                        <span className={`text-[10px] font-bold ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>{t.street}</span>
+                                      </div>
+                                      <span className={`px-1.5 py-0.5 rounded-md border uppercase text-[8px] font-black ${getStatusColor(s)}`}>{s}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : null}
+
+                            {jobTickets.archived.length > 0 ? (
+                              <div className="space-y-1 pt-2">
+                                <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2 opacity-50">Archived Records</p>
+                                {jobTickets.archived.map(t => (
+                                  <div key={t.id} className="flex items-center justify-between py-2 border-b border-black/5 last:border-0 opacity-40">
+                                    <div className="flex items-center gap-4">
+                                      <span className="text-[10px] font-mono font-bold">{t.ticketNo}</span>
+                                      <span className="text-[10px] font-bold">{t.street}</span>
+                                    </div>
+                                    <span className="text-[9px] font-black uppercase tracking-tighter">Expired {new Date(t.expires).toLocaleDateString()}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : null}
+
+                            {jobTickets.active.length === 0 && jobTickets.archived.length === 0 && (
+                              <p className="text-[10px] font-bold text-slate-400 uppercase italic">No tickets associated with this project folder yet.</p>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 );
               })}
             </tbody>
