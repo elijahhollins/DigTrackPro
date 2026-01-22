@@ -165,9 +165,36 @@ const App: React.FC = () => {
     try { await supabase.auth.signOut(); setSessionUser(null); } catch (error: any) { console.error("Sign out error:", error.message); }
   };
 
+  /**
+   * Auto-create a Job entity if it doesn't already exist for a given ticket.
+   */
+  const ensureJobExists = async (ticketData: Omit<DigTicket, 'id' | 'createdAt'>): Promise<Job> => {
+    const existingJob = jobs.find(j => j.jobNumber === ticketData.jobNumber);
+    if (existingJob) return existingJob;
+
+    const newJob: Job = {
+      id: crypto.randomUUID(),
+      jobNumber: ticketData.jobNumber,
+      customer: ticketData.siteContact || 'Auto-Detected Client',
+      address: ticketData.street,
+      city: ticketData.city,
+      state: ticketData.state,
+      county: ticketData.county,
+      createdAt: Date.now(),
+      isComplete: false
+    };
+
+    const savedJob = await apiService.saveJob(newJob);
+    setJobs(prev => [...prev, savedJob]);
+    return savedJob;
+  };
+
   const handleSaveTicket = async (data: Omit<DigTicket, 'id' | 'createdAt'>, archiveOld: boolean = false) => {
     try {
-      // Duplicate Integrity Check: Matching Ticket No, Job No, Work Date, and Expires
+      // 1. Ensure Job Parent exists (Auto-Creation)
+      await ensureJobExists(data);
+
+      // 2. Duplicate Integrity Check
       const isDuplicate = tickets.some(t => 
         !t.isArchived && 
         t.ticketNo.trim() === data.ticketNo.trim() && 
@@ -178,7 +205,7 @@ const App: React.FC = () => {
       );
 
       if (isDuplicate) {
-        alert(`Redundancy Blocked: Ticket #${data.ticketNo} for Job #${data.jobNumber} already exists in the vault with identical dates. Operation cancelled to prevent clutter.`);
+        alert(`Redundancy Blocked: Ticket #${data.ticketNo} for Job #${data.jobNumber} already exists in the vault with identical dates.`);
         return;
       }
 
@@ -194,6 +221,47 @@ const App: React.FC = () => {
         return [saved, ...prev];
       });
     } catch (error: any) { alert(error.message); }
+  };
+
+  /**
+   * Handles opening the summary modal, creating a placeholder Job if necessary.
+   */
+  const handleJobSelection = async (jobNumber: string, jobEntity?: Job) => {
+    if (jobEntity) {
+      setSelectedJobSummary(jobEntity);
+      return;
+    }
+
+    // Attempt to find existing or create a placeholder for legacy/unlinked tickets
+    const existing = jobs.find(j => j.jobNumber === jobNumber);
+    if (existing) {
+      setSelectedJobSummary(existing);
+      return;
+    }
+
+    const jobTickets = tickets.filter(t => t.jobNumber === jobNumber && !t.isArchived);
+    if (jobTickets.length === 0) return;
+
+    const firstTkt = jobTickets[0];
+    const newJob: Job = {
+      id: crypto.randomUUID(),
+      jobNumber: jobNumber,
+      customer: firstTkt.siteContact || 'Unregistered Client',
+      address: firstTkt.street,
+      city: firstTkt.city,
+      state: firstTkt.state,
+      county: firstTkt.county,
+      createdAt: Date.now(),
+      isComplete: false
+    };
+
+    try {
+      const saved = await apiService.saveJob(newJob);
+      setJobs(prev => [...prev, saved]);
+      setSelectedJobSummary(saved);
+    } catch (err: any) {
+      alert("Failed to initialize project record: " + err.message);
+    }
   };
 
   const handleDeleteTicket = async (id: string, e: React.MouseEvent) => {
@@ -435,7 +503,7 @@ const App: React.FC = () => {
                                 <button 
                                   onClick={(e) => { 
                                     e.stopPropagation(); 
-                                    if (jobEntity) setSelectedJobSummary(jobEntity); 
+                                    handleJobSelection(jobNum, jobEntity); 
                                   }}
                                   className={`text-[13px] font-black hover:text-brand transition-colors text-left ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
                                 >
@@ -578,7 +646,7 @@ const App: React.FC = () => {
             jobs={jobs} 
             isAdmin={isAdmin} 
             isDarkMode={isDarkMode} 
-            onJobSelect={(job) => setSelectedJobSummary(job)} 
+            onJobSelect={(job) => handleJobSelection(job.jobNumber, job)} 
             onViewDoc={setViewingDocUrl} 
           />
         )}
