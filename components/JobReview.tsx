@@ -8,7 +8,7 @@ interface JobReviewProps {
   jobs: Job[];
   isAdmin: boolean;
   isDarkMode?: boolean;
-  onEditJob: (job: Job) => void;
+  onJobSelect: (job: Job) => void;
   onViewDoc?: (url: string) => void;
 }
 
@@ -17,7 +17,7 @@ interface JobReviewProps {
  * Provides a high-level overview of projects and their associated locate tickets.
  * Supports switching between grid and list views.
  */
-export const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, isAdmin, isDarkMode, onEditJob, onViewDoc }) => {
+export const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, isAdmin, isDarkMode, onJobSelect, onViewDoc }) => {
   const [viewMode, setViewMode] = useState<'thumbnail' | 'list'>('thumbnail');
   const [hideCompleted, setHideCompleted] = useState(false);
   const [showHistoryFor, setShowHistoryFor] = useState<string | null>(null);
@@ -75,9 +75,9 @@ export const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, isAdmin, is
                 <div className="flex justify-between items-start mb-4">
                   <div>
                     <button 
-                      onClick={() => jobEntity && onEditJob(jobEntity)}
+                      onClick={() => jobEntity && onJobSelect(jobEntity)}
                       className={`text-sm font-black uppercase tracking-tight text-left hover:text-brand transition-colors ${isComplete ? (isDarkMode ? 'text-slate-400' : 'text-slate-600') : (isDarkMode ? 'text-white' : 'text-black')}`}
-                      title={isAdmin ? "Edit Job Details" : ""}
+                      title="Manage Project"
                     >
                       Job #{jobNum}
                     </button>
@@ -147,7 +147,7 @@ export const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, isAdmin, is
                 return (
                   <tr key={jobNum} className={`transition-all hover:bg-black/5 ${jobEntity?.isComplete ? 'opacity-40' : ''}`}>
                     <td className="px-6 py-4">
-                      <button onClick={() => jobEntity && onEditJob(jobEntity)} className={`text-xs font-black uppercase hover:text-brand ${isDarkMode ? 'text-white' : 'text-black'}`}>#{jobNum}</button>
+                      <button onClick={() => jobEntity && onJobSelect(jobEntity)} className={`text-xs font-black uppercase hover:text-brand ${isDarkMode ? 'text-white' : 'text-black'}`}>#{jobNum}</button>
                     </td>
                     <td className="px-6 py-4 text-xs font-bold">{jobEntity?.customer || 'Direct'}</td>
                     <td className="px-6 py-4">

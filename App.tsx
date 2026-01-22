@@ -6,6 +6,7 @@ import { apiService } from './services/apiService.ts';
 import { supabase, isSupabaseConfigured, getEnv } from './lib/supabaseClient.ts';
 import TicketForm from './components/TicketForm.tsx';
 import JobForm from './components/JobForm.tsx';
+import { JobSummaryModal } from './components/JobSummaryModal.tsx';
 import StatCards from './components/StatCards.tsx';
 import JobReview from './components/JobReview.tsx';
 import PhotoManager from './components/PhotoManager.tsx';
@@ -44,6 +45,7 @@ const App: React.FC = () => {
   
   const [showTicketForm, setShowTicketForm] = useState(false);
   const [showJobForm, setShowJobForm] = useState(false);
+  const [selectedJobSummary, setSelectedJobSummary] = useState<Job | null>(null);
   const [editingTicket, setEditingTicket] = useState<DigTicket | null>(null);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
   const [noShowTicket, setNoShowTicket] = useState<DigTicket | null>(null);
@@ -227,6 +229,17 @@ const App: React.FC = () => {
         );
       }
     } catch (error: any) { alert(error.message); }
+  };
+
+  const handleToggleJobCompletion = async (job: Job) => {
+    try {
+      const updatedJob = { ...job, isComplete: !job.isComplete };
+      await apiService.saveJob(updatedJob);
+      setSelectedJobSummary(updatedJob);
+      await initApp();
+    } catch (error: any) {
+      alert("Status toggle failed: " + error.message);
+    }
   };
 
   const handleRemoveNoShow = async (ticket: DigTicket): Promise<boolean> => {
@@ -422,9 +435,9 @@ const App: React.FC = () => {
                                 <button 
                                   onClick={(e) => { 
                                     e.stopPropagation(); 
-                                    if (isAdmin && jobEntity) setEditingJob(jobEntity); 
+                                    if (jobEntity) setSelectedJobSummary(jobEntity); 
                                   }}
-                                  className={`text-[13px] font-black hover:text-brand transition-colors text-left ${isAdmin && jobEntity ? 'cursor-pointer' : 'cursor-default'} ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
+                                  className={`text-[13px] font-black hover:text-brand transition-colors text-left ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
                                 >
                                   JOB #{jobNum}
                                 </button>
@@ -560,7 +573,14 @@ const App: React.FC = () => {
         )}
 
         {activeView === 'jobs' && (
-          <JobReview tickets={tickets} jobs={jobs} isAdmin={isAdmin} isDarkMode={isDarkMode} onEditJob={setEditingJob} onViewDoc={setViewingDocUrl} />
+          <JobReview 
+            tickets={tickets} 
+            jobs={jobs} 
+            isAdmin={isAdmin} 
+            isDarkMode={isDarkMode} 
+            onJobSelect={(job) => setSelectedJobSummary(job)} 
+            onViewDoc={setViewingDocUrl} 
+          />
         )}
 
         {activeView === 'photos' && (
@@ -589,6 +609,25 @@ const App: React.FC = () => {
               setEditingJob(null);
               await initApp();
             }} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} isDarkMode={isDarkMode} />
+        )}
+
+        {selectedJobSummary && (
+          <JobSummaryModal 
+            job={selectedJobSummary}
+            tickets={tickets.filter(t => t.jobNumber === selectedJobSummary.jobNumber)}
+            onClose={() => setSelectedJobSummary(null)}
+            onEdit={() => {
+              setEditingJob(selectedJobSummary);
+              setShowJobForm(true);
+              setSelectedJobSummary(null);
+            }}
+            onToggleComplete={() => handleToggleJobCompletion(selectedJobSummary)}
+            onViewMedia={() => {
+              setActiveView('photos');
+              setSelectedJobSummary(null);
+            }}
+            isDarkMode={isDarkMode}
+          />
         )}
 
         {noShowTicket && (
