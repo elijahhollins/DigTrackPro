@@ -77,17 +77,17 @@ const StatCards = ({ tickets, isDarkMode, activeFilter, onFilterClick }: StatCar
             className={`p-4 rounded-xl border transition-all text-left group relative cursor-pointer
               ${isDarkMode 
                 ? `${isActive ? it.activeBg : `bg-[#1e293b] ${it.darkBorder}`} hover:border-white/20` 
-                : `${isActive ? it.activeBg : `bg-white border-slate-200`} hover:border-slate-300`
+                : `${isActive ? it.activeBg : `bg-white border-slate-300`} hover:border-slate-500`
               } shadow-sm active:scale-[0.98]`}
           >
             <div className="flex justify-between items-start">
-              <p className={`text-[9px] font-black uppercase tracking-widest mb-1 transition-colors ${isActive ? it.color : 'text-slate-400'}`}>
+              <p className={`text-[9px] font-black uppercase tracking-widest mb-1 transition-colors ${isActive ? it.color : isDarkMode ? 'text-slate-400' : 'text-slate-950'}`}>
                 {it.label}
               </p>
               {it.value > 0 && <div className={`w-1.5 h-1.5 rounded-full ${it.color.replace('text', 'bg')}`} />}
             </div>
             <p className={`text-2xl font-black tracking-tight ${it.color}`}>{it.value}</p>
-            {it.description && <p className="text-[8px] font-bold text-slate-500 uppercase mt-0.5 opacity-60">{it.description}</p>}
+            {it.description && <p className={`text-[8px] font-bold uppercase mt-0.5 transition-all ${isDarkMode ? 'text-slate-500 opacity-60' : 'text-slate-900'}`}>{it.description}</p>}
             
             {isActive && (
               <div className="absolute bottom-2 right-2">

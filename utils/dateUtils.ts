@@ -2,32 +2,49 @@
 import { TicketStatus, DigTicket } from '../types.ts';
 
 /**
+ * Helper to parse YYYY-MM-DD strings into local Date objects
+ * to avoid UTC timezone shifting.
+ */
+const parseDateLocal = (dateStr: string, endOfDay: boolean = false): Date => {
+  if (!dateStr) return new Date();
+  const parts = dateStr.split('-').map(Number);
+  if (parts.length !== 3) return new Date(dateStr);
+  
+  const [year, month, day] = parts;
+  if (endOfDay) {
+    // Set to 11:59:59.999 PM local time
+    return new Date(year, month - 1, day, 23, 59, 59, 999);
+  }
+  // Set to 12:00:00.000 AM local time
+  return new Date(year, month - 1, day, 0, 0, 0, 0);
+};
+
+/**
  * Calculates the current status of a ticket based on dates and manual request flags.
  */
 export const getTicketStatus = (ticket: DigTicket): TicketStatus => {
   if (ticket.refreshRequested) return TicketStatus.REFRESH_NEEDED;
 
   const now = new Date();
-  const start = new Date(ticket.workDate);
-  const exp = new Date(ticket.expires);
+  const start = parseDateLocal(ticket.workDate, false);
+  const exp = parseDateLocal(ticket.expires, true);
   
-  // Normalize expiration to the end of the day (11:59:59 PM)
-  exp.setHours(23, 59, 59, 999);
+  // Calculate days remaining relative to the start of "now" for simpler day-based logic
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const expDayStart = new Date(exp.getFullYear(), exp.getMonth(), exp.getDate()).getTime();
+  const diffTime = expDayStart - todayStart;
+  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
 
-  // Calculate days remaining
-  const diffTime = exp.getTime() - now.getTime();
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-  // 2. EXPIRED
+  // 1. EXPIRED: Current time is strictly after 11:59:59 PM of the expiration date
   if (now > exp) return TicketStatus.EXPIRED;
   
-  // 3. AUTOMATIC REFRESH WINDOW: Within 3 days of expiration
+  // 2. AUTOMATIC REFRESH WINDOW: Within 3 days of expiration (including today)
   if (diffDays <= 3 && diffDays >= 0) return TicketStatus.EXTENDABLE;
   
-  // 4. VALID
+  // 3. VALID: Work has started and we aren't in the expiration/refresh window
   if (now >= start) return TicketStatus.VALID;
   
-  // 5. PENDING
+  // 4. PENDING: The work date has not arrived yet
   return TicketStatus.PENDING;
 };
 

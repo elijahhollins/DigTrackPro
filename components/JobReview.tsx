@@ -1,97 +1,61 @@
 
 import React, { useState, useMemo } from 'react';
-import { DigTicket, TicketStatus, JobNote, Job } from '../types.ts';
-import { getTicketStatus, getStatusColor, getStatusDotColor } from '../utils/dateUtils.ts';
+import { Job, DigTicket, TicketStatus } from '../types.ts';
+import { getTicketStatus, getStatusColor } from '../utils/dateUtils.ts';
 
 interface JobReviewProps {
   tickets: DigTicket[];
   jobs: Job[];
-  notes: JobNote[];
   isAdmin: boolean;
   isDarkMode?: boolean;
   onEditJob: (job: Job) => void;
-  onDeleteJob: (job: Job) => void;
-  onToggleComplete: (job: Job) => void;
-  onAddNote: (note: Omit<JobNote, 'id' | 'timestamp' | 'author'>) => void;
-  onViewPhotos: (jobNumber: string) => void;
   onViewDoc?: (url: string) => void;
 }
 
-type ViewMode = 'thumbnail' | 'list';
-
-const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, notes, isAdmin, isDarkMode, onEditJob, onDeleteJob, onToggleComplete, onAddNote, onViewPhotos, onViewDoc }) => {
+/**
+ * JobReview Component
+ * Provides a high-level overview of projects and their associated locate tickets.
+ * Supports switching between grid and list views.
+ */
+export const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, isAdmin, isDarkMode, onEditJob, onViewDoc }) => {
+  const [viewMode, setViewMode] = useState<'thumbnail' | 'list'>('thumbnail');
   const [hideCompleted, setHideCompleted] = useState(false);
-  const [jobSearch, setJobSearch] = useState('');
   const [showHistoryFor, setShowHistoryFor] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>('thumbnail');
 
   const groupedTickets = useMemo(() => {
-    const map: Record<string, { active: DigTicket[], archived: DigTicket[] }> = {};
+    const groups: Record<string, { active: DigTicket[], archived: DigTicket[] }> = {};
     tickets.forEach(t => {
-      if (!map[t.jobNumber]) map[t.jobNumber] = { active: [], archived: [] };
-      if (t.isArchived) {
-        map[t.jobNumber].archived.push(t);
-      } else {
-        map[t.jobNumber].active.push(t);
-      }
+      if (!groups[t.jobNumber]) groups[t.jobNumber] = { active: [], archived: [] };
+      if (t.isArchived) groups[t.jobNumber].archived.push(t);
+      else groups[t.jobNumber].active.push(t);
     });
-    // Sort archived by expiration date descending
-    Object.values(map).forEach(group => {
-      group.archived.sort((a, b) => new Date(b.expires).getTime() - new Date(a.expires).getTime());
-    });
-    return map;
+    return groups;
   }, [tickets]);
 
   const allJobNumbers = useMemo(() => {
-    const set = new Set<string>();
-    jobs.forEach(j => set.add(j.jobNumber));
-    Object.keys(groupedTickets).forEach(num => set.add(num));
-    
-    return Array.from(set)
-      .filter(num => {
-        const matchesSearch = num.toLowerCase().includes(jobSearch.toLowerCase());
-        const jobEntity = jobs.find(j => j.jobNumber === num);
-        if (hideCompleted && jobEntity?.isComplete) return false;
-        return matchesSearch;
-      })
-      .sort((a, b) => b.localeCompare(a));
-  }, [jobs, groupedTickets, jobSearch, hideCompleted]);
+    let numbers = Object.keys(groupedTickets);
+    if (hideCompleted) {
+      const completedJobs = new Set(jobs.filter(j => j.isComplete).map(j => j.jobNumber));
+      numbers = numbers.filter(n => !completedJobs.has(n));
+    }
+    return numbers.sort((a, b) => b.localeCompare(a));
+  }, [groupedTickets, hideCompleted, jobs]);
 
   return (
-    <div className="space-y-4 animate-in">
-      <div className={`p-4 rounded-2xl shadow-sm border flex flex-col md:flex-row items-center gap-4 ${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-100'}`}>
-        <div className="relative flex-1 w-full">
-          <input
-            type="text"
-            placeholder="Search Jobs..."
-            className={`w-full pl-9 pr-4 py-2 text-xs font-semibold rounded-xl outline-none focus:ring-4 focus:ring-brand/5 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-100'}`}
-            value={jobSearch}
-            onChange={e => setJobSearch(e.target.value)}
-          />
-          <svg className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+    <div className="space-y-6">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-black uppercase tracking-tight">Project Documentation Review</h2>
+          <p className={`text-[10px] font-bold uppercase tracking-widest mt-1 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Historical Vault Access</p>
         </div>
-
         <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-end">
-          <div className={`flex p-1 rounded-xl ${isDarkMode ? 'bg-black/20' : 'bg-slate-100'}`}>
-            <button 
-              onClick={() => setViewMode('thumbnail')}
-              className={`p-1.5 rounded-lg transition-all ${viewMode === 'thumbnail' ? 'bg-white shadow-sm text-brand' : 'text-slate-400 hover:text-slate-600'}`}
-              title="Thumbnail View"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
-            </button>
-            <button 
-              onClick={() => setViewMode('list')}
-              className={`p-1.5 rounded-lg transition-all ${viewMode === 'list' ? 'bg-white shadow-sm text-brand' : 'text-slate-400 hover:text-slate-600'}`}
-              title="List View"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 6h16M4 12h16M4 18h16" /></svg>
-            </button>
+          <div className={`flex p-1 rounded-xl ${isDarkMode ? 'bg-black/20' : 'bg-slate-200'}`}>
+            <button onClick={() => setViewMode('thumbnail')} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${viewMode === 'thumbnail' ? (isDarkMode ? 'bg-white/10 text-white shadow-lg' : 'bg-white text-slate-900 shadow-sm') : 'text-slate-500 hover:text-slate-400'}`}>Grid</button>
+            <button onClick={() => setViewMode('list')} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${viewMode === 'list' ? (isDarkMode ? 'bg-white/10 text-white shadow-lg' : 'bg-white text-slate-900 shadow-sm') : 'text-slate-500 hover:text-slate-400'}`}>List</button>
           </div>
-
           <label className="flex items-center gap-2 cursor-pointer select-none">
             <input type="checkbox" className="w-4 h-4 rounded-lg text-brand border-slate-300 focus:ring-brand/10" checked={hideCompleted} onChange={() => setHideCompleted(!hideCompleted)} />
-            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest whitespace-nowrap">Hide Completed</span>
+            <span className={`text-[10px] font-black uppercase tracking-widest whitespace-nowrap ${isDarkMode ? 'text-slate-500' : 'text-slate-700'}`}>Hide Completed</span>
           </label>
         </div>
       </div>
@@ -107,37 +71,23 @@ const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, notes, isAdmin, is
             const isHistoryOpen = showHistoryFor === jobNum;
 
             return (
-              <div key={jobNum} className={`p-5 rounded-2xl border transition-all flex flex-col h-full ${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-100 shadow-sm'} ${isComplete ? 'opacity-50 grayscale-[0.2]' : ''}`}>
+              <div key={jobNum} className={`p-5 rounded-2xl border transition-all flex flex-col h-full ${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-200 shadow-sm'} ${isComplete ? 'opacity-50 grayscale-[0.2]' : ''}`}>
                 <div className="flex justify-between items-start mb-4">
                   <div>
                     <button 
                       onClick={() => jobEntity && onEditJob(jobEntity)}
-                      className={`text-sm font-black uppercase tracking-tight text-left hover:text-brand transition-colors ${isComplete ? 'text-slate-400' : ''}`}
+                      className={`text-sm font-black uppercase tracking-tight text-left hover:text-brand transition-colors ${isComplete ? (isDarkMode ? 'text-slate-400' : 'text-slate-600') : (isDarkMode ? 'text-white' : 'text-black')}`}
                       title={isAdmin ? "Edit Job Details" : ""}
                     >
                       Job #{jobNum}
                     </button>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1 truncate max-w-[180px]">{jobEntity?.customer || 'Unknown Client'}</p>
+                    <p className={`text-[10px] font-bold uppercase tracking-widest mt-1 truncate max-w-[180px] ${isDarkMode ? 'text-slate-400' : 'text-slate-700'}`}>{jobEntity?.customer || 'Unknown Client'}</p>
                   </div>
-                  <div className="flex gap-1.5">
-                    <button onClick={() => onViewPhotos(jobNum)} title="View Media" className="p-2 rounded-lg bg-black/5 hover:bg-brand hover:text-white transition-all text-slate-400">
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16" /></svg>
-                    </button>
-                    {isAdmin && jobEntity && (
-                      <>
-                        <button onClick={() => onToggleComplete(jobEntity)} title={isComplete ? "Mark Active" : "Mark Complete"} className={`p-2 rounded-lg border transition-all ${isComplete ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-black/5 border-transparent text-slate-300 hover:text-emerald-500'}`}>
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
-                        </button>
-                        <button onClick={() => onDeleteJob(jobEntity)} title="Delete Job" className="p-2 rounded-lg bg-black/5 text-slate-300 hover:bg-rose-500 hover:text-white transition-all">
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                        </button>
-                      </>
-                    )}
-                  </div>
+                  {isComplete && <div className="bg-emerald-500/10 text-emerald-500 px-2 py-0.5 rounded text-[8px] font-black uppercase">Complete</div>}
                 </div>
 
                 <div className="space-y-1.5 border-t border-black/5 pt-4 flex-1">
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 flex justify-between">
+                  <p className={`text-[9px] font-black uppercase tracking-widest mb-2 flex justify-between ${isDarkMode ? 'text-slate-400' : 'text-slate-700'}`}>
                     <span>Active Tickets</span>
                     <span>{activeTickets.length}</span>
                   </p>
@@ -147,7 +97,7 @@ const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, notes, isAdmin, is
                       <div key={t.id} className="flex items-center justify-between text-[10px] font-bold py-1">
                         <button 
                           onClick={() => t.documentUrl && onViewDoc?.(t.documentUrl)} 
-                          className={`opacity-40 font-mono truncate max-w-[120px] transition-colors ${t.documentUrl ? 'hover:text-brand hover:underline cursor-zoom-in' : 'cursor-default'}`}
+                          className={`font-mono truncate max-w-[120px] transition-colors ${t.documentUrl ? 'hover:text-brand hover:underline cursor-zoom-in text-brand/80' : isDarkMode ? 'opacity-40 text-slate-500' : 'text-slate-600'}`}
                         >
                           {t.ticketNo}
                         </button>
@@ -155,33 +105,21 @@ const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, notes, isAdmin, is
                       </div>
                     );
                   })}
-                  {activeTickets.length === 0 && (
-                    <p className="text-[9px] italic text-slate-400 text-center py-2">No active tickets</p>
-                  )}
-
+                  
                   {archivedTickets.length > 0 && (
-                    <div className="mt-4 border-t border-black/5 pt-4">
-                      <button 
-                        onClick={() => setShowHistoryFor(isHistoryOpen ? null : jobNum)}
-                        className="w-full flex items-center justify-between text-[9px] font-black text-slate-400 uppercase tracking-widest hover:text-brand transition-colors"
-                      >
-                        <span>Ticket History ({archivedTickets.length})</span>
-                        <svg className={`w-3 h-3 transition-transform ${isHistoryOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7" /></svg>
+                    <div className="mt-4 pt-4 border-t border-black/5">
+                      <button onClick={() => setShowHistoryFor(isHistoryOpen ? null : jobNum)} className="flex items-center justify-between w-full group">
+                         <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 group-hover:text-brand">Archive History ({archivedTickets.length})</span>
+                         <svg className={`w-3 h-3 text-slate-400 transition-transform ${isHistoryOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7" /></svg>
                       </button>
-                      
                       {isHistoryOpen && (
-                        <div className="mt-2 space-y-1 animate-in">
-                          {archivedTickets.map(t => (
-                            <div key={t.id} className="flex items-center justify-between text-[9px] font-bold p-1.5 bg-black/5 rounded-lg opacity-60">
-                              <button 
-                                onClick={() => t.documentUrl && onViewDoc?.(t.documentUrl)} 
-                                className={`font-mono transition-colors ${t.documentUrl ? 'hover:text-brand hover:underline cursor-zoom-in' : 'cursor-default'}`}
-                              >
-                                {t.ticketNo}
-                              </button>
-                              <span className="text-slate-400">Exp: {new Date(t.expires).toLocaleDateString()}</span>
-                            </div>
-                          ))}
+                        <div className="mt-2 space-y-1 animate-in slide-in-from-top-2">
+                           {archivedTickets.map(t => (
+                             <div key={t.id} className="flex items-center justify-between text-[10px] font-bold py-1 opacity-40">
+                               <span className="font-mono">{t.ticketNo}</span>
+                               <span className="text-[8px] uppercase">{new Date(t.expires).toLocaleDateString()}</span>
+                             </div>
+                           ))}
                         </div>
                       )}
                     </div>
@@ -192,73 +130,37 @@ const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, notes, isAdmin, is
           })}
         </div>
       ) : (
-        <div className={`rounded-2xl border overflow-hidden ${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-100 shadow-sm'}`}>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead className={`${isDarkMode ? 'bg-black/20' : 'bg-slate-50'} border-b border-black/5`}>
-                <tr>
-                  <th className="px-5 py-3 text-[9px] font-black uppercase tracking-widest text-slate-400">Job #</th>
-                  <th className="px-5 py-3 text-[9px] font-black uppercase tracking-widest text-slate-400">Customer</th>
-                  <th className="px-5 py-3 text-[9px] font-black uppercase tracking-widest text-slate-400 text-center">Active Tkts</th>
-                  <th className="px-5 py-3 text-[9px] font-black uppercase tracking-widest text-slate-400 text-center">Status</th>
-                  <th className="px-5 py-3 text-[9px] font-black uppercase tracking-widest text-slate-400 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className={`divide-y ${isDarkMode ? 'divide-white/5' : 'divide-slate-100'}`}>
-                {allJobNumbers.map(jobNum => {
-                  const jobEntity = jobs.find(j => j.jobNumber === jobNum);
-                  const isComplete = jobEntity?.isComplete || false;
-                  const activeTickets = groupedTickets[jobNum]?.active || [];
-                  
-                  return (
-                    <tr key={jobNum} className={`group hover:bg-slate-500/5 transition-all ${isComplete ? 'opacity-50' : ''}`}>
-                      <td className="px-5 py-3">
-                        <button 
-                          onClick={() => jobEntity && onEditJob(jobEntity)}
-                          className="text-xs font-black uppercase hover:text-brand transition-colors"
-                        >
-                          #{jobNum}
-                        </button>
-                      </td>
-                      <td className="px-5 py-3 text-xs font-bold text-slate-500 truncate max-w-[200px]">{jobEntity?.customer || 'Unknown Client'}</td>
-                      <td className="px-5 py-3 text-center">
-                        <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-black border ${activeTickets.length > 0 ? 'bg-brand/10 border-brand/20 text-brand' : 'bg-slate-100 border-slate-200 text-slate-400'}`}>
-                          {activeTickets.length}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3 text-center">
-                         <div className={`mx-auto w-2 h-2 rounded-full ${isComplete ? 'bg-emerald-500' : 'bg-amber-400 animate-pulse'}`} />
-                      </td>
-                      <td className="px-5 py-3 text-right">
-                        <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button onClick={() => onViewPhotos(jobNum)} className="p-1.5 rounded-lg bg-black/5 hover:text-brand transition-colors">
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16" /></svg>
-                          </button>
-                          {isAdmin && jobEntity && (
-                            <>
-                              <button onClick={() => onToggleComplete(jobEntity)} className={`p-1.5 rounded-lg border transition-all ${isComplete ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-black/5 border-transparent text-slate-400 hover:text-emerald-500'}`}>
-                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="24" d="M5 13l4 4L19 7" /></svg>
-                              </button>
-                              <button onClick={() => onDeleteJob(jobEntity)} className="p-1.5 rounded-lg bg-black/5 text-slate-400 hover:text-rose-500 transition-all">
-                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-      
-      {allJobNumbers.length === 0 && (
-        <div className="py-20 text-center opacity-20">
-          <svg className="w-16 h-16 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1" /></svg>
-          <p className="text-sm font-black uppercase tracking-widest">No Projects Found</p>
+        <div className={`rounded-2xl border overflow-hidden ${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-200 shadow-sm'}`}>
+          <table className="w-full text-left">
+            <thead className={`${isDarkMode ? 'bg-black/20' : 'bg-slate-50'} border-b border-black/5`}>
+              <tr>
+                <th className="px-6 py-4 text-[9px] font-black uppercase tracking-[0.2em] text-slate-500">Job Reference</th>
+                <th className="px-6 py-4 text-[9px] font-black uppercase tracking-[0.2em] text-slate-500">Customer</th>
+                <th className="px-6 py-4 text-[9px] font-black uppercase tracking-[0.2em] text-slate-500">Status</th>
+                <th className="px-6 py-4 text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 text-right">Tickets</th>
+              </tr>
+            </thead>
+            <tbody className={`divide-y ${isDarkMode ? 'divide-white/5' : 'divide-slate-100'}`}>
+              {allJobNumbers.map(jobNum => {
+                const jobEntity = jobs.find(j => j.jobNumber === jobNum);
+                const activeCount = groupedTickets[jobNum]?.active.length || 0;
+                return (
+                  <tr key={jobNum} className={`transition-all hover:bg-black/5 ${jobEntity?.isComplete ? 'opacity-40' : ''}`}>
+                    <td className="px-6 py-4">
+                      <button onClick={() => jobEntity && onEditJob(jobEntity)} className={`text-xs font-black uppercase hover:text-brand ${isDarkMode ? 'text-white' : 'text-black'}`}>#{jobNum}</button>
+                    </td>
+                    <td className="px-6 py-4 text-xs font-bold">{jobEntity?.customer || 'Direct'}</td>
+                    <td className="px-6 py-4">
+                      <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase ${jobEntity?.isComplete ? 'bg-emerald-500/10 text-emerald-500' : 'bg-blue-500/10 text-blue-500'}`}>
+                        {jobEntity?.isComplete ? 'Closed' : 'Active'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-right text-xs font-black">{activeCount}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

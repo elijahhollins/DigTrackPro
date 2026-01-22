@@ -20,54 +20,117 @@ interface UploadQueueItem {
   status: 'pending' | 'uploading' | 'complete' | 'error';
 }
 
+type UnifiedAsset = (JobPhoto & { type: 'photo' }) | { 
+  id: string; 
+  jobNumber: string; 
+  dataUrl: string; 
+  timestamp: number; 
+  caption: string; 
+  type: 'ticket'; 
+  ticketNo: string;
+};
+
 const PhotoManager: React.FC<PhotoManagerProps> = ({ photos, jobs, tickets, initialSearch = '', isDarkMode, onAddPhoto, onDeletePhoto }) => {
-  const [photoSearch, setPhotoSearch] = useState(initialSearch);
+  // Explorer State
+  const [sidebarSearch, setSidebarSearch] = useState('');
   const [selectedFolder, setSelectedFolder] = useState<string | null>(initialSearch || null);
+  const [gallerySearch, setGallerySearch] = useState('');
   
-  const [uploadingJobNum, setUploadingJobNum] = useState('');
-  const [caption, setCaption] = useState('');
+  // Selection State
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  
+  // Lightbox State
+  const [activePhotoIndex, setActivePhotoIndex] = useState<number | null>(null);
+  
+  // Upload State
   const [isUploading, setIsUploading] = useState(false);
   const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
   const [isDragging, setIsDragging] = useState(false);
-  
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Sync internal job number if folder is selected
+  // Sync folder selection to parent initial search if needed
   useEffect(() => {
-    if (selectedFolder) setUploadingJobNum(selectedFolder);
-  }, [selectedFolder]);
+    if (initialSearch && !selectedFolder) setSelectedFolder(initialSearch);
+  }, [initialSearch]);
 
-  // Folder logic: Combine jobs and tickets to ensure every project has a directory
+  // Data Organization - Merging Photos and Ticket Documents
   const folderData = useMemo(() => {
-    const groups: Record<string, JobPhoto[]> = {};
+    const groups: Record<string, UnifiedAsset[]> = {};
+    
+    // Ensure all jobs have a bucket
     jobs.forEach(j => { if (j.jobNumber && !groups[j.jobNumber]) groups[j.jobNumber] = []; });
-    tickets.forEach(t => { if (t.jobNumber && !groups[t.jobNumber]) groups[t.jobNumber] = []; });
+    
+    // Fill buckets with Photos
     photos.forEach(p => {
       if (!groups[p.jobNumber]) groups[p.jobNumber] = [];
-      groups[p.jobNumber].push(p);
+      groups[p.jobNumber].push({ ...p, type: 'photo' });
     });
+
+    // Fill buckets with Ticket Documents
+    tickets.forEach(t => {
+      if (t.documentUrl && t.jobNumber) {
+        if (!groups[t.jobNumber]) groups[t.jobNumber] = [];
+        groups[t.jobNumber].push({
+          id: t.id,
+          jobNumber: t.jobNumber,
+          dataUrl: t.documentUrl,
+          timestamp: t.createdAt,
+          caption: `Ticket Doc: ${t.ticketNo}`,
+          type: 'ticket',
+          ticketNo: t.ticketNo
+        });
+      }
+    });
+
     return groups;
   }, [photos, jobs, tickets]);
 
-  const filteredFolders = useMemo(() => {
-    return Object.keys(folderData).filter(num => 
-      num.toLowerCase().includes(photoSearch.toLowerCase())
-    ).sort((a, b) => b.localeCompare(a));
-  }, [folderData, photoSearch]);
+  const filteredSidebarFolders = useMemo(() => {
+    return Object.keys(folderData)
+      .filter(num => num.toLowerCase().includes(sidebarSearch.toLowerCase()))
+      .sort((a, b) => b.localeCompare(a));
+  }, [folderData, sidebarSearch]);
 
-  const displayedPhotos = useMemo(() => {
+  const currentGalleryPhotos = useMemo(() => {
     if (!selectedFolder) return [];
     return (folderData[selectedFolder] || []).filter(p => 
-      p.caption.toLowerCase().includes(photoSearch.toLowerCase())
+      p.caption.toLowerCase().includes(gallerySearch.toLowerCase())
     ).sort((a, b) => b.timestamp - a.timestamp);
-  }, [folderData, selectedFolder, photoSearch]);
+  }, [folderData, selectedFolder, gallerySearch]);
 
-  const processBatch = async (files: File[]) => {
-    const jobNumToUse = selectedFolder || uploadingJobNum;
-    if (!files.length) return;
+  // Selection Logic
+  const toggleSelection = (id: string) => {
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedIds(next);
+  };
+
+  const handleBatchDelete = async () => {
+    // Only allow deletion of JobPhotos, not Ticket Documents from this view
+    const selectedPhotos = Array.from(selectedIds).filter(id => 
+        currentGalleryPhotos.find(p => p.id === id && p.type === 'photo')
+    );
+
+    if (selectedPhotos.length === 0) {
+      alert("Ticket documents cannot be deleted from the Media tab. Manage them in the Vault or Job Review sections.");
+      return;
+    }
+
+    if (!confirm(`Permanently delete ${selectedPhotos.length} selected site photos? Ticket documents will be skipped.`)) return;
     
-    if (!jobNumToUse) {
-      alert("Please specify a Job Number before uploading.");
+    for (const id of selectedPhotos) {
+      await onDeletePhoto(id);
+    }
+    setSelectedIds(new Set());
+    setSelectionMode(false);
+  };
+
+  // Upload Logic
+  const processBatch = async (files: File[]) => {
+    if (!selectedFolder) {
+      alert("Select a project folder first.");
       return;
     }
 
@@ -84,17 +147,15 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({ photos, jobs, tickets, init
 
     for (const item of newItems) {
       setUploadQueue(current => current.map(q => q.id === item.id ? { ...q, status: 'uploading' } : q));
-
       try {
-        // Mock progress for smoother UI feel
         const pInterval = setInterval(() => {
-          setUploadQueue(current => current.map(q => q.id === item.id ? { ...q, progress: Math.min(q.progress + 10, 90) } : q));
-        }, 100);
+          setUploadQueue(current => current.map(q => q.id === item.id ? { ...q, progress: Math.min(q.progress + 15, 90) } : q));
+        }, 150);
 
         await onAddPhoto({
-          jobNumber: jobNumToUse.trim(),
+          jobNumber: selectedFolder,
           timestamp: Date.now(),
-          caption: caption.trim() || `Site Photo ${new Date().toLocaleDateString()}`
+          caption: `Site Photo ${new Date().toLocaleDateString()}`
         }, item.file);
 
         clearInterval(pInterval);
@@ -103,171 +164,370 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({ photos, jobs, tickets, init
         setUploadQueue(current => current.map(q => q.id === item.id ? { ...q, status: 'error' } : q));
       }
     }
-
     setIsUploading(false);
-    // Auto-clear completed items after a delay
     setTimeout(() => {
       setUploadQueue(prev => prev.filter(q => q.status !== 'complete'));
-    }, 5000);
+    }, 4000);
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []) as File[];
-    processBatch(files);
-    e.target.value = '';
-  };
-
-  const stats = useMemo(() => {
-    const total = uploadQueue.length;
-    const completed = uploadQueue.filter(q => q.status === 'complete').length;
-    const active = uploadQueue.filter(q => q.status === 'uploading').length;
-    return { total, completed, active };
-  }, [uploadQueue]);
+  const isPdf = (url: string) => url.toLowerCase().endsWith('.pdf');
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500 pb-40">
-      {/* HEADER SECTION */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 px-2">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
-            <button onClick={() => setSelectedFolder(null)} className="hover:text-brand transition-colors">Library</button>
+    <div className="flex flex-col lg:flex-row gap-6 animate-in h-[calc(100vh-140px)] -mt-2 overflow-hidden">
+      
+      {/* SIDEBAR EXPLORER */}
+      <aside className={`lg:w-72 shrink-0 flex flex-col rounded-3xl border overflow-hidden ${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-200 shadow-sm'}`}>
+        <div className="p-4 border-b border-black/5 bg-black/5">
+          <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3 flex items-center gap-2">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
+            Project Explorer
+          </h3>
+          <div className="relative">
+            <input 
+              type="text" 
+              placeholder="Filter jobs..." 
+              className={`w-full pl-8 pr-3 py-2 text-[11px] font-bold rounded-xl border outline-none transition-all ${isDarkMode ? 'bg-black/20 border-white/5 text-white' : 'bg-white border-slate-100'}`}
+              value={sidebarSearch}
+              onChange={e => setSidebarSearch(e.target.value)}
+            />
+            <svg className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto no-scrollbar p-2 space-y-1">
+          {filteredSidebarFolders.map(num => {
+            const count = folderData[num].length;
+            const isActive = selectedFolder === num;
+            return (
+              <button
+                key={num}
+                onClick={() => setSelectedFolder(num)}
+                className={`w-full flex items-center justify-between p-3 rounded-2xl transition-all group ${
+                  isActive 
+                    ? 'bg-brand text-slate-900 shadow-lg shadow-brand/10' 
+                    : isDarkMode ? 'text-slate-400 hover:bg-white/5' : 'text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center transition-colors ${isActive ? 'bg-white/20' : isDarkMode ? 'bg-white/5' : 'bg-slate-100'}`}>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
+                  </div>
+                  <span className="text-[11px] font-black uppercase tracking-tight">#{num}</span>
+                </div>
+                <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-lg ${isActive ? 'bg-white/20' : 'bg-black/5 text-slate-400'}`}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </aside>
+
+      {/* MAIN WORKSPACE */}
+      <main className="flex-1 flex flex-col min-w-0">
+        {/* Workspace Header */}
+        <div className={`mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-3xl border ${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-200 shadow-sm'}`}>
+          <div className="flex items-center gap-3">
+            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${isDarkMode ? 'bg-white/5 text-brand' : 'bg-brand/10 text-brand'}`}>
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+            </div>
+            <div>
+              <h2 className="text-sm font-black uppercase tracking-widest">{selectedFolder ? `Job #${selectedFolder}` : 'Project Workspace'}</h2>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">
+                {selectedFolder ? `${currentGalleryPhotos.length} documentation assets found` : 'Select a project from the explorer'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 w-full sm:w-auto">
             {selectedFolder && (
               <>
-                <svg className="w-2.5 h-2.5 opacity-30" fill="currentColor" viewBox="0 0 20 20"><path d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" /></svg>
-                <span className="text-brand">Job #{selectedFolder}</span>
+                <div className="relative flex-1 sm:w-48">
+                  <input 
+                    type="text" 
+                    placeholder="Search assets..." 
+                    className={`w-full pl-8 pr-3 py-2 text-[11px] font-bold rounded-xl border outline-none transition-all ${isDarkMode ? 'bg-black/20 border-white/5 text-white' : 'bg-slate-50 border-slate-100'}`}
+                    value={gallerySearch}
+                    onChange={e => setGallerySearch(e.target.value)}
+                  />
+                  <svg className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                </div>
+                
+                <button 
+                  onClick={() => {
+                    setSelectionMode(!selectionMode);
+                    setSelectedIds(new Set());
+                  }}
+                  className={`p-2 rounded-xl border transition-all ${selectionMode ? 'bg-brand border-brand text-slate-900 shadow-lg' : isDarkMode ? 'bg-white/5 border-white/5 text-slate-400 hover:text-white' : 'bg-slate-100 border-slate-100 text-slate-600 hover:text-brand'}`}
+                  title="Multi-select Toggle"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
+                </button>
+
+                <button 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="p-2 rounded-xl bg-brand border border-brand text-slate-900 shadow-lg shadow-brand/20 hover:scale-105 active:scale-95 transition-all"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
+                </button>
               </>
             )}
           </div>
-          <h2 className={`text-3xl font-black tracking-tighter ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-            {selectedFolder ? `Media Collection` : 'Project Assets'}
-          </h2>
         </div>
-        
-        <div className="flex items-center gap-2">
-          <div className="relative group">
-            <input 
-              type="text" 
-              placeholder="Search library..." 
-              className={`pl-10 pr-4 py-2.5 text-xs font-bold rounded-2xl border outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900 shadow-sm'}`}
-              value={photoSearch}
-              onChange={e => setPhotoSearch(e.target.value)}
-            />
-            <svg className="w-4 h-4 text-slate-500 absolute left-3.5 top-3 transition-colors group-focus-within:text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-          </div>
-          
-          {selectedFolder && (
-            <button 
-              onClick={() => fileInputRef.current?.click()}
-              className="bg-brand text-[#0f172a] px-5 py-2.5 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-brand/20 hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
-              Add Media
-            </button>
+
+        {/* Gallery Content */}
+        <div className="flex-1 overflow-y-auto no-scrollbar pb-10">
+          {selectedFolder ? (
+            currentGalleryPhotos.length > 0 ? (
+              <div className="columns-1 sm:columns-2 lg:columns-3 xl:columns-4 gap-4 space-y-4">
+                {currentGalleryPhotos.map((asset, idx) => {
+                  const isSelected = selectedIds.has(asset.id);
+                  const isTicket = asset.type === 'ticket';
+                  const isPdfAsset = isPdf(asset.dataUrl);
+
+                  return (
+                    <div 
+                      key={asset.id}
+                      onClick={() => selectionMode ? toggleSelection(asset.id) : setActivePhotoIndex(idx)}
+                      className={`break-inside-avoid relative group rounded-[2rem] border overflow-hidden transition-all duration-500 cursor-pointer ${
+                        isSelected 
+                          ? 'ring-4 ring-brand border-brand scale-[0.98]' 
+                          : isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-100 shadow-sm'
+                      }`}
+                    >
+                      {/* Asset Preview */}
+                      <div className="relative aspect-auto min-h-[100px] overflow-hidden flex items-center justify-center bg-black/10">
+                        {isPdfAsset ? (
+                          <div className="w-full py-16 flex flex-col items-center justify-center bg-slate-800 text-white gap-3">
+                             <svg className="w-12 h-12 text-rose-500" fill="currentColor" viewBox="0 0 24 24"><path d="M11.363 2c4.155 0 2.637 6 2.637 6s6-1.518 6 2.638v11.362c0 .552-.448 1-1 1H5c-.552 0-1-.448-1-1V3c0-.552.448-1 1-1h6.363zM12 2H5c-1.103 0-2 .897-2 2v16c0 1.103.897 2 2 2h14c1.103 0 2-.897 2-2V9l-7-7z"/><path d="M19 9h-7V2l7 7z"/></svg>
+                             <span className="text-[10px] font-black uppercase tracking-widest opacity-60">PDF Document</span>
+                          </div>
+                        ) : (
+                          <img src={asset.dataUrl} className="w-full h-auto object-cover group-hover:scale-110 transition-transform duration-1000" loading="lazy" />
+                        )}
+                      </div>
+                      
+                      {/* Interaction Layer */}
+                      <div className={`absolute inset-0 bg-black/40 transition-opacity flex items-center justify-center gap-2 ${selectionMode ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                        {selectionMode ? (
+                          <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all ${isSelected ? 'bg-brand border-brand' : 'bg-white/20 border-white/40'}`}>
+                            {isSelected && <svg className="w-5 h-5 text-slate-900" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>}
+                          </div>
+                        ) : (
+                          <div className="p-3 bg-white/10 backdrop-blur-md rounded-2xl border border-white/20 text-white scale-90 group-hover:scale-100 transition-all">
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Info Badge */}
+                      <div className="absolute bottom-3 left-3 right-3 flex justify-between items-end">
+                        <div className={`px-3 py-1.5 rounded-xl backdrop-blur-md border border-white/10 text-[9px] font-black text-white uppercase tracking-widest max-w-[80%] truncate ${isTicket ? 'bg-brand/80' : 'bg-black/60'}`}>
+                          {asset.caption}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center opacity-30 text-center">
+                <div className="w-20 h-20 rounded-[2.5rem] bg-brand/10 text-brand flex items-center justify-center mb-6">
+                  <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                </div>
+                <h3 className="text-sm font-black uppercase tracking-widest">No Assets Found</h3>
+                <p className="text-[10px] font-bold uppercase tracking-tighter mt-1">Project documentation required</p>
+                <button 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="mt-6 px-8 py-3 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:scale-105 active:scale-95 transition-all"
+                >
+                  Upload First Image
+                </button>
+              </div>
+            )
+          ) : (
+            <div className="h-full flex flex-col items-center justify-center text-center p-10">
+               <div className="relative mb-12 animate-bounce duration-[2000ms]">
+                 <div className="w-32 h-32 rounded-[3rem] bg-brand/5 border-2 border-dashed border-brand/20 flex items-center justify-center">
+                   <svg className="w-16 h-16 text-brand/20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                 </div>
+                 <div className="absolute -bottom-4 -right-4 w-12 h-12 bg-brand rounded-full flex items-center justify-center text-slate-900 shadow-xl border-4 border-[#0f172a]">
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
+                 </div>
+               </div>
+               <h2 className="text-lg font-black uppercase tracking-[0.2em] text-slate-500">Asset Management Vault</h2>
+               <p className="max-w-xs text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-3 leading-relaxed">Select a project folder from the explorer on the left to manage documentation, photos, and media logs.</p>
+            </div>
           )}
         </div>
-      </div>
+      </main>
 
-      {/* DROP ZONE / UPLOAD CONFIG */}
-      {!selectedFolder && (
-        <div 
-          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-          onDragLeave={() => setIsDragging(false)}
-          onDrop={(e) => { e.preventDefault(); setIsDragging(false); processBatch(Array.from(e.dataTransfer.files)); }}
-          className={`${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-100 shadow-xl shadow-slate-200/50'} rounded-[2.5rem] border overflow-hidden p-8 transition-all`}
-        >
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
-            <div className="space-y-6">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-brand/10 flex items-center justify-center">
-                  <svg className="w-5 h-5 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                </div>
-                <div>
-                  <h3 className={`text-sm font-black uppercase tracking-widest ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>Smart Batch Uploader</h3>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Drag photos into project directories</p>
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest ml-1">Destination Job #</label>
-                  <input 
-                    type="text" 
-                    placeholder="Enter Job ID..." 
-                    className={`w-full px-4 py-3 rounded-2xl border text-xs font-black outline-none transition-all ${isDarkMode ? 'bg-black/20 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900 focus:ring-4 focus:ring-brand/10'}`}
-                    value={uploadingJobNum}
-                    onChange={e => setUploadingJobNum(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest ml-1">Caption Default</label>
-                  <input 
-                    type="text" 
-                    placeholder="Optional details..." 
-                    className={`w-full px-4 py-3 rounded-2xl border text-xs font-bold outline-none transition-all ${isDarkMode ? 'bg-black/20 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900 focus:ring-4 focus:ring-brand/10'}`}
-                    value={caption}
-                    onChange={e => setCaption(e.target.value)}
-                  />
-                </div>
-              </div>
+      {/* BATCH ACTION BAR */}
+      {selectionMode && selectedIds.size > 0 && (
+        <div className="fixed bottom-28 left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom">
+          <div className="bg-slate-950/90 backdrop-blur-xl border border-white/10 px-6 py-4 rounded-[2rem] shadow-2xl flex items-center gap-6">
+            <div className="flex flex-col">
+              <span className="text-[10px] font-black text-brand uppercase tracking-widest">{selectedIds.size} Assets Selected</span>
+              <span className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter">Batch Management Mode</span>
             </div>
-
-            <div 
-              className={`relative h-[180px] rounded-[2rem] border-2 border-dashed transition-all flex flex-col items-center justify-center gap-3 overflow-hidden group ${
-                isDragging ? 'bg-brand/10 border-brand scale-[0.98]' : 'bg-black/5 border-slate-200 hover:border-brand/40'
-              } ${!uploadingJobNum ? 'opacity-50 grayscale' : 'cursor-pointer'}`}
-              onClick={() => uploadingJobNum && fileInputRef.current?.click()}
-            >
-              <div className={`p-4 rounded-full transition-all ${isDragging ? 'bg-brand text-white scale-110' : 'bg-white/10 text-slate-400 group-hover:bg-brand/10 group-hover:text-brand'}`}>
-                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
-              </div>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
-                {isDragging ? 'Drop to Upload' : 'Click or Drop Multiple Photos'}
-              </p>
-              {!uploadingJobNum && <div className="absolute inset-0 bg-slate-900/5 backdrop-blur-[2px] flex items-center justify-center"><span className="text-[9px] font-black uppercase bg-slate-800 text-white px-3 py-1.5 rounded-full tracking-widest shadow-xl">Set Job # First</span></div>}
+            <div className="w-px h-8 bg-white/10" />
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={handleBatchDelete}
+                className="px-4 py-2 bg-rose-500 text-white rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-rose-600 transition-all flex items-center gap-2"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                Delete Selected
+              </button>
+              <button 
+                onClick={() => setSelectionMode(false)}
+                className="px-4 py-2 bg-white/5 text-slate-400 rounded-xl font-black text-[9px] uppercase tracking-widest hover:text-white transition-all"
+              >
+                Cancel
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* HIDDEN FILE INPUT */}
-      <input 
-        type="file" 
-        multiple 
-        ref={fileInputRef}
-        className="hidden" 
-        accept="image/*" 
-        onChange={handleFileChange} 
-      />
+      {/* LIGHTBOX OVERLAY */}
+      {activePhotoIndex !== null && (
+        <div className="fixed inset-0 z-[250] bg-slate-950/98 backdrop-blur-xl flex flex-col animate-in fade-in zoom-in duration-300">
+          <div className="flex justify-between items-center p-6 lg:p-10 shrink-0">
+            <div className="flex flex-col">
+              <h4 className="text-white font-black uppercase tracking-widest text-sm">Job #{selectedFolder} Documentation</h4>
+              <p className="text-brand text-[10px] font-black uppercase tracking-tighter mt-1">Digital Asset Archive Entry</p>
+            </div>
+            <button 
+              onClick={() => setActivePhotoIndex(null)}
+              className="p-4 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all active:scale-90"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+          </div>
+          
+          <div className="flex-1 flex flex-col lg:flex-row items-center justify-center p-6 gap-10 overflow-hidden">
+            <button 
+              disabled={activePhotoIndex === 0}
+              onClick={() => setActivePhotoIndex(activePhotoIndex - 1)}
+              className="hidden lg:flex p-6 rounded-full bg-white/5 text-white hover:bg-white/10 disabled:opacity-0 transition-all"
+            >
+              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 19l-7-7 7-7" /></svg>
+            </button>
 
-      {/* FLOATING PROGRESS BAR (ACTIVE SESSION) */}
-      {uploadQueue.length > 0 && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 w-full max-w-2xl px-4 z-[200] animate-in slide-in-from-bottom">
-          <div className={`${isDarkMode ? 'bg-[#1e293b]/95' : 'bg-white/95 shadow-2xl'} backdrop-blur-xl border border-white/10 p-5 rounded-3xl flex flex-col gap-4`}>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${stats.active > 0 ? 'bg-brand text-slate-900' : 'bg-emerald-500 text-white'}`}>
-                  {stats.active > 0 ? <div className="w-4 h-4 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" /> : <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>}
-                </div>
-                <div>
-                  <h4 className="text-[10px] font-black uppercase tracking-widest">
-                    {stats.active > 0 ? `Uploading ${stats.active} of ${stats.total} items` : `Sync Complete • ${stats.total} Files`}
-                  </h4>
-                  <p className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter">Digital Asset Pipeline Active</p>
+            <div className="relative group max-w-full max-h-full flex items-center justify-center flex-1">
+              <div className="w-full max-w-5xl h-full flex items-center justify-center overflow-hidden">
+                {isPdf(currentGalleryPhotos[activePhotoIndex].dataUrl) ? (
+                  <iframe 
+                    src={`${currentGalleryPhotos[activePhotoIndex].dataUrl}#toolbar=0`} 
+                    className="w-full h-full min-h-[60vh] rounded-[2rem] border border-white/10 bg-white" 
+                  />
+                ) : (
+                  <img 
+                    src={currentGalleryPhotos[activePhotoIndex].dataUrl} 
+                    className="max-w-full max-h-[70vh] rounded-[2rem] shadow-2xl border border-white/10 object-contain" 
+                  />
+                )}
+              </div>
+              
+              <div className="absolute -bottom-16 left-1/2 -translate-x-1/2 lg:relative lg:translate-x-0 lg:bottom-0 lg:ml-10 bg-slate-900/50 backdrop-blur-md border border-white/10 p-6 rounded-[2.5rem] w-full lg:w-80 shrink-0 animate-in slide-in-from-right">
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Asset Reference</span>
+                    <p className="text-xs font-bold text-white leading-relaxed">{currentGalleryPhotos[activePhotoIndex].caption}</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Entry Date</span>
+                      <p className="text-[10px] font-black text-brand uppercase">{new Date(currentGalleryPhotos[activePhotoIndex].timestamp).toLocaleDateString()}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Source Type</span>
+                      <p className={`text-[10px] font-black uppercase ${currentGalleryPhotos[activePhotoIndex].type === 'ticket' ? 'text-amber-500' : 'text-emerald-500'}`}>
+                        {currentGalleryPhotos[activePhotoIndex].type}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="pt-4 border-t border-white/5 flex gap-2">
+                    <a 
+                      href={currentGalleryPhotos[activePhotoIndex].dataUrl} 
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-1 py-3 rounded-2xl bg-brand text-slate-900 font-black text-[9px] uppercase tracking-widest text-center hover:scale-105 transition-all"
+                    >
+                      View Full
+                    </a>
+                    <button 
+                      onClick={() => { navigator.clipboard.writeText(currentGalleryPhotos[activePhotoIndex].dataUrl); alert("Asset URL copied."); }}
+                      className="p-3 rounded-2xl bg-white/10 text-white hover:bg-white/20 transition-all"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
+                    </button>
+                  </div>
                 </div>
               </div>
-              <button onClick={() => setUploadQueue([])} className="p-2 text-slate-400 hover:text-slate-200 transition-colors">
+            </div>
+
+            <button 
+              disabled={activePhotoIndex === currentGalleryPhotos.length - 1}
+              onClick={() => setActivePhotoIndex(activePhotoIndex + 1)}
+              className="hidden lg:flex p-6 rounded-full bg-white/5 text-white hover:bg-white/10 disabled:opacity-0 transition-all"
+            >
+              <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M9 5l7 7-7 7" /></svg>
+            </button>
+          </div>
+          
+          {/* Filmstrip View */}
+          <div className="p-8 hidden lg:flex items-center justify-center gap-2 overflow-x-auto no-scrollbar">
+            {currentGalleryPhotos.map((p, i) => (
+              <button 
+                key={p.id}
+                onClick={() => setActivePhotoIndex(i)}
+                className={`w-14 h-14 rounded-xl border-2 transition-all shrink-0 overflow-hidden flex items-center justify-center ${activePhotoIndex === i ? 'border-brand scale-110 shadow-lg' : 'border-transparent opacity-40 hover:opacity-100'} bg-slate-800`}
+              >
+                {isPdf(p.dataUrl) ? (
+                   <svg className="w-6 h-6 text-rose-500" fill="currentColor" viewBox="0 0 24 24"><path d="M11.363 2c4.155 0 2.637 6 2.637 6s6-1.518 6 2.638v11.362c0 .552-.448 1-1 1H5c-.552 0-1-.448-1-1V3c0-.552.448-1 1-1h6.363z"/></svg>
+                ) : (
+                   <img src={p.dataUrl} className="w-full h-full object-cover" />
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* UPLOAD STATUS DRAWER */}
+      {uploadQueue.length > 0 && (
+        <div className="fixed bottom-24 right-6 w-80 z-[200] animate-in slide-in-from-right">
+          <div className={`${isDarkMode ? 'bg-slate-900/95 border-white/10' : 'bg-white border-slate-200 shadow-2xl'} backdrop-blur-xl border rounded-[2rem] overflow-hidden`}>
+            <div className="px-5 py-4 border-b border-black/5 flex items-center justify-between bg-black/5">
+              <div className="flex items-center gap-3">
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${isUploading ? 'bg-brand text-slate-900' : 'bg-emerald-500 text-white'}`}>
+                  {isUploading ? <div className="w-4 h-4 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" /> : <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>}
+                </div>
+                <div>
+                  <h4 className="text-[10px] font-black uppercase tracking-widest">{isUploading ? 'Syncing...' : 'Complete'}</h4>
+                  <p className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter">Documentation Pipeline</p>
+                </div>
+              </div>
+              <button onClick={() => setUploadQueue([])} className="p-2 text-slate-400 hover:text-rose-500 transition-colors">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
             
-            <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+            <div className="max-h-60 overflow-y-auto no-scrollbar p-3 space-y-2">
               {uploadQueue.map(item => (
-                <div key={item.id} className="relative flex-shrink-0 w-12 h-12 rounded-xl border border-white/5 overflow-hidden group">
-                  <img src={item.previewUrl} className="w-full h-full object-cover" />
-                  <div className={`absolute inset-0 bg-black/60 flex items-center justify-center transition-opacity ${item.status === 'complete' ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-                    {item.status === 'complete' ? <svg className="w-4 h-4 text-emerald-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg> : <span className="text-[9px] font-black text-white">{item.progress}%</span>}
+                <div key={item.id} className="flex items-center gap-3 p-2 rounded-2xl bg-black/5 border border-black/5">
+                  <div className="w-10 h-10 rounded-xl overflow-hidden shrink-0 border border-black/10">
+                    <img src={item.previewUrl} className="w-full h-full object-cover" />
                   </div>
-                  {item.status === 'uploading' && <div className="absolute bottom-0 left-0 h-0.5 bg-brand transition-all" style={{ width: `${item.progress}%` }} />}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[9px] font-black uppercase tracking-tight truncate">{item.file.name}</p>
+                    <div className="w-full h-1 bg-black/10 rounded-full mt-1 overflow-hidden">
+                      <div className={`h-full transition-all duration-300 ${item.status === 'error' ? 'bg-rose-500' : 'bg-brand'}`} style={{ width: `${item.progress}%` }} />
+                    </div>
+                  </div>
+                  {item.status === 'complete' && <svg className="w-4 h-4 text-emerald-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>}
                 </div>
               ))}
             </div>
@@ -275,128 +535,9 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({ photos, jobs, tickets, init
         </div>
       )}
 
-      {/* CONTENT AREA */}
-      {!selectedFolder ? (
-        /* PROJECT DIRECTORY VIEW */
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6 px-1">
-          {filteredFolders.map(jobNum => {
-            const photosCount = folderData[jobNum].length;
-            const lastPhoto = photosCount > 0 ? folderData[jobNum][0].dataUrl : null;
-            
-            return (
-              <div key={jobNum} className="group flex flex-col gap-3">
-                <button 
-                  onClick={() => setSelectedFolder(jobNum)} 
-                  className="relative aspect-square w-full active:scale-95 transition-all"
-                >
-                  <div className={`absolute inset-0 translate-x-2 -translate-y-2 rounded-[2.5rem] border opacity-10 ${isDarkMode ? 'bg-white border-white' : 'bg-slate-400 border-slate-500'}`} />
-                  
-                  <div className={`relative h-full w-full rounded-[2.5rem] border-2 transition-all flex items-center justify-center overflow-hidden ${
-                    isDarkMode ? 'bg-[#1e293b] border-white/10 group-hover:border-brand/50' : 'bg-white border-slate-200 shadow-md group-hover:border-brand/40 shadow-slate-200/50'
-                  }`}>
-                    {lastPhoto ? (
-                      <>
-                        <img src={lastPhoto} className="absolute inset-0 w-full h-full object-cover grayscale-[0.5] group-hover:grayscale-0 group-hover:scale-110 transition-all duration-1000" alt="" />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-                      </>
-                    ) : (
-                      <div className="flex flex-col items-center gap-2 opacity-20 group-hover:opacity-40 transition-opacity">
-                        <svg className="w-12 h-12" fill="currentColor" viewBox="0 0 24 24"><path d="M20 18c0 1.1-.9 2-2 2H6c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2h5l2 2h7c1.1 0 2 .9 2 2v10z" /></svg>
-                        <span className="text-[8px] font-black uppercase tracking-widest">No Media</span>
-                      </div>
-                    )}
-                    
-                    {/* Badge */}
-                    <div className="absolute bottom-4 left-4 flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-black/60 backdrop-blur-md text-[10px] font-black text-white uppercase tracking-widest border border-white/10">
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16" /></svg>
-                      {photosCount}
-                    </div>
-                  </div>
-                </button>
+      {/* HIDDEN INPUTS */}
+      <input type="file" multiple ref={fileInputRef} className="hidden" accept="image/*" onChange={(e) => processBatch(Array.from(e.target.files || []))} />
 
-                <div className="px-2">
-                  <p className={`text-[13px] font-black uppercase tracking-tight truncate ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Job #{jobNum}</p>
-                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Project Directory</p>
-                </div>
-              </div>
-            );
-          })}
-          
-          {filteredFolders.length === 0 && (
-            <div className="col-span-full py-32 text-center opacity-20">
-              <svg className="w-20 h-20 mx-auto mb-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="0.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
-              <p className="text-lg font-black uppercase tracking-[0.3em]">Vault Empty</p>
-              <p className="text-[10px] font-bold uppercase mt-2 tracking-widest">No matching project folders found</p>
-            </div>
-          )}
-        </div>
-      ) : (
-        /* ASSET GALLERY VIEW */
-        <div className="space-y-6">
-          {displayedPhotos.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-8">
-              {displayedPhotos.map(photo => (
-                <div key={photo.id} className={`group relative rounded-[2.5rem] overflow-hidden border transition-all hover:shadow-2xl hover:-translate-y-1 ${
-                  isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-100 shadow-lg shadow-slate-200/50'
-                }`}>
-                  <div className="aspect-[4/3] relative overflow-hidden bg-black/5">
-                    <img 
-                      src={photo.dataUrl} 
-                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-1000" 
-                      loading="lazy" 
-                      alt={photo.caption}
-                    />
-                    
-                    {/* Controls Overlay */}
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
-                       <button 
-                        onClick={() => { if(confirm("Permanently delete this project asset?")) onDeletePhoto(photo.id); }}
-                        className="p-4 bg-rose-500 text-white rounded-3xl hover:scale-110 active:scale-95 transition-all shadow-2xl"
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                      </button>
-                    </div>
-
-                    {/* Metadata Badges */}
-                    <div className="absolute bottom-4 right-4 flex flex-col items-end gap-1">
-                      <div className="px-2 py-1 rounded-lg bg-black/60 backdrop-blur-md text-[8px] font-black text-white uppercase border border-white/10">
-                        {new Date(photo.timestamp).toLocaleDateString()}
-                      </div>
-                      <div className="px-2 py-1 rounded-lg bg-black/60 backdrop-blur-md text-[8px] font-black text-white uppercase border border-white/10">
-                        {new Date(photo.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="p-6">
-                    <p className={`text-xs font-black tracking-tight leading-tight truncate ${isDarkMode ? 'text-white' : 'text-slate-800'}`}>
-                      {photo.caption}
-                    </p>
-                    <div className="flex items-center gap-2 mt-2">
-                       <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50" />
-                       <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Verified Log</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="py-40 text-center border-2 border-dashed border-slate-200/50 rounded-[4rem] flex flex-col items-center justify-center opacity-30">
-              <div className="bg-slate-100 dark:bg-white/5 w-20 h-20 rounded-[2rem] flex items-center justify-center mb-6">
-                <svg className="w-10 h-10 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-              </div>
-              <h3 className="text-lg font-black uppercase tracking-widest">Folder Empty</h3>
-              <p className="text-[10px] font-bold mt-2 uppercase tracking-widest">Documentation required for Job #{selectedFolder}</p>
-              <button 
-                onClick={() => fileInputRef.current?.click()}
-                className="mt-6 px-8 py-3 bg-slate-900 text-white dark:bg-white dark:text-slate-900 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:scale-105 active:scale-95 transition-all"
-              >
-                Upload First Photo
-              </button>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 };

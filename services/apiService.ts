@@ -10,7 +10,7 @@ BEGIN
     FOR r IN (
         SELECT policyname, tablename FROM pg_policies 
         WHERE schemaname = 'public' 
-        AND tablename IN ('profiles', 'jobs', 'tickets', 'photos', 'notes', 'no_shows')
+        AND tablename IN ('profiles', 'jobs', 'tickets', 'photos', 'notes', 'no_shows', 'push_subscriptions')
     ) LOOP
         EXECUTE 'DROP POLICY IF EXISTS ' || quote_ident(r.policyname) || ' ON ' || quote_ident(r.tablename);
     END LOOP;
@@ -84,40 +84,41 @@ create table if not exists no_shows (
     timestamp bigint
 );
 
+create table if not exists push_subscriptions (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid references profiles(id) on delete cascade,
+    subscription_json text not null,
+    created_at timestamp with time zone default now(),
+    unique(user_id, subscription_json)
+);
+
 -- 3. SCHEMA MIGRATION / COLUMN RENAMING
 DO $$ 
 BEGIN 
-    -- Add Extent if missing
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='extent') THEN
         ALTER TABLE tickets ADD COLUMN extent text;
     END IF;
 
-    -- Add document_url if missing
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='document_url') THEN
         ALTER TABLE tickets ADD COLUMN document_url text;
     END IF;
 
-    -- Add cross_street if missing
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='cross_street') THEN
         ALTER TABLE tickets ADD COLUMN cross_street text;
     END IF;
 
-    -- Add place if missing
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='place') THEN
         ALTER TABLE tickets ADD COLUMN place text;
     END IF;
 
-    -- Handle Street (Renamed from address)
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='address') THEN
         ALTER TABLE tickets RENAME COLUMN address TO street;
     END IF;
 
-    -- Handle Work Date (Renamed from dig_start)
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='dig_start') THEN
         ALTER TABLE tickets RENAME COLUMN dig_start TO work_date;
     END IF;
 
-    -- Handle Expires (Renamed from expiration_date)
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='expiration_date') THEN
         ALTER TABLE tickets RENAME COLUMN expiration_date TO expires;
     END IF;
@@ -132,6 +133,7 @@ alter table photos enable row level security;
 alter table notes enable row level security;
 alter table profiles enable row level security;
 alter table no_shows enable row level security;
+alter table push_subscriptions enable row level security;
 
 -- 5. POLICIES
 create policy "allow_auth_profiles" on profiles for all to authenticated using (true) with check (true);
@@ -140,6 +142,7 @@ create policy "allow_auth_tickets" on tickets for all to authenticated using (tr
 create policy "allow_auth_photos" on photos for all to authenticated using (true) with check (true);
 create policy "allow_auth_notes" on notes for all to authenticated using (true) with check (true);
 create policy "allow_auth_noshows" on no_shows for all to authenticated using (true) with check (true);
+create policy "allow_auth_push" on push_subscriptions for all to authenticated using (true) with check (true);
 
 grant all on all tables in schema public to authenticated;`;
 
@@ -179,6 +182,39 @@ export const apiService = {
 
   async deleteUser(id: string): Promise<void> {
     const { error } = await supabase.from('profiles').delete().eq('id', id);
+    if (error) throw error;
+  },
+
+  async savePushSubscription(userId: string, subscription: any): Promise<void> {
+    const { error } = await supabase.from('push_subscriptions').upsert([{
+      user_id: userId,
+      subscription_json: JSON.stringify(subscription)
+    }], { onConflict: 'user_id, subscription_json' });
+    if (error) throw error;
+  },
+
+  async getAdminSubscriptions(): Promise<string[]> {
+    // Get profiles with ADMIN role
+    const { data: adminProfiles, error: profileError } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('role', 'ADMIN');
+    
+    if (profileError || !adminProfiles) return [];
+    const adminIds = adminProfiles.map(p => p.id);
+
+    // Get subscriptions for these IDs
+    const { data, error } = await supabase
+      .from('push_subscriptions')
+      .select('subscription_json')
+      .in('user_id', adminIds);
+    
+    if (error) return [];
+    return (data || []).map(s => s.subscription_json);
+  },
+
+  async removePushSubscription(userId: string): Promise<void> {
+    const { error } = await supabase.from('push_subscriptions').delete().eq('user_id', userId);
     if (error) throw error;
   },
 
@@ -247,7 +283,6 @@ export const apiService = {
     const { data, error } = await supabase.from('tickets').upsert({
       id: ticket.id,
       job_number: ticket.jobNumber,
-      // Fix: Access property using camelCase as defined in DigTicket interface
       ticket_no: ticket.ticketNo,
       street: ticket.street,
       cross_street: ticket.crossStreet,
@@ -256,11 +291,9 @@ export const apiService = {
       county: ticket.county,
       city: ticket.city,
       state: ticket.state,
-      // Fix: Access properties using camelCase as defined in DigTicket interface
       call_in_date: ticket.callInDate,
       work_date: ticket.workDate,
       expires: ticket.expires,
-      // Fix: Access properties using camelCase as defined in DigTicket interface
       site_contact: ticket.siteContact,
       refresh_requested: ticket.refreshRequested ?? false,
       no_show_requested: ticket.noShowRequested ?? false,
@@ -314,16 +347,22 @@ export const apiService = {
     }]);
     if (error) throw error;
     
-    // Also update the ticket flag
     await supabase.from('tickets').update({ no_show_requested: true }).eq('id', noShow.ticketId);
   },
 
   async deleteNoShow(ticketId: string): Promise<void> {
-    const { error: deleteError } = await supabase.from('no_shows').delete().eq('ticket_id', ticketId);
+    // 1. Remove the incident log
+    const { error: deleteError } = await supabase
+      .from('no_shows')
+      .delete()
+      .eq('ticket_id', ticketId);
     if (deleteError) throw deleteError;
     
-    // Reset the flag on the ticket
-    const { error: updateError } = await supabase.from('tickets').update({ no_show_requested: false }).eq('id', ticketId);
+    // 2. Explicitly clear the status flag on the ticket
+    const { error: updateError } = await supabase
+      .from('tickets')
+      .update({ no_show_requested: false })
+      .eq('id', ticketId);
     if (updateError) throw updateError;
   },
 
@@ -368,7 +407,6 @@ export const apiService = {
     const id = generateUUID();
     const fileExt = file.name.split('.').pop();
     const filePath = `${jobNumber}/tickets/${id}.${fileExt}`;
-    // Change to 'Ticket_Images' bucket
     const { error: uploadError } = await supabase.storage.from('Ticket_Images').upload(filePath, file);
     if (uploadError) throw uploadError;
     const { data: { publicUrl } } = supabase.storage.from('Ticket_Images').getPublicUrl(filePath);
