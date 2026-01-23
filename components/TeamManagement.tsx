@@ -48,17 +48,16 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
       
       if (permission === 'granted') {
         const registration = await navigator.serviceWorker.ready;
-        // In a real production app, you would use a VAPID public key from your backend here.
-        // For this implementation, we register the subscription if possible.
         try {
           const subscription = await registration.pushManager.subscribe({
             userVisibleOnly: true,
-            applicationServerKey: 'BEl62vp9IH96Id_qKqn979I16S3f9GqiC7N9n7-hS8n69O_N7-hS8n69O_N7-hS8n69O_N7-hS8n69O_N7-hS8' // Placeholder key
+            // Updated with the user provided VAPID Public Key
+            applicationServerKey: 'BMuI79vwIgC-aZR9pJOBtg0HU6r_WmLVWZXY97jYxgnyHLDzSe7JbWwFqMALq3OsC7vCbgdyxI_fTyATo_GLvwY'
           });
           await apiService.savePushSubscription(sessionUser.id, subscription);
           alert("Push notifications enabled successfully.");
         } catch (subErr) {
-          console.warn("Push subscription failed (expected without real VAPID):", subErr);
+          console.warn("Push subscription failed:", subErr);
           // Fallback: Notify user that local-only notifications are active
           alert("Native alerts enabled for this browser session.");
         }

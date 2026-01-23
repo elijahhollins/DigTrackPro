@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, User, UserRole, Job, JobNote, UserRecord, NoShowRecord } from './types.ts';
 import { getTicketStatus, getStatusColor } from './utils/dateUtils.ts';
@@ -650,13 +649,24 @@ const App: React.FC = () => {
             jobs={jobs} 
             isAdmin={isAdmin} 
             isDarkMode={isDarkMode} 
-            onJobSelect={(job) => handleJobSelection(job.jobNumber, job)} 
+            /* Fix: Explicitly type 'job' as Job to avoid 'unknown' inference error in App.tsx on line 499 */
+            onJobSelect={(job: Job) => handleJobSelection(job.jobNumber, job)} 
             onViewDoc={setViewingDocUrl} 
           />
         )}
 
         {activeView === 'photos' && (
-          <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} onAddPhoto={(data, file) => apiService.addPhoto(data, file)} onDeletePhoto={(id) => apiService.deletePhoto(id)} initialSearch={mediaFolderFilter} />
+          <PhotoManager 
+            photos={photos} 
+            jobs={jobs} 
+            tickets={tickets} 
+            isDarkMode={isDarkMode} 
+            /* Fix: Explicitly type 'data' and 'file' to avoid 'unknown' inference error in App.tsx on line 510 */
+            onAddPhoto={(data: Omit<JobPhoto, 'id' | 'dataUrl'>, file: File) => apiService.addPhoto(data, file)} 
+            /* Fix: Explicitly type 'id' as string to avoid 'unknown' inference error in App.tsx on line 510 */
+            onDeletePhoto={(id: string) => apiService.deletePhoto(id)} 
+            initialSearch={mediaFolderFilter} 
+          />
         )}
 
         {activeView === 'team' && (
