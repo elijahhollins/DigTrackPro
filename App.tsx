@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, User, UserRole, Job, JobNote, UserRecord, NoShowRecord } from './types.ts';
 import { getTicketStatus, getStatusColor } from './utils/dateUtils.ts';
 import { apiService } from './services/apiService.ts';
@@ -24,10 +24,6 @@ declare global {
   }
 }
 
-/**
- * Main App Component
- * Orchestrates the overall state, navigation, and theme of the application.
- */
 const App: React.FC = () => {
   const [sessionUser, setSessionUser] = useState<User | null>(null);
   const [activeView, setActiveView] = useState<AppView>('dashboard');
@@ -57,8 +53,10 @@ const App: React.FC = () => {
   });
 
   const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
+  
+  // Guard to prevent multiple initialization runs
+  const initRef = useRef(false);
 
-  // Registration of Service Worker for Push Notifications
   useEffect(() => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js')
@@ -68,7 +66,6 @@ const App: React.FC = () => {
   }, []);
 
   const alertAdmins = async (title: string, body: string) => {
-    console.log(`[Push Dispatch] ${title}: ${body}`);
     if (Notification.permission === 'granted' && sessionUser?.role === UserRole.ADMIN) {
       new Notification(title, { body, icon: '/favicon.ico' });
     }
@@ -89,14 +86,12 @@ const App: React.FC = () => {
       applyThemeColor('#a855f7');
       return;
     }
-
     const activeTkts = tickets.filter(t => !t.isArchived);
     const statuses = activeTkts.map(t => getTicketStatus(t));
     let color = '#3b82f6';
     if (statuses.includes(TicketStatus.EXPIRED)) color = '#e11d48';
     else if (statuses.includes(TicketStatus.REFRESH_NEEDED) || statuses.includes(TicketStatus.EXTENDABLE) || activeTkts.some(t => t.noShowRequested)) color = '#f59e0b';
     else if (activeTkts.length > 0) color = '#10b981';
-    
     const manual = localStorage.getItem('dig_theme_color');
     applyThemeColor(manual || color);
   }, [tickets, isProcessing]);
@@ -129,35 +124,82 @@ const App: React.FC = () => {
   };
 
   const initApp = async () => {
-    if (!isSupabaseConfigured()) { setIsLoading(false); return; }
+    if (initRef.current) return;
+    initRef.current = true;
+
+    if (!isSupabaseConfigured()) { 
+      setIsLoading(false); 
+      initRef.current = false;
+      return; 
+    }
+
     try {
-      await checkApiKey();
+      // Step 1: Detect Auth State quickly
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { setSessionUser(null); setIsLoading(false); return; }
-      const [allUsers, allTickets, allJobs, allPhotos, allNotes] = await Promise.allSettled([
+      
+      if (!session) { 
+        setSessionUser(null); 
+        setIsLoading(false); 
+        initRef.current = false;
+        return; 
+      }
+
+      // Ensure API Key check doesn't block critical startup
+      checkApiKey();
+
+      // Step 2: Fetch Data once session is confirmed
+      const [allUsersRes, allTicketsRes, allJobsRes, allPhotosRes, allNotesRes] = await Promise.allSettled([
         apiService.getUsers(),
         apiService.getTickets(),
         apiService.getJobs(),
         apiService.getPhotos(),
         apiService.getNotes()
       ]);
-      setUsers(allUsers.status === 'fulfilled' ? allUsers.value : []);
-      setTickets(allTickets.status === 'fulfilled' ? allTickets.value : []);
-      setJobs(allJobs.status === 'fulfilled' ? allJobs.value : []);
-      setPhotos(allPhotos.status === 'fulfilled' ? allPhotos.value : []);
-      setNotes(allNotes.status === 'fulfilled' ? allNotes.value : []);
-      const matchedProfile = (allUsers.status === 'fulfilled' ? allUsers.value : []).find(u => u.id === session.user.id);
+
+      const fetchedUsers = allUsersRes.status === 'fulfilled' ? allUsersRes.value : [];
+      setUsers(fetchedUsers);
+      setTickets(allTicketsRes.status === 'fulfilled' ? allTicketsRes.value : []);
+      setJobs(allJobsRes.status === 'fulfilled' ? allJobsRes.value : []);
+      setPhotos(allPhotosRes.status === 'fulfilled' ? allPhotosRes.value : []);
+      setNotes(allNotesRes.status === 'fulfilled' ? allNotesRes.value : []);
+
+      // Step 3: Match profile and set user
+      const matchedProfile = fetchedUsers.find(u => u.id === session.user.id);
       if (matchedProfile) {
-        setSessionUser({ id: session.user.id, name: matchedProfile.name, username: matchedProfile.username, role: matchedProfile.role });
+        setSessionUser({ 
+          id: session.user.id, 
+          name: matchedProfile.name, 
+          username: matchedProfile.username, 
+          role: matchedProfile.role 
+        });
       } else {
-        setSessionUser({ id: session.user.id, name: session.user.user_metadata?.display_name || 'New User', username: session.user.email || '', role: UserRole.CREW });
+        setSessionUser({ 
+          id: session.user.id, 
+          name: session.user.user_metadata?.display_name || 'New User', 
+          username: session.user.email || '', 
+          role: UserRole.CREW 
+        });
       }
-    } catch (error) { console.error("Critical Init Error:", error); } finally { setIsLoading(false); }
+    } catch (error) { 
+      console.error("Critical Init Error:", error); 
+    } finally { 
+      setIsLoading(false); 
+      initRef.current = false;
+    }
   };
 
   useEffect(() => {
     initApp();
-    const { data: authListener } = supabase.auth.onAuthStateChange(() => initApp());
+    const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
+      // On sign-out or session end, clear immediately
+      if (event === 'SIGNED_OUT') {
+        setSessionUser(null);
+        setTickets([]);
+        setJobs([]);
+      } else {
+        initApp();
+      }
+    });
     return () => authListener.subscription.unsubscribe();
   }, []);
 
@@ -165,9 +207,6 @@ const App: React.FC = () => {
     try { await supabase.auth.signOut(); setSessionUser(null); } catch (error: any) { console.error("Sign out error:", error.message); }
   };
 
-  /**
-   * Auto-create a Job entity if it doesn't already exist for a given ticket.
-   */
   const ensureJobExists = async (ticketData: Omit<DigTicket, 'id' | 'createdAt'>): Promise<Job> => {
     const existingJob = jobs.find(j => j.jobNumber === ticketData.jobNumber);
     if (existingJob) return existingJob;
@@ -191,10 +230,7 @@ const App: React.FC = () => {
 
   const handleSaveTicket = async (data: Omit<DigTicket, 'id' | 'createdAt'>, archiveOld: boolean = false) => {
     try {
-      // 1. Ensure Job Parent exists (Auto-Creation)
       await ensureJobExists(data);
-
-      // 2. Duplicate Integrity Check
       const isDuplicate = tickets.some(t => 
         !t.isArchived && 
         t.ticketNo.trim() === data.ticketNo.trim() && 
@@ -205,7 +241,7 @@ const App: React.FC = () => {
       );
 
       if (isDuplicate) {
-        alert(`Redundancy Blocked: Ticket #${data.ticketNo} for Job #${data.jobNumber} already exists in the vault with identical dates.`);
+        alert(`Redundancy Blocked: Ticket #${data.ticketNo} for Job #${data.jobNumber} already exists.`);
         return;
       }
 
@@ -223,25 +259,18 @@ const App: React.FC = () => {
     } catch (error: any) { alert(error.message); }
   };
 
-  /**
-   * Handles opening the summary modal, creating a placeholder Job if necessary.
-   */
   const handleJobSelection = async (jobNumber: string, jobEntity?: Job) => {
     if (jobEntity) {
       setSelectedJobSummary(jobEntity);
       return;
     }
-
-    // Attempt to find existing or create a placeholder for legacy/unlinked tickets
     const existing = jobs.find(j => j.jobNumber === jobNumber);
     if (existing) {
       setSelectedJobSummary(existing);
       return;
     }
-
     const jobTickets = tickets.filter(t => t.jobNumber === jobNumber && !t.isArchived);
     if (jobTickets.length === 0) return;
-
     const firstTkt = jobTickets[0];
     const newJob: Job = {
       id: crypto.randomUUID(),
@@ -254,7 +283,6 @@ const App: React.FC = () => {
       createdAt: Date.now(),
       isComplete: false
     };
-
     try {
       const saved = await apiService.saveJob(newJob);
       setJobs(prev => [...prev, saved]);
@@ -266,19 +294,20 @@ const App: React.FC = () => {
 
   const handleDeleteTicket = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm("Are you sure you want to permanently delete this ticket?")) return;
+    if (!confirm("Are you sure?")) return;
     try {
       await apiService.deleteTicket(id);
-      await initApp();
+      setTickets(prev => prev.filter(t => t.id !== id));
     } catch (error: any) { alert("Delete failed: " + error.message); }
   };
 
   const handleDeleteJob = async (job: Job) => {
-    if (!confirm(`Permanently delete Job #${job.jobNumber} and ALL its tickets? This cannot be undone.`)) return;
+    if (!confirm(`Delete Job #${job.jobNumber} and ALL its tickets?`)) return;
     try {
       await apiService.deleteTicketsByJob(job.jobNumber);
       await apiService.deleteJob(job.id);
-      await initApp();
+      setJobs(prev => prev.filter(j => j.id !== job.id));
+      setTickets(prev => prev.filter(t => t.jobNumber !== job.jobNumber));
     } catch (error: any) { alert("Delete job failed: " + error.message); }
   };
 
@@ -289,12 +318,8 @@ const App: React.FC = () => {
       const updatedTicket = { ...ticket, refreshRequested: willRequest };
       const saved = await apiService.saveTicket(updatedTicket);
       setTickets(prev => prev.map(t => t.id === saved.id ? saved : t));
-      
       if (willRequest) {
-        alertAdmins(
-          '🔄 Manual Refresh Requested', 
-          `Job #${ticket.jobNumber}: Ticket #${ticket.ticketNo} requires manual extension.`
-        );
+        alertAdmins('🔄 Manual Refresh Requested', `Job #${ticket.jobNumber}: Ticket #${ticket.ticketNo} requires manual extension.`);
       }
     } catch (error: any) { alert(error.message); }
   };
@@ -305,28 +330,17 @@ const App: React.FC = () => {
       const saved = await apiService.saveJob(updatedJob);
       setJobs(prev => prev.map(j => j.id === saved.id ? saved : j));
       setSelectedJobSummary(saved);
-    } catch (error: any) {
-      alert("Status toggle failed: " + error.message);
-    }
+    } catch (error: any) { alert("Status toggle failed: " + error.message); }
   };
 
   const handleRemoveNoShow = async (ticket: DigTicket): Promise<boolean> => {
     try {
-      // 1. Trigger deletion via API
       await apiService.deleteNoShow(ticket.id);
-      
-      // 2. Clear from local state immediately for snappy UX
       setTickets(prev => prev.map(t => t.id === ticket.id ? { ...t, noShowRequested: false } : t));
-      
-      // 3. Close the modal by setting state to null
       setNoShowTicket(null);
-      
-      // 4. Trigger global refresh in background
-      initApp();
-      
       return true;
     } catch (error: any) {
-      alert("Failed to clear no show status: " + error.message);
+      alert("Failed to clear no show: " + error.message);
       return false;
     }
   };
@@ -336,23 +350,23 @@ const App: React.FC = () => {
     return tickets.filter(t => !completedNumbers.has(t.jobNumber) && !t.isArchived);
   }, [tickets, jobs]);
 
+  // Fix: Addressing TypeScript unknown type issues by providing explicit type guards and string conversions.
   const filteredTickets = useMemo(() => {
     let res = activeTickets.filter(t => {
-      const s = globalSearch.toLowerCase().trim();
-      if (s && !t.ticketNo.toLowerCase().includes(s) && !t.street.toLowerCase().includes(s) && !t.jobNumber.toLowerCase().includes(s)) return false;
+      const s = String(globalSearch || '').toLowerCase().trim();
+      if (s && !String(t.ticketNo || '').toLowerCase().includes(s) && !String(t.street || '').toLowerCase().includes(s) && !String(t.jobNumber || '').toLowerCase().includes(s)) return false;
       if (activeFilter) {
-        if (activeFilter === 'NO_SHOW') return t.noShowRequested;
+        if (activeFilter === 'NO_SHOW') return !!t.noShowRequested;
         return getTicketStatus(t) === activeFilter;
       }
       return true;
     });
     res.sort((a, b) => {
-      let vA: any = a[sortConfig.field as keyof DigTicket];
-      let vB: any = b[sortConfig.field as keyof DigTicket];
-      if (sortConfig.field === 'status') { vA = getTicketStatus(a); vB = getTicketStatus(b); }
+      let vA: any = sortConfig.field === 'status' ? getTicketStatus(a) : a[sortConfig.field as keyof DigTicket];
+      let vB: any = sortConfig.field === 'status' ? getTicketStatus(b) : b[sortConfig.field as keyof DigTicket];
       const f = sortConfig.order === 'asc' ? 1 : -1;
-      if (typeof vA === 'string') return f * vA.localeCompare(vB);
-      return f * ((vA ?? 0) - (vB ?? 0));
+      if (typeof vA === 'string') return f * String(vA || '').localeCompare(String(vB || ''));
+      return f * ((Number(vA) || 0) - (Number(vB) || 0));
     });
     return res;
   }, [activeTickets, globalSearch, sortConfig, activeFilter]);
@@ -369,15 +383,20 @@ const App: React.FC = () => {
 
   const toggleJobExpansion = (jobNumber: string) => {
     const next = new Set(expandedJobs);
-    if (next.has(jobNumber)) {
-      next.delete(jobNumber);
-    } else {
-      next.add(jobNumber);
-    }
+    if (next.has(jobNumber)) next.delete(jobNumber);
+    else next.add(jobNumber);
     setExpandedJobs(next);
   };
 
-  if (isLoading) return <div className="min-h-screen bg-[#0f172a] flex flex-col items-center justify-center"><div className="w-8 h-8 border-2 border-brand border-t-transparent rounded-full animate-spin mb-4" /><p className="text-[9px] font-black uppercase tracking-widest opacity-40">Synchronizing Vault...</p></div>;
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#0f172a] flex flex-col items-center justify-center">
+        <div className="w-8 h-8 border-2 border-brand border-t-transparent rounded-full animate-spin mb-4" />
+        <p className="text-[9px] font-black uppercase tracking-widest opacity-40">Synchronizing Vault...</p>
+      </div>
+    );
+  }
+
   if (!sessionUser) return <Login onLogin={setSessionUser} />;
 
   const isAdmin = sessionUser.role === UserRole.ADMIN;
@@ -386,7 +405,7 @@ const App: React.FC = () => {
     { id: 'dashboard', label: 'Vault', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg> },
     { id: 'jobs', label: 'Projects', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg> },
     { id: 'calendar', label: 'Schedule', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
-    { id: 'photos', label: 'Media', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
+    { id: 'photos', label: 'Media', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 00-2 2z" /></svg> },
     { id: 'team', label: 'Team', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg> },
   ];
 
@@ -486,134 +505,38 @@ const App: React.FC = () => {
                       const jobTickets = groupedTickets.get(jobNum)!;
                       const jobEntity = jobs.find(j => j.jobNumber === jobNum);
                       const isExpanded = expandedJobs.has(jobNum);
-                      
                       const statuses = jobTickets.map(t => getTicketStatus(t));
                       let aggregateStatus = TicketStatus.VALID;
                       if (statuses.includes(TicketStatus.EXPIRED)) aggregateStatus = TicketStatus.EXPIRED;
                       else if (statuses.includes(TicketStatus.REFRESH_NEEDED) || statuses.includes(TicketStatus.EXTENDABLE)) aggregateStatus = TicketStatus.REFRESH_NEEDED;
-                      
                       return (
                         <React.Fragment key={jobNum}>
-                          <tr 
-                            onClick={() => toggleJobExpansion(jobNum)} 
-                            className={`transition-all cursor-pointer border-l-4 ${isExpanded ? 'border-brand' : 'border-transparent'} ${isDarkMode ? 'hover:bg-white/[0.03]' : 'hover:bg-slate-50/80'}`}
-                          >
+                          <tr onClick={() => toggleJobExpansion(jobNum)} className={`transition-all cursor-pointer border-l-4 ${isExpanded ? 'border-brand' : 'border-transparent'} ${isDarkMode ? 'hover:bg-white/[0.03]' : 'hover:bg-slate-50/80'}`}>
                             <td className="px-8 py-6">
                               <div className="flex items-center gap-4">
-                                <div className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${isExpanded ? 'bg-brand/10 border-brand/20 text-brand rotate-90' : 'bg-black/5 border-transparent opacity-40'}`}>
-                                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M9 5l7 7-7 7" /></svg>
-                                </div>
-                                <button 
-                                  onClick={(e) => { 
-                                    e.stopPropagation(); 
-                                    handleJobSelection(jobNum, jobEntity); 
-                                  }}
-                                  className={`text-[13px] font-black hover:text-brand transition-colors text-left ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
-                                >
-                                  JOB #{jobNum}
-                                </button>
+                                <div className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${isExpanded ? 'bg-brand/10 border-brand/20 text-brand rotate-90' : 'bg-black/5 border-transparent opacity-40'}`}><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M9 5l7 7-7 7" /></svg></div>
+                                <button onClick={(e) => { e.stopPropagation(); handleJobSelection(jobNum, jobEntity); }} className={`text-[13px] font-black hover:text-brand transition-colors text-left ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>JOB #{jobNum}</button>
                               </div>
                             </td>
-                            <td className="px-8 py-6">
-                              <div className="flex items-center gap-1.5">
-                                <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-lg ${isDarkMode ? 'bg-white/5 text-slate-400' : 'bg-slate-100 text-slate-600'}`}>
-                                  {jobTickets.length} <span className="opacity-40">{jobTickets.length === 1 ? 'Asset' : 'Assets'}</span>
-                                </span>
-                              </div>
-                            </td>
-                            <td className="px-8 py-6">
-                              <div className="flex flex-col">
-                                <span className={`text-[11px] font-black uppercase tracking-tight truncate max-w-[200px] ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                                  {jobEntity?.customer || 'Direct Client'}
-                                </span>
-                                <span className={`text-[9px] font-bold truncate max-w-[200px] opacity-40`}>
-                                  {jobEntity?.address || 'Field Location'}
-                                </span>
-                              </div>
-                            </td>
-                            <td className="px-8 py-6 text-center">
-                              <div className={`w-2.5 h-2.5 rounded-full mx-auto ring-4 ${
-                                aggregateStatus === TicketStatus.EXPIRED ? 'bg-rose-500 ring-rose-500/10' :
-                                aggregateStatus === TicketStatus.REFRESH_NEEDED ? 'bg-amber-500 ring-amber-500/10' :
-                                'bg-emerald-500 ring-emerald-500/10'
-                              }`} />
-                            </td>
-                            <td className="px-8 py-6 text-right">
-                              <span className={`text-[10px] font-bold uppercase tracking-widest opacity-30`}>
-                                {isExpanded ? 'Collapse' : 'Details'}
-                              </span>
-                            </td>
-                            <td className="px-8 py-6 text-right">
-                              <div className="flex items-center justify-end">
-                                {isAdmin && (
-                                  <button 
-                                    onClick={(e) => { e.stopPropagation(); jobEntity && handleDeleteJob(jobEntity); }}
-                                    className="p-2.5 text-slate-400 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100"
-                                  >
-                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                  </button>
-                                )}
-                              </div>
-                            </td>
+                            <td className="px-8 py-6"><span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-lg ${isDarkMode ? 'bg-white/5 text-slate-400' : 'bg-slate-100 text-slate-600'}`}>{jobTickets.length} Assets</span></td>
+                            <td className="px-8 py-6"><div className="flex flex-col"><span className={`text-[11px] font-black uppercase tracking-tight truncate max-w-[200px] ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{jobEntity?.customer || 'Direct Client'}</span><span className="text-[9px] font-bold truncate max-w-[200px] opacity-40">{jobEntity?.address || 'Field Location'}</span></div></td>
+                            <td className="px-8 py-6 text-center"><div className={`w-2.5 h-2.5 rounded-full mx-auto ring-4 ${aggregateStatus === TicketStatus.EXPIRED ? 'bg-rose-500 ring-rose-500/10' : aggregateStatus === TicketStatus.REFRESH_NEEDED ? 'bg-amber-500 ring-amber-500/10' : 'bg-emerald-500 ring-emerald-500/10'}`} /></td>
+                            <td className="px-8 py-6 text-right font-bold text-[10px] opacity-30">{isExpanded ? 'COLLAPSE' : 'DETAILS'}</td>
+                            <td className="px-8 py-6 text-right">{isAdmin && <button onClick={(e) => { e.stopPropagation(); jobEntity && handleDeleteJob(jobEntity); }} className="p-2.5 text-slate-400 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>}</td>
                           </tr>
-
-                          {isExpanded && jobTickets.map((ticket, idx) => {
+                          {isExpanded && jobTickets.map((ticket) => {
                             const status = getTicketStatus(ticket);
                             return (
-                              <tr 
-                                key={ticket.id} 
-                                onClick={() => isAdmin && setEditingTicket(ticket)} 
-                                className={`animate-in transition-all group ${isAdmin ? 'cursor-pointer' : ''} ${isDarkMode ? 'bg-white/[0.01]' : 'bg-slate-50/30'} border-l-4 border-slate-500/10`}
-                              >
-                                <td className="px-8 py-4 pl-16">
-                                   <div className="flex items-center gap-3">
-                                      <div className="w-2 h-2 rounded-full bg-slate-500/20" />
-                                      <button 
-                                        onClick={(e) => { e.stopPropagation(); if (ticket.documentUrl) setViewingDocUrl(ticket.documentUrl); }} 
-                                        className={`text-[11px] font-mono font-bold tracking-tight transition-colors ${ticket.documentUrl ? 'hover:text-brand hover:underline cursor-zoom-in text-brand' : isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}
-                                      >
-                                        {ticket.ticketNo}
-                                      </button>
-                                   </div>
-                                </td>
+                              <tr key={ticket.id} onClick={() => isAdmin && setEditingTicket(ticket)} className={`animate-in transition-all group ${isAdmin ? 'cursor-pointer' : ''} ${isDarkMode ? 'bg-white/[0.01]' : 'bg-slate-50/30'} border-l-4 border-slate-500/10`}>
+                                <td className="px-8 py-4 pl-16"><div className="flex items-center gap-3"><div className="w-2 h-2 rounded-full bg-slate-500/20" /><button onClick={(e) => { e.stopPropagation(); if (ticket.documentUrl) setViewingDocUrl(ticket.documentUrl); }} className={`text-[11px] font-mono font-bold tracking-tight transition-colors ${ticket.documentUrl ? 'hover:text-brand hover:underline text-brand' : 'opacity-40'}`}>{ticket.ticketNo}</button></div></td>
                                 <td colSpan={2} className={`px-8 py-4 text-[11px] font-bold truncate max-w-[400px] ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>{ticket.street}</td>
-                                <td className="px-8 py-4 text-center">
-                                  <span className={`inline-flex px-2 py-0.5 rounded-lg text-[8px] font-black uppercase border tracking-widest ${getStatusColor(status)}`}>{status}</span>
-                                </td>
-                                <td className={`px-8 py-4 text-[11px] font-bold text-right opacity-60`}>
-                                  {new Date(ticket.expires).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                                </td>
+                                <td className="px-8 py-4 text-center"><span className={`inline-flex px-2 py-0.5 rounded-lg text-[8px] font-black uppercase border tracking-widest ${getStatusColor(status)}`}>{status}</span></td>
+                                <td className={`px-8 py-4 text-[11px] font-bold text-right opacity-60`}>{new Date(ticket.expires).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</td>
                                 <td className="px-8 py-4 text-right">
                                   <div className="flex items-center justify-end gap-2">
-                                    <button 
-                                      onClick={(e) => { 
-                                        e.stopPropagation(); 
-                                        setNoShowTicket(ticket);
-                                      }} 
-                                      className={`p-2 rounded-xl transition-all border ${
-                                        ticket.noShowRequested 
-                                          ? 'bg-rose-500 text-white border-rose-600 shadow-lg shadow-rose-500/20' 
-                                          : 'bg-rose-500/5 text-rose-500 border-rose-500/10 hover:bg-rose-500 hover:text-white'
-                                      }`}
-                                    >
-                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
-                                    </button>
-
-                                    <button 
-                                      onClick={(e) => handleToggleRefresh(ticket, e)} 
-                                      className={`p-2 rounded-xl transition-all border ${ticket.refreshRequested ? 'bg-amber-100 text-amber-600 border-amber-300 shadow-lg shadow-amber-500/20' : isDarkMode ? 'bg-white/5 text-slate-400 border-transparent hover:text-brand hover:border-brand/20' : 'bg-slate-100 text-slate-500 border-transparent hover:text-brand hover:border-brand/20'}`}
-                                    >
-                                      <svg className={`w-4 h-4 ${ticket.refreshRequested ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357-2H15" /></svg>
-                                    </button>
-
-                                    {isAdmin && (
-                                      <button 
-                                        onClick={(e) => handleDeleteTicket(ticket.id, e)}
-                                        className="p-2 text-slate-500 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100"
-                                      >
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                      </button>
-                                    )}
+                                    <button onClick={(e) => { e.stopPropagation(); setNoShowTicket(ticket); }} className={`p-2 rounded-xl transition-all border ${ticket.noShowRequested ? 'bg-rose-500 text-white border-rose-600 shadow-lg' : 'bg-rose-500/5 text-rose-500 border-rose-500/10 hover:bg-rose-500 hover:text-white'}`}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg></button>
+                                    <button onClick={(e) => handleToggleRefresh(ticket, e)} className={`p-2 rounded-xl transition-all border ${ticket.refreshRequested ? 'bg-amber-100 text-amber-600 border-amber-300' : 'bg-slate-100 text-slate-500 hover:text-brand'}`}><svg className={`w-4 h-4 ${ticket.refreshRequested ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357-2H15" /></svg></button>
+                                    {isAdmin && <button onClick={(e) => handleDeleteTicket(ticket.id, e)} className="p-2 text-slate-500 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>}
                                   </div>
                                 </td>
                               </tr>
@@ -622,15 +545,7 @@ const App: React.FC = () => {
                         </React.Fragment>
                       );
                     }) : (
-                      <tr>
-                        <td colSpan={6} className="py-20 text-center">
-                          <div className="flex flex-col items-center opacity-30">
-                            <svg className="w-16 h-16 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
-                            <h3 className="text-sm font-black uppercase tracking-widest">Vault Empty</h3>
-                            <p className="text-[10px] font-bold uppercase tracking-widest mt-1">Initialize field operations to begin</p>
-                          </div>
-                        </td>
-                      </tr>
+                      <tr><td colSpan={6} className="py-20 text-center opacity-30 text-sm font-black uppercase tracking-widest">Vault Empty</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -638,140 +553,33 @@ const App: React.FC = () => {
             </div>
           </div>
         )}
-
-        {activeView === 'calendar' && (
-          <CalendarView tickets={tickets} onEditTicket={setEditingTicket} onViewDoc={setViewingDocUrl} />
-        )}
-
-        {activeView === 'jobs' && (
-          <JobReview 
-            tickets={tickets} 
-            jobs={jobs} 
-            isAdmin={isAdmin} 
-            isDarkMode={isDarkMode} 
-            /* Fix: Explicitly type 'job' as Job to avoid 'unknown' inference error in App.tsx on line 499 */
-            onJobSelect={(job: Job) => handleJobSelection(job.jobNumber, job)} 
-            onViewDoc={setViewingDocUrl} 
-          />
-        )}
-
-        {activeView === 'photos' && (
-          <PhotoManager 
-            photos={photos} 
-            jobs={jobs} 
-            tickets={tickets} 
-            isDarkMode={isDarkMode} 
-            /* Fix: Explicitly type 'data' and 'file' to avoid 'unknown' inference error in App.tsx on line 510 */
-            onAddPhoto={(data: Omit<JobPhoto, 'id' | 'dataUrl'>, file: File) => apiService.addPhoto(data, file)} 
-            /* Fix: Explicitly type 'id' as string to avoid 'unknown' inference error in App.tsx on line 510 */
-            onDeletePhoto={(id: string) => apiService.deletePhoto(id)} 
-            initialSearch={mediaFolderFilter} 
-          />
-        )}
-
-        {activeView === 'team' && (
-          <TeamManagement users={users} sessionUser={sessionUser} isDarkMode={isDarkMode} onAddUser={async (u) => { await apiService.addUser(u); await initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); await initApp(); }} onThemeChange={applyThemeColor} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); await initApp(); }} />
-        )}
-
-        {(showTicketForm || editingTicket) && (
-          <TicketForm 
-            onSave={handleSaveTicket} 
-            onClose={() => { setShowTicketForm(false); setEditingTicket(null); }} 
-            initialData={editingTicket} 
-            isDarkMode={isDarkMode} 
-            existingTickets={tickets}
-          />
-        )}
-
-        {(showJobForm || editingJob) && (
-          <JobForm onSave={async (data) => {
-              try {
-                const job: Job = editingJob 
-                  ? { ...editingJob, ...data } 
-                  : { ...data, id: crypto.randomUUID(), createdAt: Date.now(), isComplete: false };
-                
-                const saved = await apiService.saveJob(job);
-                
-                // Optimistic Local State Update for instantaneous UI feedback
-                setJobs(prev => {
-                  const exists = prev.findIndex(j => j.id === saved.id);
-                  if (exists > -1) return prev.map(j => j.id === saved.id ? saved : j);
-                  return [...prev, saved];
-                });
-
-                setShowJobForm(false);
-                setEditingJob(null);
-                
-                // Background refresh to ensure consistency
-                initApp();
-              } catch (err: any) {
-                alert("Failed to save project changes: " + err.message);
-              }
-            }} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} isDarkMode={isDarkMode} />
-        )}
-
-        {selectedJobSummary && (
-          <JobSummaryModal 
-            job={selectedJobSummary}
-            tickets={tickets.filter(t => t.jobNumber === selectedJobSummary.jobNumber)}
-            onClose={() => setSelectedJobSummary(null)}
-            onEdit={() => {
-              setEditingJob(selectedJobSummary);
-              setShowJobForm(true);
-              setSelectedJobSummary(null);
-            }}
-            onToggleComplete={() => handleToggleJobCompletion(selectedJobSummary)}
-            onViewMedia={() => {
-              setMediaFolderFilter(selectedJobSummary.jobNumber);
-              setActiveView('photos');
-              setSelectedJobSummary(null);
-            }}
-            isDarkMode={isDarkMode}
-          />
-        )}
-
-        {noShowTicket && (
-          <NoShowForm ticket={noShowTicket} userName={sessionUser?.name || ''} onSave={async (record) => { await apiService.addNoShow(record); await initApp(); alertAdmins('⚠️ No Show Incident Reported', `Job #${noShowTicket.jobNumber}: Crew reporting utility failure on Ticket #${noShowTicket.ticketNo}.`); }} onDelete={() => handleRemoveNoShow(noShowTicket)} onClose={() => setNoShowTicket(null)} isDarkMode={isDarkMode} />
-        )}
-
-        {viewingDocUrl && (
-          <div className="fixed inset-0 bg-black/90 z-[300] flex items-center justify-center p-4">
-             <button onClick={() => setViewingDocUrl(null)} className="absolute top-6 right-6 p-3 bg-white/10 rounded-full text-white hover:bg-white/20 transition-all">
-               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
-             </button>
-             <iframe src={viewingDocUrl} className="w-full max-w-5xl h-[90vh] rounded-3xl bg-white shadow-2xl border-4 border-white/5" />
-          </div>
-        )}
+        {activeView === 'calendar' && <CalendarView tickets={tickets} onEditTicket={setEditingTicket} onViewDoc={setViewingDocUrl} />}
+        {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} isAdmin={isAdmin} isDarkMode={isDarkMode} onJobSelect={(job: Job) => handleJobSelection(job.jobNumber, job)} onViewDoc={setViewingDocUrl} />}
+        {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} onAddPhoto={(data, file) => apiService.addPhoto(data, file)} onDeletePhoto={(id: string) => apiService.deletePhoto(id)} initialSearch={mediaFolderFilter} />}
+        {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} isDarkMode={isDarkMode} onAddUser={async (u) => { await apiService.addUser(u); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onThemeChange={applyThemeColor} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} />}
+        {(showTicketForm || editingTicket) && <TicketForm onSave={handleSaveTicket} onClose={() => { setShowTicketForm(false); setEditingTicket(null); }} initialData={editingTicket} isDarkMode={isDarkMode} existingTickets={tickets} />}
+        {(showJobForm || editingJob) && <JobForm onSave={async (data) => {
+            const job: Job = editingJob ? { ...editingJob, ...data } : { ...data, id: crypto.randomUUID(), createdAt: Date.now(), isComplete: false };
+            const saved = await apiService.saveJob(job);
+            setJobs(prev => {
+              const exists = prev.findIndex(j => j.id === saved.id);
+              if (exists > -1) return prev.map(j => j.id === saved.id ? saved : j);
+              return [...prev, saved];
+            });
+            setShowJobForm(false);
+            setEditingJob(null);
+          }} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} isDarkMode={isDarkMode} />}
+        {selectedJobSummary && <JobSummaryModal job={selectedJobSummary} tickets={tickets.filter(t => t.jobNumber === selectedJobSummary.jobNumber)} onClose={() => setSelectedJobSummary(null)} onEdit={() => { setEditingJob(selectedJobSummary); setShowJobForm(true); setSelectedJobSummary(null); }} onToggleComplete={() => handleToggleJobCompletion(selectedJobSummary)} onViewMedia={() => { setMediaFolderFilter(selectedJobSummary.jobNumber); setActiveView('photos'); setSelectedJobSummary(null); }} isDarkMode={isDarkMode} />}
+        {noShowTicket && <NoShowForm ticket={noShowTicket} userName={sessionUser?.name || ''} onSave={async (record) => { await apiService.addNoShow(record); setTickets(prev => prev.map(t => t.id === noShowTicket.id ? { ...t, noShowRequested: true } : t)); alertAdmins('⚠️ No Show Incident Reported', `Job #${noShowTicket.jobNumber}: Ticket #${noShowTicket.ticketNo}.`); }} onDelete={() => handleRemoveNoShow(noShowTicket)} onClose={() => setNoShowTicket(null)} isDarkMode={isDarkMode} />}
+        {viewingDocUrl && <div className="fixed inset-0 bg-black/90 z-[300] flex items-center justify-center p-4"><button onClick={() => setViewingDocUrl(null)} className="absolute top-6 right-6 p-3 bg-white/10 rounded-full text-white hover:bg-white/20"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg></button><iframe src={viewingDocUrl} className="w-full max-w-5xl h-[90vh] rounded-3xl bg-white shadow-2xl border-4 border-white/5" /></div>}
       </main>
-
-      {/* MOBILE BOTTOM NAVIGATION */}
       <nav className={`sm:hidden fixed bottom-0 left-0 right-0 z-50 px-4 pb-6 pt-3 backdrop-blur-xl border-t flex justify-between items-center ${isDarkMode ? 'bg-[#1e293b]/95 border-white/5 shadow-[0_-10px_30px_rgba(0,0,0,0.5)]' : 'bg-white/95 border-slate-200 shadow-[0_-10px_30px_rgba(0,0,0,0.1)]'}`}>
         {NAV_ITEMS.map((item) => {
           const isActive = activeView === item.id;
-          return (
-            <button
-              key={item.id}
-              onClick={() => setActiveView(item.id)}
-              className={`flex flex-col items-center gap-1 transition-all ${isActive ? 'text-brand scale-110' : 'text-slate-500 opacity-60'}`}
-            >
-              <div className={`p-2 rounded-xl ${isActive ? 'bg-brand/10' : ''}`}>
-                {item.icon}
-              </div>
-              <span className="text-[8px] font-black uppercase tracking-widest">{item.label}</span>
-            </button>
-          );
+          return <button key={item.id} onClick={() => setActiveView(item.id)} className={`flex flex-col items-center gap-1 transition-all ${isActive ? 'text-brand scale-110' : 'text-slate-500 opacity-60'}`}><div className={`p-2 rounded-xl ${isActive ? 'bg-brand/10' : ''}`}>{item.icon}</div><span className="text-[8px] font-black uppercase tracking-widest">{item.label}</span></button>;
         })}
       </nav>
-
-      {/* MOBILE FLOATING ACTION BUTTON */}
-      {isAdmin && activeView === 'dashboard' && (
-        <button 
-          onClick={() => { setEditingTicket(null); setShowTicketForm(true); }}
-          className="sm:hidden fixed bottom-24 right-6 w-14 h-14 bg-brand rounded-2xl shadow-2xl shadow-brand/40 flex items-center justify-center text-[#0f172a] active:scale-90 transition-transform z-40 border-4 border-[#0f172a]"
-        >
-          <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
-        </button>
-      )}
+      {isAdmin && activeView === 'dashboard' && <button onClick={() => { setEditingTicket(null); setShowTicketForm(true); }} className="sm:hidden fixed bottom-24 right-6 w-14 h-14 bg-brand rounded-2xl shadow-2xl flex items-center justify-center text-[#0f172a] z-40 border-4 border-[#0f172a]"><svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg></button>}
     </div>
   );
 };
