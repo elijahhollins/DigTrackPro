@@ -8,6 +8,7 @@ interface JobSummaryModalProps {
   tickets: DigTicket[];
   onClose: () => void;
   onEdit: () => void;
+  onDelete: () => void;
   onToggleComplete: () => Promise<void>;
   onViewMedia: () => void;
   isDarkMode?: boolean;
@@ -18,6 +19,7 @@ export const JobSummaryModal: React.FC<JobSummaryModalProps> = ({
   tickets,
   onClose,
   onEdit,
+  onDelete,
   onToggleComplete,
   onViewMedia,
   isDarkMode
@@ -27,8 +29,8 @@ export const JobSummaryModal: React.FC<JobSummaryModalProps> = ({
   const validCount = activeTickets.length - expiredCount;
 
   return (
-    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[170] flex items-center justify-center p-4">
-      <div className={`w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden border animate-in ${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white border-slate-200'}`}>
+    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[170] overflow-y-auto pt-10 pb-20 px-4">
+      <div className={`w-full max-w-md mx-auto rounded-[2.5rem] shadow-2xl overflow-hidden border animate-in ${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white border-slate-200'}`}>
         {/* Header Section */}
         <div className="px-8 py-6 border-b flex justify-between items-center bg-black/5">
           <div>
@@ -90,6 +92,13 @@ export const JobSummaryModal: React.FC<JobSummaryModalProps> = ({
              >
                <svg className="w-5 h-5 mb-2 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                <span className="text-[9px] font-black uppercase tracking-widest">Job Media</span>
+             </button>
+             <button 
+              onClick={onDelete}
+              className={`col-span-2 flex items-center justify-center gap-3 p-4 rounded-3xl border transition-all hover:scale-105 active:scale-95 ${isDarkMode ? 'bg-rose-500/10 border-rose-500/20 text-rose-500 hover:bg-rose-500 hover:text-white' : 'bg-rose-50 border-rose-100 text-rose-600 hover:bg-rose-600 hover:text-white shadow-sm'}`}
+             >
+               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+               <span className="text-[9px] font-black uppercase tracking-widest">Delete Project Folder</span>
              </button>
           </div>
 
