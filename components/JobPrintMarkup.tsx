@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Job, JobPrint, PrintMarker, DigTicket, TicketStatus } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
@@ -130,6 +129,11 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
     (e.target as HTMLElement).releasePointerCapture(e.pointerId);
   };
 
+  /**
+   * REFINED WHEEL HANDLER: 
+   * Uses an exponential curve for "natural" zoom scaling.
+   * Ensures pointer-centric zooming (zooms into the mouse position).
+   */
   const handleWheel = (e: React.WheelEvent) => {
     if (newMarkerPos || isDocInteractMode) return;
     e.preventDefault();
@@ -137,16 +141,26 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
     const vRect = viewportRef.current?.getBoundingClientRect();
     if (!vRect) return;
 
-    const delta = e.deltaY;
-    const scaleFactor = delta > 0 ? 0.92 : 1.08;
+    // Use a small constant for sensitivity. e.deltaY is typically 100 for wheels, 
+    // and can be very small/dynamic for trackpads.
+    const zoomIntensity = 0.001; 
+    const scaleFactor = Math.exp(-e.deltaY * zoomIntensity);
+    
+    // Smoothly calculate new scale within boundaries
     const newScale = Math.min(Math.max(transform.scale * scaleFactor, 0.02), 20);
 
+    // If we've hit a limit and scale hasn't changed, don't move the position
+    if (newScale === transform.scale) return;
+
+    // Current mouse position relative to the viewport container
     const mouseX = e.clientX - vRect.left;
     const mouseY = e.clientY - vRect.top;
 
+    // The point in content-space currently under the mouse
     const contentX = (mouseX - transform.x) / transform.scale;
     const contentY = (mouseY - transform.y) / transform.scale;
 
+    // The new translation needed to keep that content-space point under the exact same mouse pixel
     const nextX = mouseX - contentX * newScale;
     const nextY = mouseY - contentY * newScale;
 
@@ -174,7 +188,7 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
     const vRect = viewportRef.current?.getBoundingClientRect();
     if (!vRect) return;
     handleWheel({ 
-      deltaY: -100, 
+      deltaY: -150, // Fixed jump for UI buttons
       clientX: vRect.left + vRect.width/2, 
       clientY: vRect.top + vRect.height/2, 
       preventDefault: () => {} 
@@ -185,7 +199,7 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
     const vRect = viewportRef.current?.getBoundingClientRect();
     if (!vRect) return;
     handleWheel({ 
-      deltaY: 100, 
+      deltaY: 150, // Fixed jump for UI buttons
       clientX: vRect.left + vRect.width/2, 
       clientY: vRect.top + vRect.height/2, 
       preventDefault: () => {} 
