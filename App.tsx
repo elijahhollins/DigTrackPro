@@ -68,6 +68,11 @@ const App: React.FC = () => {
     }
   }, []);
 
+  // Close markup modal if tab changes
+  useEffect(() => {
+    setShowMarkup(null);
+  }, [activeView]);
+
   const alertAdmins = async (title: string, body: string) => {
     if (Notification.permission === 'granted' && sessionUser?.role === UserRole.ADMIN) {
       new Notification(title, { body, icon: '/favicon.ico' });
@@ -423,7 +428,6 @@ const App: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className={`divide-y ${isDarkMode ? 'divide-white/5' : 'divide-slate-100'}`}>
-                    {/* Fixed 'unknown' type inference on line 436 and 437 by adding explicit string type annotation to map key parameter */}
                     {Array.from(groupedTickets.keys()).map((jobNum: string) => {
                       const jobTickets = groupedTickets.get(jobNum)!;
                       const jobEntity = jobs.find(j => j.jobNumber === jobNum);
@@ -442,7 +446,6 @@ const App: React.FC = () => {
                             <td className="px-8 py-6 text-right font-bold text-[10px] opacity-30">{isExpanded ? 'COLLAPSE' : 'DETAILS'}</td>
                             <td className="px-8 py-6 text-right">{isAdmin && <button onClick={(e) => { e.stopPropagation(); jobEntity && handleDeleteJob(jobEntity); }} className="p-2.5 text-slate-400 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>}</td>
                           </tr>
-                          {/* Fixed 'unknown' type inference inside nested map by explicitly typing 'ticket' as DigTicket */}
                           {isExpanded && jobTickets.map((ticket: DigTicket) => {
                             const status = getTicketStatus(ticket);
                             return (
