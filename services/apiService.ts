@@ -284,7 +284,7 @@ export const apiService = {
         expires: data.expires,
         siteContact: data.site_contact,
         refreshRequested: data.refresh_requested ?? false,
-        noShowRequested: data.no_show_requested ?? false,
+        noShowRequested: data.noShowRequested ?? false,
         isArchived: data.is_archived ?? false,
         documentUrl: data.document_url || '',
         createdAt: new Date(data.created_at).getTime()

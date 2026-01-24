@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Job, JobPrint, PrintMarker, DigTicket, TicketStatus } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
 import { getTicketStatus, getStatusDotColor } from '../utils/dateUtils.ts';
@@ -49,12 +49,11 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
     if (print && viewportRef.current && !isLoading) {
       const vRect = viewportRef.current.getBoundingClientRect();
       const contentWidth = 1200; 
-      // For PDFs, we allow a much taller content height to see multiple pages
       const contentHeight = isPdf(print.url) ? 3600 : 800;
       
       const initialScale = Math.min((vRect.width * 0.9) / contentWidth, (vRect.height * 0.6) / (isPdf(print.url) ? 1200 : contentHeight), 1);
       const initialX = (vRect.width - contentWidth * initialScale) / 2;
-      const initialY = 40; // Start near the top
+      const initialY = 40;
       
       setTransform({ x: initialX, y: initialY, scale: initialScale });
     }
@@ -94,7 +93,6 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
     }
   };
 
-  // HELPER: Get normalized client coordinates for Mouse/Touch
   const getEventCoords = (e: React.MouseEvent | React.TouchEvent | React.PointerEvent) => {
     if ('touches' in e && e.touches.length > 0) {
       return { x: e.touches[0].clientX, y: e.touches[0].clientY };
@@ -102,10 +100,12 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
     return { x: (e as any).clientX, y: (e as any).clientY };
   };
 
-  // NAVIGATION: Panning Logic (Mouse & Touch via Pointer Events)
   const handlePointerDown = (e: React.PointerEvent) => {
     if (isPinMode || isDocInteractMode || newMarkerPos) return;
     setIsDragging(true);
+    // Hide tooltips while moving to prevent "floating" artifacts
+    setHoveredMarkerId(null);
+    setSelectedMarkerId('');
     lastMousePos.current = { x: e.clientX, y: e.clientY };
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
   };
@@ -129,11 +129,6 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
     (e.target as HTMLElement).releasePointerCapture(e.pointerId);
   };
 
-  /**
-   * REFINED WHEEL HANDLER: 
-   * Uses an exponential curve for "natural" zoom scaling.
-   * Ensures pointer-centric zooming (zooms into the mouse position).
-   */
   const handleWheel = (e: React.WheelEvent) => {
     if (newMarkerPos || isDocInteractMode) return;
     e.preventDefault();
@@ -141,37 +136,35 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
     const vRect = viewportRef.current?.getBoundingClientRect();
     if (!vRect) return;
 
-    // Use a small constant for sensitivity. e.deltaY is typically 100 for wheels, 
-    // and can be very small/dynamic for trackpads.
     const zoomIntensity = 0.001; 
     const scaleFactor = Math.exp(-e.deltaY * zoomIntensity);
-    
-    // Smoothly calculate new scale within boundaries
     const newScale = Math.min(Math.max(transform.scale * scaleFactor, 0.02), 20);
 
-    // If we've hit a limit and scale hasn't changed, don't move the position
     if (newScale === transform.scale) return;
 
-    // Current mouse position relative to the viewport container
     const mouseX = e.clientX - vRect.left;
     const mouseY = e.clientY - vRect.top;
 
-    // The point in content-space currently under the mouse
     const contentX = (mouseX - transform.x) / transform.scale;
     const contentY = (mouseY - transform.y) / transform.scale;
 
-    // The new translation needed to keep that content-space point under the exact same mouse pixel
     const nextX = mouseX - contentX * newScale;
     const nextY = mouseY - contentY * newScale;
 
     setTransform({ x: nextX, y: nextY, scale: newScale });
   };
 
-  // PINNING: Accurate Coordinate Mapping
   const handleContentClick = (e: React.MouseEvent | React.TouchEvent) => {
     if (e.type === 'touchstart' && isPinMode) e.preventDefault();
     
-    if (!isPinMode || !contentRef.current || !print || newMarkerPos) return;
+    // If not in pin mode, click map to deselect
+    if (!isPinMode) {
+      setSelectedMarkerId('');
+      setHoveredMarkerId(null);
+      return;
+    }
+
+    if (!contentRef.current || !print || newMarkerPos) return;
     
     const { x: clientX, y: clientY } = getEventCoords(e);
     const rect = contentRef.current.getBoundingClientRect();
@@ -188,7 +181,7 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
     const vRect = viewportRef.current?.getBoundingClientRect();
     if (!vRect) return;
     handleWheel({ 
-      deltaY: -150, // Fixed jump for UI buttons
+      deltaY: -150,
       clientX: vRect.left + vRect.width/2, 
       clientY: vRect.top + vRect.height/2, 
       preventDefault: () => {} 
@@ -199,7 +192,7 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
     const vRect = viewportRef.current?.getBoundingClientRect();
     if (!vRect) return;
     handleWheel({ 
-      deltaY: 150, // Fixed jump for UI buttons
+      deltaY: 150,
       clientX: vRect.left + vRect.width/2, 
       clientY: vRect.top + vRect.height/2, 
       preventDefault: () => {} 
@@ -220,8 +213,8 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
     }
   };
 
-  // Tooltip Persistence Helpers
   const handleMarkerEnter = (id: string) => {
+    if (isDragging) return;
     if (tooltipTimeoutRef.current) window.clearTimeout(tooltipTimeoutRef.current);
     setHoveredMarkerId(id);
   };
@@ -229,11 +222,7 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
   const handleMarkerLeave = () => {
     tooltipTimeoutRef.current = window.setTimeout(() => {
       setHoveredMarkerId(null);
-    }, 400); // 400ms grace period to reach the tooltip
-  };
-
-  const handleTooltipEnter = () => {
-    if (tooltipTimeoutRef.current) window.clearTimeout(tooltipTimeoutRef.current);
+    }, 400);
   };
 
   const saveMarker = async () => {
@@ -339,13 +328,17 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
               const ticket = tickets.find(t => t.id === m.ticketId);
               const status = ticket ? getTicketStatus(ticket) : TicketStatus.OTHER;
               const colorClass = getStatusDotColor(status);
-              const isShown = hoveredMarkerId === m.id || selectedMarkerId === m.id;
+              const isShown = (hoveredMarkerId === m.id || selectedMarkerId === m.id) && !isDragging;
 
               return (
                 <div 
                   key={m.id}
-                  className="absolute -translate-x-1/2 -translate-y-1/2 group/marker z-10"
-                  style={{ left: `${m.xPercent}%`, top: `${m.yPercent}%` }}
+                  className="absolute group/marker z-10"
+                  style={{ 
+                    left: `${m.xPercent}%`, 
+                    top: `${m.yPercent}%`,
+                    transform: 'translate(-50%, -50%)' // Stabilized centering
+                  }}
                   onMouseEnter={() => handleMarkerEnter(m.id)}
                   onMouseLeave={handleMarkerLeave}
                 >
@@ -359,24 +352,26 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
                     <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
                   </div>
                   
-                  {/* Persistent Tooltip */}
+                  {/* Tooltip */}
                   {isShown && (
                     <div 
                       className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-20 pointer-events-auto"
                       style={{ transform: `scale(${1/transform.scale})`, transformOrigin: 'bottom center' }}
-                      onMouseEnter={handleTooltipEnter}
+                      onMouseEnter={() => tooltipTimeoutRef.current && window.clearTimeout(tooltipTimeoutRef.current)}
                       onMouseLeave={handleMarkerLeave}
                     >
-                       <div className={`p-3 rounded-xl border border-white/10 shadow-2xl min-w-[180px] backdrop-blur-md ${isDarkMode ? 'bg-slate-900/95 text-white' : 'bg-white/95 text-slate-900'}`}>
+                       <div className={`p-4 rounded-xl border border-white/10 shadow-2xl min-w-[200px] backdrop-blur-md ${isDarkMode ? 'bg-slate-900/95 text-white' : 'bg-white/95 text-slate-900'}`}>
                           <div className="flex justify-between items-start mb-1">
                             <p className="text-[10px] font-black uppercase tracking-widest">TKT: {m.label}</p>
-                            <span className={`w-2 h-2 rounded-full ${colorClass}`} />
+                            <button onClick={(e) => { e.stopPropagation(); setSelectedMarkerId(''); }} className="opacity-40 hover:opacity-100 transition-opacity">
+                               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
                           </div>
-                          <p className={`text-[8px] font-bold uppercase tracking-tighter truncate mb-2 opacity-60`}>{ticket?.street}</p>
-                          <div className="mt-2 pt-2 border-t border-black/5 flex gap-2">
+                          <p className={`text-[8px] font-bold uppercase tracking-tighter truncate mb-3 opacity-60`}>{ticket?.street}</p>
+                          <div className="flex gap-2">
                             <button 
                               onClick={(e) => { e.stopPropagation(); ticket?.documentUrl && onViewTicket(ticket.documentUrl); }}
-                              className="flex-1 py-1.5 bg-brand text-slate-900 rounded-lg text-[8px] font-black uppercase tracking-widest hover:scale-105 transition-all"
+                              className="flex-1 py-1.5 bg-brand text-slate-900 rounded-lg text-[8px] font-black uppercase tracking-widest transition-all active:scale-95"
                             >
                               View PDF
                             </button>
@@ -384,7 +379,7 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
                               onClick={(e) => deleteMarker(m.id, e)} 
                               className="px-2 py-1.5 bg-rose-500/10 text-rose-500 rounded-lg hover:bg-rose-500 hover:text-white transition-all"
                             >
-                               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                             </button>
                           </div>
                        </div>
@@ -448,7 +443,6 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
 
         {/* Floating Controls */}
         <div className="flex items-center gap-2 bg-slate-950/80 backdrop-blur-xl border border-white/10 p-2 rounded-3xl shadow-2xl pointer-events-auto">
-          {/* Navigation Mode */}
           <div className="flex items-center gap-1 border-r border-white/5 pr-2 mr-1">
              <button 
                onClick={() => { setIsPinMode(false); setIsDocInteractMode(false); }}
@@ -492,11 +486,6 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
         {isPinMode && !newMarkerPos && (
           <div className="bg-brand text-slate-900 px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest animate-bounce">
             Tap map to drop pin
-          </div>
-        )}
-        {isDocInteractMode && (
-          <div className="bg-rose-500 text-white px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest animate-pulse">
-            Document Interaction Active
           </div>
         )}
       </div>
