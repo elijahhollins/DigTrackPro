@@ -1,7 +1,8 @@
 
-import React from 'react';
-import { Job, DigTicket, TicketStatus } from '../types.ts';
+import React, { useState, useEffect } from 'react';
+import { Job, DigTicket, TicketStatus, JobPrint } from '../types.ts';
 import { getTicketStatus } from '../utils/dateUtils.ts';
+import { apiService } from '../services/apiService.ts';
 
 interface JobSummaryModalProps {
   job: Job;
@@ -11,6 +12,7 @@ interface JobSummaryModalProps {
   onDelete: () => void;
   onToggleComplete: () => Promise<void>;
   onViewMedia: () => void;
+  onViewMarkup: () => void;
   isDarkMode?: boolean;
 }
 
@@ -22,11 +24,22 @@ export const JobSummaryModal: React.FC<JobSummaryModalProps> = ({
   onDelete,
   onToggleComplete,
   onViewMedia,
+  onViewMarkup,
   isDarkMode
 }) => {
+  const [pinnedPrint, setPinnedPrint] = useState<JobPrint | null>(null);
+  
   const activeTickets = tickets.filter(t => !t.isArchived);
   const expiredCount = activeTickets.filter(t => getTicketStatus(t) === TicketStatus.EXPIRED).length;
   const validCount = activeTickets.length - expiredCount;
+
+  const isPdf = (url?: string) => url?.toLowerCase().split('?')[0].endsWith('.pdf');
+
+  useEffect(() => {
+    apiService.getJobPrints(job.jobNumber).then(prints => {
+      setPinnedPrint(prints.find(p => p.isPinned) || null);
+    });
+  }, [job.jobNumber]);
 
   return (
     <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[170] overflow-y-auto pt-10 pb-20 px-4">
@@ -61,20 +74,32 @@ export const JobSummaryModal: React.FC<JobSummaryModalProps> = ({
             </div>
           </div>
 
-          {/* Asset Health Bar */}
-          <div className={`p-5 rounded-[2rem] border ${isDarkMode ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-100'}`}>
-             <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-4">Vault Asset Health</p>
-             <div className="flex gap-4">
-               <div className="flex-1">
-                 <div className="text-xl font-black text-emerald-500">{validCount}</div>
-                 <div className="text-[8px] font-black uppercase tracking-widest opacity-40">Valid Assets</div>
-               </div>
-               <div className="w-px h-8 bg-black/10 self-center" />
-               <div className="flex-1">
-                 <div className="text-xl font-black text-rose-500">{expiredCount}</div>
-                 <div className="text-[8px] font-black uppercase tracking-widest opacity-40">Expired Logs</div>
-               </div>
-             </div>
+          {/* Blueprint Pinned Preview */}
+          <div className={`p-5 rounded-[2rem] border relative group overflow-hidden ${isDarkMode ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-100'}`}>
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-4">Project Blueprint</p>
+            {pinnedPrint ? (
+              <div className="relative aspect-video rounded-xl overflow-hidden border border-black/10 bg-slate-900 flex items-center justify-center">
+                {isPdf(pinnedPrint.url) ? (
+                  <div className="flex flex-col items-center gap-2 text-rose-500">
+                    <svg className="w-10 h-10" fill="currentColor" viewBox="0 0 24 24"><path d="M11.363 2c4.155 0 2.637 6 2.637 6s6-1.518 6 2.638v11.362c0 .552-.448 1-1 1H5c-.552 0-1-.448-1-1V3c0-.552.448-1 1-1h6.363zM12 2H5c-1.103 0-2 .897-2 2v16c0 1.103.897 2 2 2h14c1.103 0 2-.897 2-2V9l-7-7z"/><path d="M19 9h-7V2l7 7z"/></svg>
+                    <span className="text-[8px] font-black uppercase tracking-widest opacity-60">PDF Blueprint</span>
+                  </div>
+                ) : (
+                  <img src={pinnedPrint.url} className="w-full h-full object-cover" alt="Blueprint" />
+                )}
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                   <button onClick={onViewMarkup} className="px-6 py-2 bg-brand text-slate-900 rounded-full font-black text-[9px] uppercase tracking-widest transform translate-y-2 group-hover:translate-y-0 transition-all">Launch Markup</button>
+                </div>
+              </div>
+            ) : (
+              <button 
+                onClick={onViewMarkup}
+                className="w-full aspect-video rounded-xl border-2 border-dashed border-black/10 flex flex-col items-center justify-center gap-2 hover:border-brand/40 hover:bg-brand/5 transition-all"
+              >
+                <svg className="w-6 h-6 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" /></svg>
+                <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Add Blueprint</span>
+              </button>
+            )}
           </div>
 
           {/* Action Grid */}
@@ -124,11 +149,6 @@ export const JobSummaryModal: React.FC<JobSummaryModalProps> = ({
                 </>
               )}
             </button>
-            <p className="text-[8px] font-bold text-slate-500 text-center uppercase tracking-widest mt-4 leading-relaxed">
-              {job.isComplete 
-                ? 'Project is archived. Assets hidden from main dashboard.' 
-                : 'Project is active. All associated assets tracked in real-time.'}
-            </p>
           </div>
         </div>
       </div>

@@ -36,6 +36,25 @@ export interface Job {
   isComplete?: boolean;
 }
 
+export interface JobPrint {
+  id: string;
+  jobNumber: string;
+  storagePath: string;
+  fileName: string;
+  isPinned: boolean;
+  createdAt: number;
+  url?: string;
+}
+
+export interface PrintMarker {
+  id: string;
+  printId: string;
+  ticketId: string;
+  xPercent: number;
+  yPercent: number;
+  label?: string;
+}
+
 export interface DigTicket {
   id: string;
   jobNumber: string;

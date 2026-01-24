@@ -7,6 +7,7 @@ import { supabase, isSupabaseConfigured, getEnv } from './lib/supabaseClient.ts'
 import TicketForm from './components/TicketForm.tsx';
 import JobForm from './components/JobForm.tsx';
 import { JobSummaryModal } from './components/JobSummaryModal.tsx';
+import { JobPrintMarkup } from './components/JobPrintMarkup.tsx';
 import StatCards from './components/StatCards.tsx';
 import JobReview from './components/JobReview.tsx';
 import PhotoManager from './components/PhotoManager.tsx';
@@ -43,6 +44,7 @@ const App: React.FC = () => {
   const [showTicketForm, setShowTicketForm] = useState(false);
   const [showJobForm, setShowJobForm] = useState(false);
   const [selectedJobSummary, setSelectedJobSummary] = useState<Job | null>(null);
+  const [showMarkup, setShowMarkup] = useState<Job | null>(null);
   const [editingTicket, setEditingTicket] = useState<DigTicket | null>(null);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
   const [noShowTicket, setNoShowTicket] = useState<DigTicket | null>(null);
@@ -135,20 +137,14 @@ const App: React.FC = () => {
     }
 
     try {
-      // Step 1: Detect Auth State quickly
       const { data: { session } } = await supabase.auth.getSession();
-      
       if (!session) { 
         setSessionUser(null); 
         setIsLoading(false); 
         initRef.current = false;
         return; 
       }
-
-      // Ensure API Key check doesn't block critical startup
       checkApiKey();
-
-      // Step 2: Fetch Data once session is confirmed
       const [allUsersRes, allTicketsRes, allJobsRes, allPhotosRes, allNotesRes] = await Promise.allSettled([
         apiService.getUsers(),
         apiService.getTickets(),
@@ -156,43 +152,24 @@ const App: React.FC = () => {
         apiService.getPhotos(),
         apiService.getNotes()
       ]);
-
       const fetchedUsers = allUsersRes.status === 'fulfilled' ? allUsersRes.value : [];
       setUsers(fetchedUsers);
       setTickets(allTicketsRes.status === 'fulfilled' ? allTicketsRes.value : []);
       setJobs(allJobsRes.status === 'fulfilled' ? allJobsRes.value : []);
       setPhotos(allPhotosRes.status === 'fulfilled' ? allPhotosRes.value : []);
       setNotes(allNotesRes.status === 'fulfilled' ? allNotesRes.value : []);
-
-      // Step 3: Match profile and set user
       const matchedProfile = fetchedUsers.find(u => u.id === session.user.id);
       if (matchedProfile) {
-        setSessionUser({ 
-          id: session.user.id, 
-          name: matchedProfile.name, 
-          username: matchedProfile.username, 
-          role: matchedProfile.role 
-        });
+        setSessionUser({ id: session.user.id, name: matchedProfile.name, username: matchedProfile.username, role: matchedProfile.role });
       } else {
-        setSessionUser({ 
-          id: session.user.id, 
-          name: session.user.user_metadata?.display_name || 'New User', 
-          username: session.user.email || '', 
-          role: UserRole.CREW 
-        });
+        setSessionUser({ id: session.user.id, name: session.user.user_metadata?.display_name || 'New User', username: session.user.email || '', role: UserRole.CREW });
       }
-    } catch (error) { 
-      console.error("Critical Init Error:", error); 
-    } finally { 
-      setIsLoading(false); 
-      initRef.current = false;
-    }
+    } catch (error) { console.error("Critical Init Error:", error); } finally { setIsLoading(false); initRef.current = false; }
   };
 
   useEffect(() => {
     initApp();
     const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
-      // On sign-out or session end, clear immediately
       if (event === 'SIGNED_OUT') {
         setSessionUser(null);
         setTickets([]);
@@ -211,19 +188,7 @@ const App: React.FC = () => {
   const ensureJobExists = async (ticketData: Omit<DigTicket, 'id' | 'createdAt'>): Promise<Job> => {
     const existingJob = jobs.find(j => j.jobNumber === ticketData.jobNumber);
     if (existingJob) return existingJob;
-
-    const newJob: Job = {
-      id: crypto.randomUUID(),
-      jobNumber: ticketData.jobNumber,
-      customer: ticketData.siteContact || 'Auto-Detected Client',
-      address: ticketData.street,
-      city: ticketData.city,
-      state: ticketData.state,
-      county: ticketData.county,
-      createdAt: Date.now(),
-      isComplete: false
-    };
-
+    const newJob: Job = { id: crypto.randomUUID(), jobNumber: ticketData.jobNumber, customer: ticketData.siteContact || 'Auto-Detected Client', address: ticketData.street, city: ticketData.city, state: ticketData.state, county: ticketData.county, createdAt: Date.now(), isComplete: false };
     const savedJob = await apiService.saveJob(newJob);
     setJobs(prev => [...prev, savedJob]);
     return savedJob;
@@ -232,24 +197,12 @@ const App: React.FC = () => {
   const handleSaveTicket = async (data: Omit<DigTicket, 'id' | 'createdAt'>, archiveOld: boolean = false) => {
     try {
       await ensureJobExists(data);
-      const isDuplicate = tickets.some(t => 
-        !t.isArchived && 
-        t.ticketNo.trim() === data.ticketNo.trim() && 
-        t.jobNumber.trim() === data.jobNumber.trim() && 
-        t.workDate === data.workDate && 
-        t.expires === data.expires &&
-        (!editingTicket || t.id !== editingTicket.id)
-      );
-
+      const isDuplicate = tickets.some(t => !t.isArchived && t.ticketNo.trim() === data.ticketNo.trim() && t.jobNumber.trim() === data.jobNumber.trim() && t.workDate === data.workDate && t.expires === data.expires && (!editingTicket || t.id !== editingTicket.id));
       if (isDuplicate) {
         alert(`Redundancy Blocked: Ticket #${data.ticketNo} for Job #${data.jobNumber} already exists.`);
         return;
       }
-
-      const ticket: DigTicket = (editingTicket && !archiveOld)
-        ? { ...editingTicket, ...data }
-        : { ...data, id: crypto.randomUUID(), createdAt: Date.now(), isArchived: false };
-      
+      const ticket: DigTicket = (editingTicket && !archiveOld) ? { ...editingTicket, ...data } : { ...data, id: crypto.randomUUID(), createdAt: Date.now(), isArchived: false };
       const saved = await apiService.saveTicket(ticket, archiveOld);
       setTickets(prev => {
         if (archiveOld) return [saved, ...prev.map(t => (t.ticketNo === saved.ticketNo && t.jobNumber === saved.jobNumber && t.id !== saved.id) ? { ...t, isArchived: true } : t)];
@@ -261,36 +214,18 @@ const App: React.FC = () => {
   };
 
   const handleJobSelection = async (jobNumber: string, jobEntity?: Job) => {
-    if (jobEntity) {
-      setSelectedJobSummary(jobEntity);
-      return;
-    }
+    if (jobEntity) { setSelectedJobSummary(jobEntity); return; }
     const existing = jobs.find(j => j.jobNumber === jobNumber);
-    if (existing) {
-      setSelectedJobSummary(existing);
-      return;
-    }
+    if (existing) { setSelectedJobSummary(existing); return; }
     const jobTickets = tickets.filter(t => t.jobNumber === jobNumber && !t.isArchived);
     if (jobTickets.length === 0) return;
     const firstTkt = jobTickets[0];
-    const newJob: Job = {
-      id: crypto.randomUUID(),
-      jobNumber: jobNumber,
-      customer: firstTkt.siteContact || 'Unregistered Client',
-      address: firstTkt.street,
-      city: firstTkt.city,
-      state: firstTkt.state,
-      county: firstTkt.county,
-      createdAt: Date.now(),
-      isComplete: false
-    };
+    const newJob: Job = { id: crypto.randomUUID(), jobNumber: jobNumber, customer: firstTkt.siteContact || 'Unregistered Client', address: firstTkt.street, city: firstTkt.city, state: firstTkt.state, county: firstTkt.county, createdAt: Date.now(), isComplete: false };
     try {
       const saved = await apiService.saveJob(newJob);
       setJobs(prev => [...prev, saved]);
       setSelectedJobSummary(saved);
-    } catch (err: any) {
-      alert("Failed to initialize project record: " + err.message);
-    }
+    } catch (err: any) { alert("Failed to initialize project record: " + err.message); }
   };
 
   const handleDeleteTicket = async (id: string, e: React.MouseEvent) => {
@@ -320,9 +255,7 @@ const App: React.FC = () => {
       const updatedTicket = { ...ticket, refreshRequested: willRequest };
       const saved = await apiService.saveTicket(updatedTicket);
       setTickets(prev => prev.map(t => t.id === saved.id ? saved : t));
-      if (willRequest) {
-        alertAdmins('🔄 Manual Refresh Requested', `Job #${ticket.jobNumber}: Ticket #${ticket.ticketNo} requires manual extension.`);
-      }
+      if (willRequest) { alertAdmins('🔄 Manual Refresh Requested', `Job #${ticket.jobNumber}: Ticket #${ticket.ticketNo} requires manual extension.`); }
     } catch (error: any) { alert(error.message); }
   };
 
@@ -341,10 +274,7 @@ const App: React.FC = () => {
       setTickets(prev => prev.map(t => t.id === ticket.id ? { ...t, noShowRequested: false } : t));
       setNoShowTicket(null);
       return true;
-    } catch (error: any) {
-      alert("Failed to clear no show: " + error.message);
-      return false;
-    }
+    } catch (error: any) { alert("Failed to clear no show: " + error.message); return false; }
   };
 
   const activeTickets = useMemo(() => {
@@ -352,7 +282,6 @@ const App: React.FC = () => {
     return tickets.filter(t => !completedNumbers.has(t.jobNumber) && !t.isArchived);
   }, [tickets, jobs]);
 
-  // Fix: Addressing TypeScript unknown type issues by providing explicit type guards and string conversions.
   const filteredTickets = useMemo(() => {
     let res = activeTickets.filter(t => {
       const s = String(globalSearch || '').toLowerCase().trim();
@@ -431,16 +360,8 @@ const App: React.FC = () => {
               return (
                 <button
                   key={item.id}
-                  onClick={() => {
-                    setActiveView(item.id);
-                    setSelectedJobSummary(null);
-                    if (item.id !== 'photos') setMediaFolderFilter(null);
-                  }}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all relative ${
-                    isActive 
-                    ? 'bg-brand text-slate-900 shadow-lg shadow-brand/10 nav-item-active' 
-                    : isDarkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-brand'
-                  }`}
+                  onClick={() => { setActiveView(item.id); setSelectedJobSummary(null); if (item.id !== 'photos') setMediaFolderFilter(null); }}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all relative ${isActive ? 'bg-brand text-slate-900 shadow-lg shadow-brand/10 nav-item-active' : isDarkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-brand'}`}
                 >
                   {item.icon}
                   <span className="hidden md:inline">{item.label}</span>
@@ -487,24 +408,23 @@ const App: React.FC = () => {
                 <svg className="w-4 h-4 text-slate-500 absolute left-3 top-2.5 group-focus-within:text-brand transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
               </div>
             </div>
-
             <StatCards tickets={activeTickets} isDarkMode={isDarkMode} activeFilter={activeFilter} onFilterClick={setActiveFilter} />
-            
             <div className={`${isDarkMode ? 'bg-[#1e293b] border-white/5 shadow-2xl shadow-black/40' : 'bg-white border-slate-200 shadow-xl shadow-slate-200/50'} rounded-[2.5rem] border overflow-hidden`}>
               <div className="overflow-x-auto no-scrollbar">
                 <table className="w-full text-left">
                   <thead className={`${isDarkMode ? 'bg-black/20' : 'bg-slate-50/80'} border-b border-black/5`}>
                     <tr>
-                      <th className={`px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Project Details</th>
-                      <th className={`px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Tickets</th>
-                      <th className={`px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Location Info</th>
-                      <th className={`px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-center ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>State</th>
-                      <th className={`px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-right ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Expiry</th>
-                      <th className={`px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-right ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Actions</th>
+                      <th className="px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Project Details</th>
+                      <th className="px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Tickets</th>
+                      <th className="px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Location Info</th>
+                      <th className="px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-center text-slate-500">State</th>
+                      <th className="px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-right text-slate-500">Expiry</th>
+                      <th className="px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-right text-slate-500">Actions</th>
                     </tr>
                   </thead>
                   <tbody className={`divide-y ${isDarkMode ? 'divide-white/5' : 'divide-slate-100'}`}>
-                    {Array.from(groupedTickets.keys()).length > 0 ? Array.from(groupedTickets.keys()).map(jobNum => {
+                    {/* Fixed 'unknown' type inference on line 436 and 437 by adding explicit string type annotation to map key parameter */}
+                    {Array.from(groupedTickets.keys()).map((jobNum: string) => {
                       const jobTickets = groupedTickets.get(jobNum)!;
                       const jobEntity = jobs.find(j => j.jobNumber === jobNum);
                       const isExpanded = expandedJobs.has(jobNum);
@@ -515,19 +435,15 @@ const App: React.FC = () => {
                       return (
                         <React.Fragment key={jobNum}>
                           <tr onClick={() => toggleJobExpansion(jobNum)} className={`transition-all cursor-pointer border-l-4 ${isExpanded ? 'border-brand' : 'border-transparent'} ${isDarkMode ? 'hover:bg-white/[0.03]' : 'hover:bg-slate-50/80'}`}>
-                            <td className="px-8 py-6">
-                              <div className="flex items-center gap-4">
-                                <div className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${isExpanded ? 'bg-brand/10 border-brand/20 text-brand rotate-90' : 'bg-black/5 border-transparent opacity-40'}`}><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M9 5l7 7-7 7" /></svg></div>
-                                <button onClick={(e) => { e.stopPropagation(); handleJobSelection(jobNum, jobEntity); }} className={`text-[13px] font-black hover:text-brand transition-colors text-left ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>JOB #{jobNum}</button>
-                              </div>
-                            </td>
+                            <td className="px-8 py-6"><div className="flex items-center gap-4"><div className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${isExpanded ? 'bg-brand/10 border-brand/20 text-brand rotate-90' : 'bg-black/5 border-transparent opacity-40'}`}><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M9 5l7 7-7 7" /></svg></div><button onClick={(e) => { e.stopPropagation(); handleJobSelection(jobNum, jobEntity); }} className={`text-[13px] font-black hover:text-brand transition-colors text-left ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>JOB #{jobNum}</button></div></td>
                             <td className="px-8 py-6"><span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-lg ${isDarkMode ? 'bg-white/5 text-slate-400' : 'bg-slate-100 text-slate-600'}`}>{jobTickets.length} Assets</span></td>
                             <td className="px-8 py-6"><div className="flex flex-col"><span className={`text-[11px] font-black uppercase tracking-tight truncate max-w-[200px] ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{jobEntity?.customer || 'Direct Client'}</span><span className="text-[9px] font-bold truncate max-w-[200px] opacity-40">{jobEntity?.address || 'Field Location'}</span></div></td>
                             <td className="px-8 py-6 text-center"><div className={`w-2.5 h-2.5 rounded-full mx-auto ring-4 ${aggregateStatus === TicketStatus.EXPIRED ? 'bg-rose-500 ring-rose-500/10' : aggregateStatus === TicketStatus.REFRESH_NEEDED ? 'bg-amber-500 ring-amber-500/10' : 'bg-emerald-500 ring-emerald-500/10'}`} /></td>
                             <td className="px-8 py-6 text-right font-bold text-[10px] opacity-30">{isExpanded ? 'COLLAPSE' : 'DETAILS'}</td>
                             <td className="px-8 py-6 text-right">{isAdmin && <button onClick={(e) => { e.stopPropagation(); jobEntity && handleDeleteJob(jobEntity); }} className="p-2.5 text-slate-400 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>}</td>
                           </tr>
-                          {isExpanded && jobTickets.map((ticket) => {
+                          {/* Fixed 'unknown' type inference inside nested map by explicitly typing 'ticket' as DigTicket */}
+                          {isExpanded && jobTickets.map((ticket: DigTicket) => {
                             const status = getTicketStatus(ticket);
                             return (
                               <tr key={ticket.id} onClick={() => isAdmin && setEditingTicket(ticket)} className={`animate-in transition-all group ${isAdmin ? 'cursor-pointer' : ''} ${isDarkMode ? 'bg-white/[0.01]' : 'bg-slate-50/30'} border-l-4 border-slate-500/10`}>
@@ -535,21 +451,13 @@ const App: React.FC = () => {
                                 <td colSpan={2} className={`px-8 py-4 text-[11px] font-bold truncate max-w-[400px] ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>{ticket.street}</td>
                                 <td className="px-8 py-4 text-center"><span className={`inline-flex px-2 py-0.5 rounded-lg text-[8px] font-black uppercase border tracking-widest ${getStatusColor(status)}`}>{status}</span></td>
                                 <td className={`px-8 py-4 text-[11px] font-bold text-right opacity-60`}>{new Date(ticket.expires).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</td>
-                                <td className="px-8 py-4 text-right">
-                                  <div className="flex items-center justify-end gap-2">
-                                    <button onClick={(e) => { e.stopPropagation(); setNoShowTicket(ticket); }} className={`p-2 rounded-xl transition-all border ${ticket.noShowRequested ? 'bg-rose-500 text-white border-rose-600 shadow-lg' : 'bg-rose-500/5 text-rose-500 border-rose-500/10 hover:bg-rose-500 hover:text-white'}`}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg></button>
-                                    <button onClick={(e) => handleToggleRefresh(ticket, e)} className={`p-2 rounded-xl transition-all border ${ticket.refreshRequested ? 'bg-amber-100 text-amber-600 border-amber-300' : 'bg-slate-100 text-slate-500 hover:text-brand'}`}><svg className={`w-4 h-4 ${ticket.refreshRequested ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357-2H15" /></svg></button>
-                                    {isAdmin && <button onClick={(e) => handleDeleteTicket(ticket.id, e)} className="p-2 text-slate-500 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>}
-                                  </div>
-                                </td>
+                                <td className="px-8 py-4 text-right"><div className="flex items-center justify-end gap-2"><button onClick={(e) => { e.stopPropagation(); setNoShowTicket(ticket); }} className={`p-2 rounded-xl transition-all border ${ticket.noShowRequested ? 'bg-rose-500 text-white border-rose-600 shadow-lg' : 'bg-rose-500/5 text-rose-500 border-rose-500/10 hover:bg-rose-500 hover:text-white'}`}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg></button><button onClick={(e) => handleToggleRefresh(ticket, e)} className={`p-2 rounded-xl transition-all border ${ticket.refreshRequested ? 'bg-amber-100 text-amber-600 border-amber-300' : 'bg-slate-100 text-slate-500 hover:text-brand'}`}><svg className={`w-4 h-4 ${ticket.refreshRequested ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357-2H15" /></svg></button>{isAdmin && <button onClick={(e) => handleDeleteTicket(ticket.id, e)} className="p-2 text-slate-500 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>}</div></td>
                               </tr>
                             );
                           })}
                         </React.Fragment>
                       );
-                    }) : (
-                      <tr><td colSpan={6} className="py-20 text-center opacity-30 text-sm font-black uppercase tracking-widest">Vault Empty</td></tr>
-                    )}
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -561,18 +469,9 @@ const App: React.FC = () => {
         {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} onAddPhoto={(data, file) => apiService.addPhoto(data, file)} onDeletePhoto={(id: string) => apiService.deletePhoto(id)} initialSearch={mediaFolderFilter} />}
         {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} isDarkMode={isDarkMode} onAddUser={async (u) => { await apiService.addUser(u); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onThemeChange={applyThemeColor} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} />}
         {(showTicketForm || editingTicket) && <TicketForm onSave={handleSaveTicket} onClose={() => { setShowTicketForm(false); setEditingTicket(null); }} initialData={editingTicket} isDarkMode={isDarkMode} existingTickets={tickets} />}
-        {(showJobForm || editingJob) && <JobForm onSave={async (data) => {
-            const job: Job = editingJob ? { ...editingJob, ...data } : { ...data, id: crypto.randomUUID(), createdAt: Date.now(), isComplete: false };
-            const saved = await apiService.saveJob(job);
-            setJobs(prev => {
-              const exists = prev.findIndex(j => j.id === saved.id);
-              if (exists > -1) return prev.map(j => j.id === saved.id ? saved : j);
-              return [...prev, saved];
-            });
-            setShowJobForm(false);
-            setEditingJob(null);
-          }} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} isDarkMode={isDarkMode} />}
-        {selectedJobSummary && <JobSummaryModal job={selectedJobSummary} tickets={tickets.filter(t => t.jobNumber === selectedJobSummary.jobNumber)} onClose={() => setSelectedJobSummary(null)} onEdit={() => { setEditingJob(selectedJobSummary); setShowJobForm(true); setSelectedJobSummary(null); }} onDelete={() => handleDeleteJob(selectedJobSummary)} onToggleComplete={() => handleToggleJobCompletion(selectedJobSummary)} onViewMedia={() => { setMediaFolderFilter(selectedJobSummary.jobNumber); setActiveView('photos'); setSelectedJobSummary(null); }} isDarkMode={isDarkMode} />}
+        {(showJobForm || editingJob) && <JobForm onSave={async (data) => { const job: Job = editingJob ? { ...editingJob, ...data } : { ...data, id: crypto.randomUUID(), createdAt: Date.now(), isComplete: false }; const saved = await apiService.saveJob(job); setJobs(prev => { const exists = prev.findIndex(j => j.id === saved.id); if (exists > -1) return prev.map(j => j.id === saved.id ? saved : j); return [...prev, saved]; }); setShowJobForm(false); setEditingJob(null); }} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} isDarkMode={isDarkMode} />}
+        {selectedJobSummary && <JobSummaryModal job={selectedJobSummary} tickets={tickets.filter(t => t.jobNumber === selectedJobSummary.jobNumber)} onClose={() => setSelectedJobSummary(null)} onEdit={() => { setEditingJob(selectedJobSummary); setShowJobForm(true); setSelectedJobSummary(null); }} onDelete={() => handleDeleteJob(selectedJobSummary)} onToggleComplete={() => handleToggleJobCompletion(selectedJobSummary)} onViewMedia={() => { setMediaFolderFilter(selectedJobSummary.jobNumber); setActiveView('photos'); setSelectedJobSummary(null); }} onViewMarkup={() => { setShowMarkup(selectedJobSummary); setSelectedJobSummary(null); }} isDarkMode={isDarkMode} />}
+        {showMarkup && <JobPrintMarkup job={showMarkup} tickets={tickets.filter(t => t.jobNumber === showMarkup.jobNumber)} onClose={() => setShowMarkup(null)} onViewTicket={(url) => setViewingDocUrl(url)} isDarkMode={isDarkMode} />}
         {noShowTicket && <NoShowForm ticket={noShowTicket} userName={sessionUser?.name || ''} onSave={async (record) => { await apiService.addNoShow(record); setTickets(prev => prev.map(t => t.id === noShowTicket.id ? { ...t, noShowRequested: true } : t)); alertAdmins('⚠️ No Show Incident Reported', `Job #${noShowTicket.jobNumber}: Ticket #${noShowTicket.ticketNo}.`); }} onDelete={() => handleRemoveNoShow(noShowTicket)} onClose={() => setNoShowTicket(null)} isDarkMode={isDarkMode} />}
         {viewingDocUrl && <div className="fixed inset-0 bg-black/90 z-[300] flex items-center justify-center p-4"><button onClick={() => setViewingDocUrl(null)} className="absolute top-6 right-6 p-3 bg-white/10 rounded-full text-white hover:bg-white/20"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg></button><iframe src={viewingDocUrl} className="w-full max-w-5xl h-[90vh] rounded-3xl bg-white shadow-2xl border-4 border-white/5" /></div>}
       </main>

@@ -1,6 +1,6 @@
 
 import { supabase } from '../lib/supabaseClient.ts';
-import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job, NoShowRecord } from '../types.ts';
+import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job, NoShowRecord, JobPrint, PrintMarker } from '../types.ts';
 
 export const SQL_SCHEMA = `-- 1. SECURITY POLICY NUKER
 DO $$ 
@@ -10,7 +10,7 @@ BEGIN
     FOR r IN (
         SELECT policyname, tablename FROM pg_policies 
         WHERE schemaname = 'public' 
-        AND tablename IN ('profiles', 'jobs', 'tickets', 'photos', 'notes', 'no_shows', 'push_subscriptions')
+        AND tablename IN ('profiles', 'jobs', 'tickets', 'photos', 'notes', 'no_shows', 'push_subscriptions', 'job_prints', 'print_markers')
     ) LOOP
         EXECUTE 'DROP POLICY IF EXISTS ' || quote_ident(r.policyname) || ' ON ' || quote_ident(r.tablename);
     END LOOP;
@@ -48,6 +48,25 @@ create table if not exists tickets (
     no_show_requested boolean default false, 
     is_archived boolean default false, 
     document_url text,
+    created_at timestamp with time zone default now()
+);
+
+create table if not exists job_prints (
+    id uuid primary key default gen_random_uuid(),
+    job_number text not null,
+    storage_path text not null,
+    file_name text not null,
+    is_pinned boolean default true,
+    created_at timestamp with time zone default now()
+);
+
+create table if not exists print_markers (
+    id uuid primary key default gen_random_uuid(),
+    print_id uuid references job_prints(id) on delete cascade,
+    ticket_id uuid references tickets(id) on delete cascade,
+    x_percent float8 not null,
+    y_percent float8 not null,
+    label text,
     created_at timestamp with time zone default now()
 );
 
@@ -92,41 +111,7 @@ create table if not exists push_subscriptions (
     unique(user_id, subscription_json)
 );
 
--- 3. SCHEMA MIGRATION / COLUMN RENAMING
-DO $$ 
-BEGIN 
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='extent') THEN
-        ALTER TABLE tickets ADD COLUMN extent text;
-    END IF;
-
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='document_url') THEN
-        ALTER TABLE tickets ADD COLUMN document_url text;
-    END IF;
-
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='cross_street') THEN
-        ALTER TABLE tickets ADD COLUMN cross_street text;
-    END IF;
-
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='place') THEN
-        ALTER TABLE tickets ADD COLUMN place text;
-    END IF;
-
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='address') THEN
-        ALTER TABLE tickets RENAME COLUMN address TO street;
-    END IF;
-
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='dig_start') THEN
-        ALTER TABLE tickets RENAME COLUMN dig_start TO work_date;
-    END IF;
-
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tickets' AND column_name='expiration_date') THEN
-        ALTER TABLE tickets RENAME COLUMN expiration_date TO expires;
-    END IF;
-END $$;
-
-NOTIFY pgrst, 'reload schema';
-
--- 4. ENABLE RLS
+-- 3. ENABLE RLS
 alter table jobs enable row level security;
 alter table tickets enable row level security;
 alter table photos enable row level security;
@@ -134,8 +119,10 @@ alter table notes enable row level security;
 alter table profiles enable row level security;
 alter table no_shows enable row level security;
 alter table push_subscriptions enable row level security;
+alter table job_prints enable row level security;
+alter table print_markers enable row level security;
 
--- 5. POLICIES
+-- 4. POLICIES
 create policy "allow_auth_profiles" on profiles for all to authenticated using (true) with check (true);
 create policy "allow_auth_jobs" on jobs for all to authenticated using (true) with check (true);
 create policy "allow_auth_tickets" on tickets for all to authenticated using (true) with check (true);
@@ -143,6 +130,8 @@ create policy "allow_auth_photos" on photos for all to authenticated using (true
 create policy "allow_auth_notes" on notes for all to authenticated using (true) with check (true);
 create policy "allow_auth_noshows" on no_shows for all to authenticated using (true) with check (true);
 create policy "allow_auth_push" on push_subscriptions for all to authenticated using (true) with check (true);
+create policy "allow_auth_prints" on job_prints for all to authenticated using (true) with check (true);
+create policy "allow_auth_markers" on print_markers for all to authenticated using (true) with check (true);
 
 grant all on all tables in schema public to authenticated;`;
 
@@ -194,28 +183,12 @@ export const apiService = {
   },
 
   async getAdminSubscriptions(): Promise<string[]> {
-    // Get profiles with ADMIN role
-    const { data: adminProfiles, error: profileError } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('role', 'ADMIN');
-    
+    const { data: adminProfiles, error: profileError } = await supabase.from('profiles').select('id').eq('role', 'ADMIN');
     if (profileError || !adminProfiles) return [];
     const adminIds = adminProfiles.map(p => p.id);
-
-    // Get subscriptions for these IDs
-    const { data, error } = await supabase
-      .from('push_subscriptions')
-      .select('subscription_json')
-      .in('user_id', adminIds);
-    
+    const { data, error } = await supabase.from('push_subscriptions').select('subscription_json').in('user_id', adminIds);
     if (error) return [];
     return (data || []).map(s => s.subscription_json);
-  },
-
-  async removePushSubscription(userId: string): Promise<void> {
-    const { error } = await supabase.from('push_subscriptions').delete().eq('user_id', userId);
-    if (error) throw error;
   },
 
   async getJobs(): Promise<Job[]> {
@@ -272,14 +245,8 @@ export const apiService = {
 
   async saveTicket(ticket: DigTicket, archiveExisting: boolean = false): Promise<DigTicket> {
     if (archiveExisting) {
-      await supabase
-        .from('tickets')
-        .update({ is_archived: true })
-        .eq('ticket_no', ticket.ticketNo)
-        .eq('job_number', ticket.jobNumber)
-        .neq('id', ticket.id);
+      await supabase.from('tickets').update({ is_archived: true }).eq('ticket_no', ticket.ticketNo).eq('job_number', ticket.jobNumber).neq('id', ticket.id);
     }
-
     const { data, error } = await supabase.from('tickets').upsert({
       id: ticket.id,
       job_number: ticket.jobNumber,
@@ -300,7 +267,6 @@ export const apiService = {
       is_archived: ticket.isArchived ?? false,
       document_url: ticket.documentUrl
     }).select().single();
-
     if (error) throw error;
     return {
         id: data.id,
@@ -335,55 +301,90 @@ export const apiService = {
     if (error) throw error;
   },
 
-  async addNoShow(noShow: NoShowRecord): Promise<void> {
-    const { error } = await supabase.from('no_shows').insert([{
-      id: noShow.id,
-      ticket_id: noShow.ticketId,
-      job_number: noShow.jobNumber,
-      utilities: noShow.utilities,
-      companies: noShow.companies,
-      author: noShow.author,
-      timestamp: noShow.timestamp
-    }]);
-    if (error) throw error;
-    
-    await supabase.from('tickets').update({ no_show_requested: true }).eq('id', noShow.ticketId);
-  },
-
-  async deleteNoShow(ticketId: string): Promise<void> {
-    // 1. Remove the incident log
-    const { error: deleteError } = await supabase
-      .from('no_shows')
-      .delete()
-      .eq('ticket_id', ticketId);
-    if (deleteError) throw deleteError;
-    
-    // 2. Explicitly clear the status flag on the ticket
-    const { error: updateError } = await supabase
-      .from('tickets')
-      .update({ no_show_requested: false })
-      .eq('id', ticketId);
-    if (updateError) throw updateError;
-  },
-
-  async getNoShows(): Promise<NoShowRecord[]> {
-    const { data, error } = await supabase.from('no_shows').select('*');
+  async getJobPrints(jobNumber: string): Promise<JobPrint[]> {
+    const { data, error } = await supabase.from('job_prints').select('*').eq('job_number', jobNumber);
     if (error) return [];
-    return (data || []).map(n => ({
-      id: n.id,
-      ticketId: n.ticket_id,
-      jobNumber: n.job_number,
-      utilities: n.utilities || [],
-      companies: n.companies || '',
-      author: n.author || '',
-      timestamp: n.timestamp
+    return (data || []).map(p => {
+      const { data: { publicUrl } } = supabase.storage.from('job-prints').getPublicUrl(p.storage_path);
+      return {
+        id: p.id,
+        jobNumber: p.job_number,
+        storagePath: p.storage_path,
+        fileName: p.file_name,
+        isPinned: p.is_pinned,
+        createdAt: new Date(p.created_at).getTime(),
+        url: publicUrl
+      };
+    });
+  },
+
+  async uploadJobPrint(jobNumber: string, file: File): Promise<JobPrint> {
+    const id = generateUUID();
+    const fileExt = file.name.split('.').pop();
+    const filePath = `${jobNumber}/${id}.${fileExt}`;
+    
+    // Unpin others
+    await supabase.from('job_prints').update({ is_pinned: false }).eq('job_number', jobNumber);
+
+    const { error: uploadError } = await supabase.storage.from('job-prints').upload(filePath, file);
+    if (uploadError) throw uploadError;
+
+    const { data, error } = await supabase.from('job_prints').insert([{
+      id,
+      job_number: jobNumber,
+      storage_path: filePath,
+      file_name: file.name,
+      is_pinned: true
+    }]).select().single();
+
+    if (error) throw error;
+    const { data: { publicUrl } } = supabase.storage.from('job-prints').getPublicUrl(data.storage_path);
+    return {
+      id: data.id,
+      jobNumber: data.job_number,
+      storagePath: data.storage_path,
+      fileName: data.file_name,
+      isPinned: data.is_pinned,
+      createdAt: new Date(data.created_at).getTime(),
+      url: publicUrl
+    };
+  },
+
+  async getPrintMarkers(printId: string): Promise<PrintMarker[]> {
+    const { data, error } = await supabase.from('print_markers').select('*').eq('print_id', printId);
+    if (error) return [];
+    return (data || []).map(m => ({
+      id: m.id,
+      printId: m.print_id,
+      ticketId: m.ticket_id,
+      xPercent: m.x_percent,
+      yPercent: m.y_percent,
+      label: m.label
     }));
   },
 
-  async getPhotos(): Promise<JobPhoto[]> {
-    const { data, error } = await supabase.from('photos').select('*');
-    if (error) return [];
-    return (data || []).map(p => ({ ...p, jobNumber: p.job_number, dataUrl: p.data_url }));
+  async savePrintMarker(marker: Omit<PrintMarker, 'id'>): Promise<PrintMarker> {
+    const { data, error } = await supabase.from('print_markers').upsert({
+      print_id: marker.printId,
+      ticket_id: marker.ticketId,
+      x_percent: marker.xPercent,
+      y_percent: marker.yPercent,
+      label: marker.label
+    }).select().single();
+    if (error) throw error;
+    return {
+      id: data.id,
+      printId: data.print_id,
+      ticketId: data.ticket_id,
+      xPercent: data.x_percent,
+      yPercent: data.y_percent,
+      label: data.label
+    };
+  },
+
+  async deletePrintMarker(id: string): Promise<void> {
+    const { error } = await supabase.from('print_markers').delete().eq('id', id);
+    if (error) throw error;
   },
 
   async addPhoto(photo: Omit<JobPhoto, 'id' | 'dataUrl'>, file: File): Promise<JobPhoto> {
@@ -393,12 +394,7 @@ export const apiService = {
     const { error: uploadError } = await supabase.storage.from('job-photos').upload(filePath, file);
     if (uploadError) throw uploadError;
     const { data: { publicUrl } } = supabase.storage.from('job-photos').getPublicUrl(filePath);
-    const { error: dbError } = await supabase.from('photos').insert([{
-      id,
-      job_number: photo.jobNumber,
-      data_url: publicUrl,
-      caption: photo.caption
-    }]);
+    const { error: dbError } = await supabase.from('photos').insert([{ id, job_number: photo.jobNumber, data_url: publicUrl, caption: photo.caption }]);
     if (dbError) throw dbError;
     return { ...photo, id, dataUrl: publicUrl };
   },
@@ -418,6 +414,29 @@ export const apiService = {
     if (error) throw error;
   },
 
+  async getPhotos(): Promise<JobPhoto[]> {
+    const { data, error } = await supabase.from('photos').select('*');
+    if (error) return [];
+    return (data || []).map(p => ({ ...p, jobNumber: p.job_number, dataUrl: p.data_url }));
+  },
+
+  async addNoShow(noShow: NoShowRecord): Promise<void> {
+    const { error } = await supabase.from('no_shows').insert([{ id: noShow.id, ticket_id: noShow.ticketId, job_number: noShow.jobNumber, utilities: noShow.utilities, companies: noShow.companies, author: noShow.author, timestamp: noShow.timestamp }]);
+    if (error) throw error;
+    await supabase.from('tickets').update({ no_show_requested: true }).eq('id', noShow.ticketId);
+  },
+
+  async deleteNoShow(ticketId: string): Promise<void> {
+    await supabase.from('no_shows').delete().eq('ticket_id', ticketId);
+    await supabase.from('tickets').update({ no_show_requested: false }).eq('id', ticketId);
+  },
+
+  async getNoShows(): Promise<NoShowRecord[]> {
+    const { data, error } = await supabase.from('no_shows').select('*');
+    if (error) return [];
+    return (data || []).map(n => ({ id: n.id, ticketId: n.ticket_id, jobNumber: n.job_number, utilities: n.utilities || [], companies: n.companies || '', author: n.author || '', timestamp: n.timestamp }));
+  },
+
   async getNotes(): Promise<JobNote[]> {
     const { data, error } = await supabase.from('notes').select('*');
     if (error) return [];
@@ -425,13 +444,7 @@ export const apiService = {
   },
 
   async addNote(note: JobNote): Promise<JobNote> {
-    const { error } = await supabase.from('notes').insert([{
-      id: note.id,
-      job_number: note.jobNumber,
-      text: note.text,
-      author: note.author,
-      timestamp: note.timestamp
-    }]);
+    const { error } = await supabase.from('notes').insert([{ id: note.id, job_number: note.jobNumber, text: note.text, author: note.author, timestamp: note.timestamp }]);
     if (error) throw error;
     return note;
   }
