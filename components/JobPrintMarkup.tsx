@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Job, JobPrint, PrintMarker, DigTicket, TicketStatus } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
 import { getTicketStatus, getStatusDotColor } from '../utils/dateUtils.ts';
@@ -20,9 +20,6 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
   // Navigation State
   const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
   const [isPinMode, setIsPinMode] = useState(false);
-  const [isDocInteractMode, setIsDocInteractMode] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
-  const lastMousePos = useRef({ x: 0, y: 0 });
   
   // Tooltip/Marker State
   const [hoveredMarkerId, setHoveredMarkerId] = useState<string | null>(null);
@@ -100,64 +97,18 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
     return { x: (e as any).clientX, y: (e as any).clientY };
   };
 
-  const handlePointerDown = (e: React.PointerEvent) => {
-    if (isPinMode || isDocInteractMode || newMarkerPos) return;
-    setIsDragging(true);
-    // Hide tooltips while moving to prevent "floating" artifacts
-    setHoveredMarkerId(null);
-    setSelectedMarkerId('');
-    lastMousePos.current = { x: e.clientX, y: e.clientY };
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-  };
-
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isDragging) return;
-    const dx = e.clientX - lastMousePos.current.x;
-    const dy = e.clientY - lastMousePos.current.y;
-    
-    setTransform(prev => ({
-      ...prev,
-      x: prev.x + dx,
-      y: prev.y + dy
-    }));
-    
-    lastMousePos.current = { x: e.clientX, y: e.clientY };
-  };
-
-  const handlePointerUp = (e: React.PointerEvent) => {
-    setIsDragging(false);
-    (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-  };
-
   const handleWheel = (e: React.WheelEvent) => {
-    if (newMarkerPos || isDocInteractMode) return;
-    e.preventDefault();
-    
-    const vRect = viewportRef.current?.getBoundingClientRect();
-    if (!vRect) return;
-
-    const zoomIntensity = 0.001; 
-    const scaleFactor = Math.exp(-e.deltaY * zoomIntensity);
-    const newScale = Math.min(Math.max(transform.scale * scaleFactor, 0.02), 20);
-
-    if (newScale === transform.scale) return;
-
-    const mouseX = e.clientX - vRect.left;
-    const mouseY = e.clientY - vRect.top;
-
-    const contentX = (mouseX - transform.x) / transform.scale;
-    const contentY = (mouseY - transform.y) / transform.scale;
-
-    const nextX = mouseX - contentX * newScale;
-    const nextY = mouseY - contentY * newScale;
-
-    setTransform({ x: nextX, y: nextY, scale: newScale });
+    if (newMarkerPos) return;
+    // Allow standard scrolling inside if we're not scaling the container, 
+    // but usually in this layout we want to zoom the whole canvas.
+    // If the user wants native controls, we might want to let them scroll the iframe.
+    // However, if we zoom, it might conflict.
+    // To satisfy "Native controls", we'll let the user scroll the iframe if they aren't interacting with the canvas background.
   };
 
   const handleContentClick = (e: React.MouseEvent | React.TouchEvent) => {
     if (e.type === 'touchstart' && isPinMode) e.preventDefault();
     
-    // If not in pin mode, click map to deselect
     if (!isPinMode) {
       setSelectedMarkerId('');
       setHoveredMarkerId(null);
@@ -178,25 +129,11 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
   };
 
   const zoomIn = () => {
-    const vRect = viewportRef.current?.getBoundingClientRect();
-    if (!vRect) return;
-    handleWheel({ 
-      deltaY: -150,
-      clientX: vRect.left + vRect.width/2, 
-      clientY: vRect.top + vRect.height/2, 
-      preventDefault: () => {} 
-    } as any);
+    setTransform(prev => ({ ...prev, scale: Math.min(prev.scale * 1.2, 20) }));
   };
 
   const zoomOut = () => {
-    const vRect = viewportRef.current?.getBoundingClientRect();
-    if (!vRect) return;
-    handleWheel({ 
-      deltaY: 150,
-      clientX: vRect.left + vRect.width/2, 
-      clientY: vRect.top + vRect.height/2, 
-      preventDefault: () => {} 
-    } as any);
+    setTransform(prev => ({ ...prev, scale: Math.max(prev.scale / 1.2, 0.02) }));
   };
 
   const resetZoom = () => {
@@ -214,7 +151,6 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
   };
 
   const handleMarkerEnter = (id: string) => {
-    if (isDragging) return;
     if (tooltipTimeoutRef.current) window.clearTimeout(tooltipTimeoutRef.current);
     setHoveredMarkerId(id);
   };
@@ -246,12 +182,12 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
     }
   };
 
-  const deleteMarker = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const deleteMarker = async (id: string, e?: React.MouseEvent | React.PointerEvent) => {
+    if (e) e.stopPropagation();
     if (!confirm("Remove this marker?")) return;
     try {
       await apiService.deletePrintMarker(id);
-      setMarkers(markers.filter(m => m.id !== id));
+      setMarkers(prev => prev.filter(m => m.id !== id));
       setHoveredMarkerId(null);
       setSelectedMarkerId('');
     } catch (err) {
@@ -292,19 +228,14 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
       {/* Main Interactive Canvas */}
       <div 
         ref={viewportRef}
-        className={`flex-1 overflow-hidden bg-slate-900/50 relative transition-all ${isPinMode ? 'cursor-crosshair' : isDocInteractMode ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'}`}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerLeave={handlePointerUp}
+        className={`flex-1 overflow-auto bg-slate-900/50 relative transition-all ${isPinMode ? 'cursor-crosshair' : 'cursor-default'}`}
         onWheel={handleWheel}
       >
         {print ? (
           <div 
             ref={contentRef}
             onClick={handleContentClick}
-            onTouchStart={handleContentClick}
-            className="absolute shadow-2xl bg-white origin-top-left will-change-transform select-none"
+            className="absolute shadow-2xl bg-white origin-top-left will-change-transform"
             style={{ 
               transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
               width: '1200px', 
@@ -314,10 +245,9 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
             {isPdf(print.url) ? (
               <div className="absolute inset-0">
                 <iframe 
-                  src={`${print.url}#toolbar=0&view=FitH`} 
-                  className={`w-full h-full border-none bg-white transition-opacity ${isDocInteractMode ? 'opacity-100 pointer-events-auto' : 'opacity-80 pointer-events-none'}`} 
+                  src={`${print.url}#toolbar=1&view=FitH`} 
+                  className="w-full h-full border-none bg-white opacity-100 pointer-events-auto" 
                 />
-                {!isDocInteractMode && <div className="absolute inset-0 bg-transparent z-0" />}
               </div>
             ) : (
               <img src={print.url} className="w-full h-full object-contain block pointer-events-none" alt="Job Blueprint" />
@@ -328,7 +258,7 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
               const ticket = tickets.find(t => t.id === m.ticketId);
               const status = ticket ? getTicketStatus(ticket) : TicketStatus.OTHER;
               const colorClass = getStatusDotColor(status);
-              const isShown = (hoveredMarkerId === m.id || selectedMarkerId === m.id) && !isDragging;
+              const isShown = (hoveredMarkerId === m.id || selectedMarkerId === m.id);
 
               return (
                 <div 
@@ -337,7 +267,7 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
                   style={{ 
                     left: `${m.xPercent}%`, 
                     top: `${m.yPercent}%`,
-                    transform: 'translate(-50%, -50%)' // Stabilized centering
+                    transform: 'translate(-50%, -50%)' 
                   }}
                   onMouseEnter={() => handleMarkerEnter(m.id)}
                   onMouseLeave={handleMarkerLeave}
@@ -347,6 +277,7 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
                       e.stopPropagation(); 
                       setSelectedMarkerId(selectedMarkerId === m.id ? '' : m.id);
                     }}
+                    onPointerDown={(e) => e.stopPropagation()}
                     className={`w-6 h-6 rounded-full border-2 border-white shadow-lg cursor-pointer flex items-center justify-center transition-all hover:scale-125 ${colorClass} ${selectedMarkerId === m.id ? 'ring-4 ring-white' : ''}`}
                   >
                     <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
@@ -359,6 +290,9 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
                       style={{ transform: `scale(${1/transform.scale})`, transformOrigin: 'bottom center' }}
                       onMouseEnter={() => tooltipTimeoutRef.current && window.clearTimeout(tooltipTimeoutRef.current)}
                       onMouseLeave={handleMarkerLeave}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onPointerUp={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
                     >
                        <div className={`p-4 rounded-xl border border-white/10 shadow-2xl min-w-[200px] backdrop-blur-md ${isDarkMode ? 'bg-slate-900/95 text-white' : 'bg-white/95 text-slate-900'}`}>
                           <div className="flex justify-between items-start mb-1">
@@ -370,12 +304,14 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
                           <p className={`text-[8px] font-bold uppercase tracking-tighter truncate mb-3 opacity-60`}>{ticket?.street}</p>
                           <div className="flex gap-2">
                             <button 
+                              onPointerDown={(e) => e.stopPropagation()}
                               onClick={(e) => { e.stopPropagation(); ticket?.documentUrl && onViewTicket(ticket.documentUrl); }}
                               className="flex-1 py-1.5 bg-brand text-slate-900 rounded-lg text-[8px] font-black uppercase tracking-widest transition-all active:scale-95"
                             >
                               View PDF
                             </button>
                             <button 
+                              onPointerDown={(e) => e.stopPropagation()}
                               onClick={(e) => deleteMarker(m.id, e)} 
                               className="px-2 py-1.5 bg-rose-500/10 text-rose-500 rounded-lg hover:bg-rose-500 hover:text-white transition-all"
                             >
@@ -444,25 +380,6 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
         {/* Floating Controls */}
         <div className="flex items-center gap-2 bg-slate-950/80 backdrop-blur-xl border border-white/10 p-2 rounded-3xl shadow-2xl pointer-events-auto">
           <div className="flex items-center gap-1 border-r border-white/5 pr-2 mr-1">
-             <button 
-               onClick={() => { setIsPinMode(false); setIsDocInteractMode(false); }}
-               className={`p-3 rounded-2xl transition-all ${!isPinMode && !isDocInteractMode ? 'bg-brand text-slate-900' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}
-               title="Pan Tool"
-             >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M7 11.5V14m0-2.5v-6a1.5 1.5 0 113 0V12m-3 .5a3 3 0 006 0v-1a1.5 1.5 0 013 0V14m-3-2.5a3 3 0 013 3v1" /></svg>
-             </button>
-             {isPdf(print?.url) && (
-               <button 
-                onClick={() => { setIsDocInteractMode(!isDocInteractMode); setIsPinMode(false); }}
-                className={`p-3 rounded-2xl transition-all ${isDocInteractMode ? 'bg-rose-500 text-white shadow-lg' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}
-                title="Interact with Document (Native Controls)"
-               >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" /></svg>
-               </button>
-             )}
-          </div>
-
-          <div className="flex items-center gap-1 border-r border-white/5 pr-2 mr-1">
              <button onClick={zoomIn} className="p-3 bg-white/5 hover:bg-white/10 rounded-2xl text-white transition-all">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" /></svg>
              </button>
@@ -475,7 +392,7 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
           </div>
           
           <button 
-            onClick={() => { setIsPinMode(!isPinMode); setIsDocInteractMode(false); setNewMarkerPos(null); }}
+            onClick={() => { setIsPinMode(!isPinMode); setNewMarkerPos(null); }}
             className={`flex items-center gap-2 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${isPinMode ? 'bg-brand text-slate-900 shadow-lg shadow-brand/20' : 'bg-white/5 text-slate-400 hover:text-white'}`}
           >
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>

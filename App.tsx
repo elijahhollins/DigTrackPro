@@ -68,10 +68,33 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // Close markup modal if tab changes
-  useEffect(() => {
+  // Centralized Navigation Handler
+  const handleNavigate = (view: AppView) => {
+    // Check if a form with potential unsaved changes is open
+    const isFormActive = showTicketForm || editingTicket || showJobForm || editingJob || noShowTicket;
+    
+    if (isFormActive) {
+      const confirmDiscard = window.confirm("You have a form open. Any unsaved changes will be lost. Continue with navigation?");
+      if (!confirmDiscard) return;
+    }
+
+    // Reset all modal/overlay states
+    setShowTicketForm(false);
+    setEditingTicket(null);
+    setShowJobForm(false);
+    setEditingJob(null);
+    setSelectedJobSummary(null);
     setShowMarkup(null);
-  }, [activeView]);
+    setNoShowTicket(null);
+    setViewingDocUrl(null);
+
+    // Filter logic for media
+    if (view !== 'photos') {
+      setMediaFolderFilter(null);
+    }
+
+    setActiveView(view);
+  };
 
   const alertAdmins = async (title: string, body: string) => {
     if (Notification.permission === 'granted' && sessionUser?.role === UserRole.ADMIN) {
@@ -349,7 +372,7 @@ const App: React.FC = () => {
     <div className={`min-h-screen ${isDarkMode ? 'bg-[#0f172a] text-slate-100' : 'bg-slate-50 text-black'} transition-all duration-500 pb-20 sm:pb-0`}>
       <header className={`${isDarkMode ? 'bg-[#1e293b]/95 border-white/5 shadow-2xl shadow-black/20' : 'bg-white/95 border-slate-200 shadow-sm'} backdrop-blur-xl border-b sticky top-0 z-40 h-16 transition-all duration-500`}>
         <div className="max-w-[1400px] mx-auto px-4 h-full flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3 cursor-pointer group shrink-0" onClick={() => { setActiveView('dashboard'); setSelectedJobSummary(null); }}>
+          <div className="flex items-center gap-3 cursor-pointer group shrink-0" onClick={() => { handleNavigate('dashboard'); }}>
             <div className={`p-2.5 rounded-2xl shadow-lg transition-all duration-500 glow-brand ${isProcessing ? 'bg-purple-500 shadow-purple-500/30' : 'bg-brand shadow-brand/20'} group-hover:scale-110 active:scale-95`}>
               <svg className={`w-5 h-5 text-[#0f172a] ${isProcessing ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
             </div>
@@ -365,7 +388,7 @@ const App: React.FC = () => {
               return (
                 <button
                   key={item.id}
-                  onClick={() => { setActiveView(item.id); setSelectedJobSummary(null); if (item.id !== 'photos') setMediaFolderFilter(null); }}
+                  onClick={() => handleNavigate(item.id)}
                   className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all relative ${isActive ? 'bg-brand text-slate-900 shadow-lg shadow-brand/10 nav-item-active' : isDarkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-brand'}`}
                 >
                   {item.icon}
@@ -441,7 +464,7 @@ const App: React.FC = () => {
                           <tr onClick={() => toggleJobExpansion(jobNum)} className={`transition-all cursor-pointer border-l-4 ${isExpanded ? 'border-brand' : 'border-transparent'} ${isDarkMode ? 'hover:bg-white/[0.03]' : 'hover:bg-slate-50/80'}`}>
                             <td className="px-8 py-6"><div className="flex items-center gap-4"><div className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${isExpanded ? 'bg-brand/10 border-brand/20 text-brand rotate-90' : 'bg-black/5 border-transparent opacity-40'}`}><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M9 5l7 7-7 7" /></svg></div><button onClick={(e) => { e.stopPropagation(); handleJobSelection(jobNum, jobEntity); }} className={`text-[13px] font-black hover:text-brand transition-colors text-left ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>JOB #{jobNum}</button></div></td>
                             <td className="px-8 py-6"><span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-lg ${isDarkMode ? 'bg-white/5 text-slate-400' : 'bg-slate-100 text-slate-600'}`}>{jobTickets.length} Assets</span></td>
-                            <td className="px-8 py-6"><div className="flex flex-col"><span className={`text-[11px] font-black uppercase tracking-tight truncate max-w-[200px] ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{jobEntity?.customer || 'Direct Client'}</span><span className="text-[9px] font-bold truncate max-w-[200px] opacity-40">{jobEntity?.address || 'Field Location'}</span></div></td>
+                            <td className="px-8 py-6"><div className="flex flex-col"><span className={`text-[11px] font-black uppercase tracking-tight truncate max-w-[200px] ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{ (jobEntity?.customer || 'Direct Client').replace(/^OTHER\/?/i, '') }</span><span className="text-[9px] font-bold truncate max-w-[200px] opacity-40">{jobEntity?.city || jobEntity?.address || 'Field Location'}</span></div></td>
                             <td className="px-8 py-6 text-center"><div className={`w-2.5 h-2.5 rounded-full mx-auto ring-4 ${aggregateStatus === TicketStatus.EXPIRED ? 'bg-rose-500 ring-rose-500/10' : aggregateStatus === TicketStatus.REFRESH_NEEDED ? 'bg-amber-500 ring-amber-500/10' : 'bg-emerald-500 ring-emerald-500/10'}`} /></td>
                             <td className="px-8 py-6 text-right font-bold text-[10px] opacity-30">{isExpanded ? 'COLLAPSE' : 'DETAILS'}</td>
                             <td className="px-8 py-6 text-right">{isAdmin && <button onClick={(e) => { e.stopPropagation(); jobEntity && handleDeleteJob(jobEntity); }} className="p-2.5 text-slate-400 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>}</td>
@@ -451,7 +474,7 @@ const App: React.FC = () => {
                             return (
                               <tr key={ticket.id} onClick={() => isAdmin && setEditingTicket(ticket)} className={`animate-in transition-all group ${isAdmin ? 'cursor-pointer' : ''} ${isDarkMode ? 'bg-white/[0.01]' : 'bg-slate-50/30'} border-l-4 border-slate-500/10`}>
                                 <td className="px-8 py-4 pl-16"><div className="flex items-center gap-3"><div className="w-2 h-2 rounded-full bg-slate-500/20" /><button onClick={(e) => { e.stopPropagation(); if (ticket.documentUrl) setViewingDocUrl(ticket.documentUrl); }} className={`text-[11px] font-mono font-bold tracking-tight transition-colors ${ticket.documentUrl ? 'hover:text-brand hover:underline text-brand' : 'opacity-40'}`}>{ticket.ticketNo}</button></div></td>
-                                <td colSpan={2} className={`px-8 py-4 text-[11px] font-bold truncate max-w-[400px] ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>{ticket.street}</td>
+                                <td colSpan={2} className={`px-8 py-4 text-[11px] font-bold truncate max-w-[400px] ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>{ticket.crossStreet || ticket.street}</td>
                                 <td className="px-8 py-4 text-center"><span className={`inline-flex px-2 py-0.5 rounded-lg text-[8px] font-black uppercase border tracking-widest ${getStatusColor(status)}`}>{status}</span></td>
                                 <td className={`px-8 py-4 text-[11px] font-bold text-right opacity-60`}>{new Date(ticket.expires).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</td>
                                 <td className="px-8 py-4 text-right"><div className="flex items-center justify-end gap-2"><button onClick={(e) => { e.stopPropagation(); setNoShowTicket(ticket); }} className={`p-2 rounded-xl transition-all border ${ticket.noShowRequested ? 'bg-rose-500 text-white border-rose-600 shadow-lg' : 'bg-rose-500/5 text-rose-500 border-rose-500/10 hover:bg-rose-500 hover:text-white'}`}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg></button><button onClick={(e) => handleToggleRefresh(ticket, e)} className={`p-2 rounded-xl transition-all border ${ticket.refreshRequested ? 'bg-amber-100 text-amber-600 border-amber-300' : 'bg-slate-100 text-slate-500 hover:text-brand'}`}><svg className={`w-4 h-4 ${ticket.refreshRequested ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357-2H15" /></svg></button>{isAdmin && <button onClick={(e) => handleDeleteTicket(ticket.id, e)} className="p-2 text-slate-500 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>}</div></td>
@@ -473,7 +496,7 @@ const App: React.FC = () => {
         {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} isDarkMode={isDarkMode} onAddUser={async (u) => { await apiService.addUser(u); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onThemeChange={applyThemeColor} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} />}
         {(showTicketForm || editingTicket) && <TicketForm onSave={handleSaveTicket} onClose={() => { setShowTicketForm(false); setEditingTicket(null); }} initialData={editingTicket} isDarkMode={isDarkMode} existingTickets={tickets} />}
         {(showJobForm || editingJob) && <JobForm onSave={async (data) => { const job: Job = editingJob ? { ...editingJob, ...data } : { ...data, id: crypto.randomUUID(), createdAt: Date.now(), isComplete: false }; const saved = await apiService.saveJob(job); setJobs(prev => { const exists = prev.findIndex(j => j.id === saved.id); if (exists > -1) return prev.map(j => j.id === saved.id ? saved : j); return [...prev, saved]; }); setShowJobForm(false); setEditingJob(null); }} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} isDarkMode={isDarkMode} />}
-        {selectedJobSummary && <JobSummaryModal job={selectedJobSummary} tickets={tickets.filter(t => t.jobNumber === selectedJobSummary.jobNumber)} onClose={() => setSelectedJobSummary(null)} onEdit={() => { setEditingJob(selectedJobSummary); setShowJobForm(true); setSelectedJobSummary(null); }} onDelete={() => handleDeleteJob(selectedJobSummary)} onToggleComplete={() => handleToggleJobCompletion(selectedJobSummary)} onViewMedia={() => { setMediaFolderFilter(selectedJobSummary.jobNumber); setActiveView('photos'); setSelectedJobSummary(null); }} onViewMarkup={() => { setShowMarkup(selectedJobSummary); setSelectedJobSummary(null); }} isDarkMode={isDarkMode} />}
+        {selectedJobSummary && <JobSummaryModal job={selectedJobSummary} tickets={tickets.filter(t => t.jobNumber === selectedJobSummary.jobNumber)} onClose={() => setSelectedJobSummary(null)} onEdit={() => { setEditingJob(selectedJobSummary); setShowJobForm(true); setSelectedJobSummary(null); }} onDelete={() => handleDeleteJob(selectedJobSummary)} onToggleComplete={() => handleToggleJobCompletion(selectedJobSummary)} onViewMedia={() => { setMediaFolderFilter(selectedJobSummary.jobNumber); handleNavigate('photos'); }} onViewMarkup={() => { setShowMarkup(selectedJobSummary); setSelectedJobSummary(null); }} isDarkMode={isDarkMode} />}
         {showMarkup && <JobPrintMarkup job={showMarkup} tickets={tickets.filter(t => t.jobNumber === showMarkup.jobNumber)} onClose={() => setShowMarkup(null)} onViewTicket={(url) => setViewingDocUrl(url)} isDarkMode={isDarkMode} />}
         {noShowTicket && <NoShowForm ticket={noShowTicket} userName={sessionUser?.name || ''} onSave={async (record) => { await apiService.addNoShow(record); setTickets(prev => prev.map(t => t.id === noShowTicket.id ? { ...t, noShowRequested: true } : t)); alertAdmins('⚠️ No Show Incident Reported', `Job #${noShowTicket.jobNumber}: Ticket #${noShowTicket.ticketNo}.`); }} onDelete={() => handleRemoveNoShow(noShowTicket)} onClose={() => setNoShowTicket(null)} isDarkMode={isDarkMode} />}
         {viewingDocUrl && <div className="fixed inset-0 bg-black/90 z-[300] flex items-center justify-center p-4"><button onClick={() => setViewingDocUrl(null)} className="absolute top-6 right-6 p-3 bg-white/10 rounded-full text-white hover:bg-white/20"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg></button><iframe src={viewingDocUrl} className="w-full max-w-5xl h-[90vh] rounded-3xl bg-white shadow-2xl border-4 border-white/5" /></div>}
@@ -481,7 +504,7 @@ const App: React.FC = () => {
       <nav className={`sm:hidden fixed bottom-0 left-0 right-0 z-50 px-4 pb-6 pt-3 backdrop-blur-xl border-t flex justify-between items-center ${isDarkMode ? 'bg-[#1e293b]/95 border-white/5 shadow-[0_-10px_30px_rgba(0,0,0,0.5)]' : 'bg-white/95 border-slate-200 shadow-[0_-10px_30px_rgba(0,0,0,0.1)]'}`}>
         {NAV_ITEMS.map((item) => {
           const isActive = activeView === item.id;
-          return <button key={item.id} onClick={() => { setActiveView(item.id); setSelectedJobSummary(null); }} className={`flex flex-col items-center gap-1 transition-all ${isActive ? 'text-brand scale-110' : 'text-slate-500 opacity-60'}`}><div className={`p-2 rounded-xl ${isActive ? 'bg-brand/10' : ''}`}>{item.icon}</div><span className="text-[8px] font-black uppercase tracking-widest">{item.label}</span></button>;
+          return <button key={item.id} onClick={() => handleNavigate(item.id)} className={`flex flex-col items-center gap-1 transition-all ${isActive ? 'text-brand scale-110' : 'text-slate-500 opacity-60'}`}><div className={`p-2 rounded-xl ${isActive ? 'bg-brand/10' : ''}`}>{item.icon}</div><span className="text-[8px] font-black uppercase tracking-widest">{item.label}</span></button>;
         })}
       </nav>
       {isAdmin && activeView === 'dashboard' && <button onClick={() => { setEditingTicket(null); setShowTicketForm(true); }} className="sm:hidden fixed bottom-24 right-6 w-14 h-14 bg-brand rounded-2xl shadow-2xl flex items-center justify-center text-[#0f172a] z-40 border-4 border-[#0f172a]"><svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg></button>}
