@@ -1,11 +1,12 @@
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Job, JobPrint, PrintMarker, DigTicket, TicketStatus } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
 import { getTicketStatus, getStatusDotColor } from '../utils/dateUtils.ts';
 import * as pdfjs from 'pdfjs-dist';
 
-// Configure PDF.js worker
-pdfjs.GlobalWorkerOptions.workerSrc = `https://esm.sh/pdfjs-dist@4.4.168/build/pdf.worker.mjs`;
+// Use a consistent, version-matched worker URL
+pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs`;
 
 interface JobPrintMarkupProps {
   job: Job;
@@ -100,7 +101,6 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
     if (!print) return;
 
     if (!isPdfFile(print.url)) {
-      // Logic for Image handled by onLoad in <img>
       return;
     }
 
@@ -119,7 +119,6 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
         const page = await pdfDocRef.current.getPage(currentPage);
         if (isCancelled) return;
 
-        // Use a consistent scale for high-quality rendering
         const renderScale = 2.0;
         const viewport = page.getViewport({ scale: renderScale }); 
         const canvas = canvasRef.current!;
@@ -128,15 +127,13 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
         canvas.height = viewport.height;
         canvas.width = viewport.width;
 
-        // Add 'canvas' property to RenderParameters as required by some PDF.js TypeScript definitions (e.g., version 4+)
         await page.render({
           canvasContext: context!,
           viewport: viewport,
           canvas: canvas
-        }).promise;
+        } as any).promise;
         
         if (!isCancelled) {
-          // Set logical dimensions for coordinate mapping
           setDocDims({ width: canvas.width, height: canvas.height });
         }
       } catch (err) {
@@ -148,18 +145,14 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
     return () => { isCancelled = true; };
   }, [print, currentPage]);
 
-  // Trigger auto-fit once dimensions are known
   useEffect(() => {
     if (docDims.width > 0) {
       performAutoFit();
     }
   }, [docDims, performAutoFit]);
 
-  // 4. Viewport Interactions
   const handlePointerDown = (e: React.PointerEvent) => {
     if (isPinMode) return;
-    
-    // Safety check: ensure we aren't clicking a UI element or tooltip
     if ((e.target as HTMLElement).closest('.ui-isolation')) return;
 
     pointerDownPos.current = { x: e.clientX, y: e.clientY };
@@ -224,7 +217,6 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
     }
   };
 
-  // 5. API Actions
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -238,7 +230,6 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
       setCurrentPage(1);
       pdfDocRef.current = null;
       if (!isPdfFile(newPrint.url)) {
-        // If it's an image, reset dimensions to force new Fit calc
         setDocDims({ width: 0, height: 0 });
       }
     } catch (err: any) {
@@ -309,7 +300,6 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
 
   return (
     <div className="fixed inset-0 bg-slate-950 z-[200] flex flex-col overflow-hidden touch-none select-none animate-in fade-in duration-300">
-      {/* HEADER */}
       <div className="p-4 sm:p-6 border-b border-white/5 flex flex-col sm:flex-row items-center justify-between z-50 bg-slate-950/80 backdrop-blur-md gap-4">
         <div className="flex items-center gap-4">
           <div className="p-2.5 bg-brand/10 rounded-xl hidden sm:block shadow-inner">
@@ -350,7 +340,6 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
         </div>
       </div>
 
-      {/* VIEWPORT */}
       <div 
         ref={viewportRef}
         className={`flex-1 overflow-hidden bg-slate-900 relative ${isPinMode ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'}`}
@@ -385,7 +374,6 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
               />
             )}
 
-            {/* PINS LAYER */}
             <div className="absolute inset-0 pointer-events-none">
               {markers.filter(m => (m.pageNumber || 1) === currentPage).map(m => {
                 const ticket = tickets.find(t => t.id === m.ticketId);
@@ -396,7 +384,7 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
                 return (
                   <div key={m.id} className="absolute z-20 pointer-events-auto" style={{ left: `${m.xPercent}%`, top: `${m.yPercent}%` }}>
                     <div 
-                      onPointerDown={(e) => e.stopPropagation()} // Prevent map drag start
+                      onPointerDown={(e) => e.stopPropagation()}
                       onClick={(e) => { e.stopPropagation(); setSelectedMarkerId(isSelected ? '' : m.id); }}
                       onMouseEnter={() => setHoveredMarkerId(m.id)}
                       onMouseLeave={() => setHoveredMarkerId(null)}
@@ -464,7 +452,6 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
         )}
       </div>
 
-      {/* FLOATING CONTROLS */}
       <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[100] flex flex-col items-center gap-4 w-full max-w-md px-4 pointer-events-none">
         {newMarkerPos && (
           <div className="bg-slate-950/95 border border-white/10 p-8 rounded-[2.5rem] shadow-[0_40px_100px_rgba(0,0,0,0.8)] w-full animate-in slide-in-from-bottom-4 pointer-events-auto backdrop-blur-2xl ui-isolation">
