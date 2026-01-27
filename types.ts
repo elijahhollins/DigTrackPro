@@ -52,6 +52,7 @@ export interface PrintMarker {
   ticketId: string;
   xPercent: number;
   yPercent: number;
+  pageNumber?: number;
   label?: string;
 }
 

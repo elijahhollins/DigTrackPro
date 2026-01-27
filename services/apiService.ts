@@ -66,6 +66,7 @@ create table if not exists print_markers (
     ticket_id uuid references tickets(id) on delete cascade,
     x_percent float8 not null,
     y_percent float8 not null,
+    page_number int4 default 1,
     label text,
     created_at timestamp with time zone default now()
 );
@@ -284,7 +285,7 @@ export const apiService = {
         expires: data.expires,
         siteContact: data.site_contact,
         refreshRequested: data.refresh_requested ?? false,
-        noShowRequested: data.noShowRequested ?? false,
+        noShowRequested: data.no_show_requested ?? false,
         isArchived: data.is_archived ?? false,
         documentUrl: data.document_url || '',
         createdAt: new Date(data.created_at).getTime()
@@ -359,6 +360,7 @@ export const apiService = {
       ticketId: m.ticket_id,
       xPercent: m.x_percent,
       yPercent: m.y_percent,
+      pageNumber: m.page_number || 1,
       label: m.label
     }));
   },
@@ -369,6 +371,7 @@ export const apiService = {
       ticket_id: marker.ticketId,
       x_percent: marker.xPercent,
       y_percent: marker.yPercent,
+      page_number: marker.pageNumber || 1,
       label: marker.label
     }).select().single();
     if (error) throw error;
@@ -378,6 +381,7 @@ export const apiService = {
       ticketId: data.ticket_id,
       xPercent: data.x_percent,
       yPercent: data.y_percent,
+      pageNumber: data.page_number,
       label: data.label
     };
   },
