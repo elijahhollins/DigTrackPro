@@ -20,6 +20,7 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
   const [print, setPrint] = useState<JobPrint | null>(null);
   const [markers, setMarkers] = useState<PrintMarker[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRenderingPage, setIsRenderingPage] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isMapReady, setIsMapReady] = useState(false);
   
@@ -30,6 +31,7 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const pdfDocRef = useRef<pdfjs.PDFDocumentProxy | null>(null);
+  const currentRenderTask = useRef<any>(null);
 
   // Navigation State
   const [transform, setTransform] = useState({ x: 0, y: 0, scale: 0.1 });
@@ -82,7 +84,7 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
     if (!viewportRef.current || docDims.width === 0) return;
     
     const vRect = viewportRef.current.getBoundingClientRect();
-    const padding = 20; // Tighter padding for mobile
+    const padding = 20; 
     const availableWidth = vRect.width - (padding * 2);
     const availableHeight = vRect.height - (padding * 2);
     
@@ -106,8 +108,13 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
 
     let isCancelled = false;
     const renderPdf = async () => {
-      setIsMapReady(false);
+      setIsRenderingPage(true);
       try {
+        // Cancel existing render if any
+        if (currentRenderTask.current) {
+          currentRenderTask.current.cancel();
+        }
+
         if (!pdfDocRef.current || pdfDocRef.current.loadingTask.docId !== print.id) {
           const loadingTask = pdfjs.getDocument(print.url!);
           const pdf = await loadingTask.promise;
@@ -120,7 +127,6 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
         if (isCancelled) return;
 
         // SAFE SCALE CALCULATION FOR MOBILE
-        // Prevents canvas memory crashes by capping max dimension
         const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
         const maxDimLimit = isMobile ? 3000 : 5000;
         const unscaledViewport = page.getViewport({ scale: 1.0 });
@@ -130,20 +136,29 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
         const canvas = canvasRef.current!;
         const context = canvas.getContext('2d');
         
+        // Clear canvas before resizing to save memory
+        if (context) context.clearRect(0, 0, canvas.width, canvas.height);
+        
         canvas.height = viewport.height;
         canvas.width = viewport.width;
 
-        await (page.render({
+        const renderTask = page.render({
           canvasContext: context!,
           viewport: viewport,
           canvas: canvas
-        } as any)).promise;
+        } as any);
+
+        currentRenderTask.current = renderTask;
+        await renderTask.promise;
         
         if (!isCancelled) {
           setDocDims({ width: canvas.width, height: canvas.height });
+          setIsRenderingPage(false);
         }
-      } catch (err) {
-        console.error("PDF Render Error:", err);
+      } catch (err: any) {
+        if (err.name !== 'RenderingCancelledException') {
+          console.error("PDF Render Error:", err);
+        }
       }
     };
 
@@ -307,40 +322,29 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
 
   return (
     <div className="fixed inset-0 bg-slate-950 z-[200] flex flex-col overflow-hidden touch-none select-none animate-in fade-in duration-300">
-      <div className="p-4 sm:p-6 border-b border-white/5 flex flex-col sm:flex-row items-center justify-between z-50 bg-slate-950/80 backdrop-blur-md gap-4">
-        <div className="flex items-center gap-4">
-          <div className="p-2.5 bg-brand/10 rounded-xl hidden sm:block shadow-inner">
+      {/* HEADER: Simplified for Mobile */}
+      <div className="p-4 sm:p-6 border-b border-white/5 flex items-center justify-between z-50 bg-slate-950/80 backdrop-blur-md gap-4">
+        <div className="flex items-center gap-3 sm:gap-4 overflow-hidden">
+          <div className="p-2.5 bg-brand/10 rounded-xl shrink-0 hidden sm:block shadow-inner">
              <svg className="w-5 h-5 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 20l-5.447-2.724A2 2 0 013 15.483V4.517a2 2 0 011.553-1.943l7.19-1.438a2 2 0 011.514 0l7.19 1.438A2 2 0 0122 4.517v10.966a2 2 0 01-1.553 1.943L15 20l-3-3-3 3z" /></svg>
           </div>
-          <div>
-            <h2 className="text-sm font-black text-white uppercase tracking-[0.2em]">Job #{job.jobNumber} Assets Map</h2>
-            <p className="text-[9px] font-black text-brand uppercase tracking-widest mt-0.5">Project Map • Coordinate Control</p>
+          <div className="min-w-0">
+            <h2 className="text-[11px] sm:text-sm font-black text-white uppercase tracking-[0.2em] truncate">Job #{job.jobNumber} Assets</h2>
+            <p className="text-[8px] sm:text-[9px] font-black text-brand uppercase tracking-widest mt-0.5 truncate">Coordinate Control Map</p>
           </div>
         </div>
 
-        {totalPages > 1 && (
-          <div className="flex items-center gap-3 bg-white/5 p-1 rounded-2xl border border-white/10">
-            <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage <= 1} className="p-2.5 rounded-xl text-white hover:bg-white/10 disabled:opacity-20 transition-all active:scale-90">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 19l-7-7 7-7" /></svg>
-            </button>
-            <div className="px-4 text-[10px] font-black uppercase tracking-widest text-slate-400">
-              Page {currentPage} <span className="opacity-40 text-[8px]">of</span> {totalPages}
-            </div>
-            <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage >= totalPages} className="p-2.5 rounded-xl text-white hover:bg-white/10 disabled:opacity-20 transition-all active:scale-90">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M9 5l7 7-7 7" /></svg>
-            </button>
-          </div>
-        )}
-
-        <div className="flex items-center gap-2 sm:gap-4">
+        <div className="flex items-center gap-2 sm:gap-4 shrink-0">
+          <button onClick={() => fileInputRef.current?.click()} className="hidden sm:block px-4 py-3 bg-white/5 border border-white/10 text-slate-400 hover:text-white rounded-2xl text-[9px] font-black uppercase tracking-widest transition-all active:scale-95">
+            {isUploading ? 'Syncing...' : 'Update Print'}
+          </button>
+          
           {print && (
              <button onClick={purgeMap} className="p-3 bg-white/5 border border-white/10 rounded-xl text-rose-500 hover:bg-rose-500 hover:text-white transition-all active:scale-90">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
              </button>
           )}
-          <button onClick={() => fileInputRef.current?.click()} className="px-4 py-3 bg-white/5 border border-white/10 text-slate-400 hover:text-white rounded-2xl text-[9px] font-black uppercase tracking-widest transition-all active:scale-95">
-            {isUploading ? 'Syncing...' : 'Update Print'}
-          </button>
+          
           <button onClick={onClose} className="p-3 bg-white/10 rounded-2xl text-white hover:bg-rose-500 transition-all active:scale-90 shadow-lg">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
@@ -357,6 +361,14 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
         onWheel={handleWheel}
         onClick={handleViewportClick}
       >
+        {/* Rendering Overlay */}
+        {isRenderingPage && (
+          <div className="absolute inset-0 z-[60] bg-slate-950/40 backdrop-blur-[2px] flex flex-col items-center justify-center transition-opacity">
+            <div className="w-8 h-8 border-4 border-brand border-t-transparent rounded-full animate-spin mb-3 shadow-xl" />
+            <span className="text-[9px] font-black text-white uppercase tracking-[0.2em] drop-shadow-lg">Rendering Page {currentPage}...</span>
+          </div>
+        )}
+
         {print ? (
           <div 
             ref={contentWrapperRef}
@@ -424,7 +436,7 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
                           <p className="text-[11px] font-bold truncate mb-6 opacity-60 uppercase tracking-tight">{ticket?.street || 'No Location Defined'}</p>
                           <div className="flex gap-2">
                             <button 
-                              onClick={(e) => { e.stopPropagation(); ticket?.documentUrl && onViewTicket(ticket.documentUrl); }}
+                              onClick={(e) => { e.stopPropagation(); ticket?.documentUrl && window.open(ticket.documentUrl, '_blank'); }}
                               className="flex-1 py-4 bg-brand text-slate-900 rounded-[1.2rem] font-black text-[10px] uppercase tracking-widest shadow-xl shadow-brand/20 transition-all hover:scale-105 active:scale-95"
                             >
                               View Ticket
@@ -463,7 +475,33 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
         )}
       </div>
 
+      {/* FLOATING CONTROLS: Moved Page Nav for Mobile visibility */}
       <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[100] flex flex-col items-center gap-4 w-full max-w-md px-4 pointer-events-none">
+        
+        {/* Page Switcher Pill - Floating above the main bar */}
+        {totalPages > 1 && (
+          <div className="flex items-center gap-4 bg-slate-950/80 backdrop-blur-2xl border border-white/10 px-6 py-3 rounded-full shadow-2xl pointer-events-auto animate-in slide-in-from-bottom-2">
+            <button 
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))} 
+              disabled={currentPage <= 1 || isRenderingPage} 
+              className="p-2 text-white hover:text-brand disabled:opacity-20 transition-all active:scale-75"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M15 19l-7-7 7-7" /></svg>
+            </button>
+            <div className="flex flex-col items-center min-w-[80px]">
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Document</span>
+              <span className="text-xs font-black text-white">{currentPage} / {totalPages}</span>
+            </div>
+            <button 
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} 
+              disabled={currentPage >= totalPages || isRenderingPage} 
+              className="p-2 text-white hover:text-brand disabled:opacity-20 transition-all active:scale-75"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M9 5l7 7-7 7" /></svg>
+            </button>
+          </div>
+        )}
+
         {newMarkerPos && (
           <div className="bg-slate-950/95 border border-white/10 p-8 rounded-[2.5rem] shadow-[0_40px_100px_rgba(0,0,0,0.8)] w-full animate-in slide-in-from-bottom-4 pointer-events-auto backdrop-blur-2xl ui-isolation">
             <div className="flex justify-between items-center mb-6">
@@ -510,7 +548,7 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
         </div>
       </div>
 
-      <input type="file" ref={fileInputRef} className="hidden" accept="image/*,application/pdf" onChange={handleFileUpload} />
+      <input type="file" multiple ref={fileInputRef} className="hidden" accept="image/*,application/pdf" onChange={handleFileUpload} />
     </div>
   );
 };
