@@ -5,8 +5,8 @@ import { apiService } from '../services/apiService.ts';
 import { getTicketStatus, getStatusDotColor } from '../utils/dateUtils.ts';
 import * as pdfjs from 'pdfjs-dist';
 
-// Use a consistent, version-matched worker URL
-pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs`;
+// Use a more robust worker URL for mobile compatibility
+pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs`;
 
 interface JobPrintMarkupProps {
   job: Job;
@@ -82,7 +82,7 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
     if (!viewportRef.current || docDims.width === 0) return;
     
     const vRect = viewportRef.current.getBoundingClientRect();
-    const padding = 40;
+    const padding = 20; // Tighter padding for mobile
     const availableWidth = vRect.width - (padding * 2);
     const availableHeight = vRect.height - (padding * 2);
     
@@ -119,7 +119,13 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
         const page = await pdfDocRef.current.getPage(currentPage);
         if (isCancelled) return;
 
-        const renderScale = 2.0;
+        // SAFE SCALE CALCULATION FOR MOBILE
+        // Prevents canvas memory crashes by capping max dimension
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        const maxDimLimit = isMobile ? 3000 : 5000;
+        const unscaledViewport = page.getViewport({ scale: 1.0 });
+        const renderScale = Math.min(maxDimLimit / unscaledViewport.width, maxDimLimit / unscaledViewport.height, 2.0);
+        
         const viewport = page.getViewport({ scale: renderScale }); 
         const canvas = canvasRef.current!;
         const context = canvas.getContext('2d');
@@ -362,7 +368,11 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
             }}
           >
             {isPdfFile(print.url) ? (
-              <canvas ref={canvasRef} className="block w-full h-auto" />
+              <canvas 
+                ref={canvasRef} 
+                className="block w-full h-auto" 
+                style={{ imageRendering: '-webkit-optimize-contrast' }}
+              />
             ) : (
               <img 
                 src={print.url} 

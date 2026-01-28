@@ -359,10 +359,11 @@ const App: React.FC = () => {
   if (!sessionUser) return <Login onLogin={setSessionUser} />;
 
   const isAdmin = sessionUser.role === UserRole.ADMIN;
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
   const NAV_ITEMS: { id: AppView; label: string; icon: React.ReactNode }[] = [
     { id: 'dashboard', label: 'Vault', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg> },
-    { id: 'jobs', label: 'Projects', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg> },
+    { id: 'jobs', label: 'Projects', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2-2v10a2 2 0 002 2z" /></svg> },
     { id: 'calendar', label: 'Schedule', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
     { id: 'photos', label: 'Media', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
     { id: 'team', label: 'Team', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg> },
@@ -499,7 +500,43 @@ const App: React.FC = () => {
         {selectedJobSummary && <JobSummaryModal job={selectedJobSummary} tickets={tickets.filter(t => t.jobNumber === selectedJobSummary.jobNumber)} onClose={() => setSelectedJobSummary(null)} onEdit={() => { setEditingJob(selectedJobSummary); setShowJobForm(true); setSelectedJobSummary(null); }} onDelete={() => handleDeleteJob(selectedJobSummary)} onToggleComplete={() => handleToggleJobCompletion(selectedJobSummary)} onViewMedia={() => { setMediaFolderFilter(selectedJobSummary.jobNumber); handleNavigate('photos'); }} onViewMarkup={() => { setShowMarkup(selectedJobSummary); setSelectedJobSummary(null); }} isDarkMode={isDarkMode} />}
         {showMarkup && <JobPrintMarkup job={showMarkup} tickets={tickets.filter(t => t.jobNumber === showMarkup.jobNumber)} onClose={() => setShowMarkup(null)} onViewTicket={(url) => setViewingDocUrl(url)} isDarkMode={isDarkMode} />}
         {noShowTicket && <NoShowForm ticket={noShowTicket} userName={sessionUser?.name || ''} onSave={async (record) => { await apiService.addNoShow(record); setTickets(prev => prev.map(t => t.id === noShowTicket.id ? { ...t, noShowRequested: true } : t)); alertAdmins('⚠️ No Show Incident Reported', `Job #${noShowTicket.jobNumber}: Ticket #${noShowTicket.ticketNo}.`); }} onDelete={() => handleRemoveNoShow(noShowTicket)} onClose={() => setNoShowTicket(null)} isDarkMode={isDarkMode} />}
-        {viewingDocUrl && <div className="fixed inset-0 bg-black/90 z-[300] flex items-center justify-center p-4"><button onClick={() => setViewingDocUrl(null)} className="absolute top-6 right-6 p-3 bg-white/10 rounded-full text-white hover:bg-white/20"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg></button><iframe src={viewingDocUrl} className="w-full max-w-5xl h-[90vh] rounded-3xl bg-white shadow-2xl border-4 border-white/5" /></div>}
+        {viewingDocUrl && (
+          <div className="fixed inset-0 bg-black/90 z-[300] flex items-center justify-center p-4 animate-in fade-in duration-300">
+            <button onClick={() => setViewingDocUrl(null)} className="absolute top-6 right-6 p-4 bg-white/10 rounded-full text-white hover:bg-rose-500 transition-all z-10 active:scale-90">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+            
+            <div className="w-full max-w-5xl h-[90vh] rounded-[2rem] bg-slate-900 shadow-2xl overflow-hidden border border-white/5 relative">
+              {/* SPECIAL HANDLER FOR MOBILE PDFS WHICH OFTEN FAIL IN IFRAMES */}
+              {isMobile && viewingDocUrl.toLowerCase().includes('.pdf') ? (
+                <div className="h-full flex flex-col items-center justify-center p-10 text-center space-y-8 bg-slate-900">
+                  <div className="w-24 h-24 bg-rose-500/10 rounded-[2.5rem] flex items-center justify-center border border-rose-500/20 shadow-2xl">
+                    <svg className="w-12 h-12 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                  </div>
+                  <div className="space-y-3">
+                    <h3 className="text-xl font-black uppercase tracking-tight text-white">Document Locked</h3>
+                    <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest max-w-xs mx-auto leading-relaxed">Mobile security protocols require PDF documents to be opened in a dedicated system viewer.</p>
+                  </div>
+                  <a 
+                    href={viewingDocUrl} 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="px-12 py-5 bg-brand text-slate-900 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-2xl shadow-brand/20 active:scale-95 transition-all"
+                  >
+                    Open Ticket Record
+                  </a>
+                </div>
+              ) : (
+                <iframe 
+                  src={viewingDocUrl} 
+                  className="w-full h-full bg-white" 
+                  title="Document Preview"
+                  loading="lazy"
+                />
+              )}
+            </div>
+          </div>
+        )}
       </main>
       <nav className={`sm:hidden fixed bottom-0 left-0 right-0 z-50 px-4 pb-6 pt-3 backdrop-blur-xl border-t flex justify-between items-center ${isDarkMode ? 'bg-[#1e293b]/95 border-white/5 shadow-[0_-10px_30px_rgba(0,0,0,0.5)]' : 'bg-white/95 border-slate-200 shadow-[0_-10px_30px_rgba(0,0,0,0.1)]'}`}>
         {NAV_ITEMS.map((item) => {

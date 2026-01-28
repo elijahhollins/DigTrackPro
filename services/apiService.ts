@@ -71,6 +71,14 @@ create table if not exists print_markers (
     created_at timestamp with time zone default now()
 );
 
+-- MIGRATION: Ensure page_number exists if table was created earlier
+DO $$ 
+BEGIN 
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='print_markers' AND column_name='page_number') THEN
+        ALTER TABLE print_markers ADD COLUMN page_number int4 DEFAULT 1;
+    END IF;
+END $$;
+
 create table if not exists photos (
     id uuid primary key, 
     job_number text, 
@@ -264,10 +272,8 @@ export const apiService = {
       expires: ticket.expires,
       site_contact: ticket.siteContact,
       refresh_requested: ticket.refreshRequested ?? false,
-      // Fix: Use camelCase property noShowRequested instead of snake_case
       no_show_requested: ticket.noShowRequested ?? false,
       is_archived: ticket.isArchived ?? false,
-      // Fix: Use camelCase property documentUrl instead of snake_case
       document_url: ticket.documentUrl
     }).select().single();
     if (error) throw error;
@@ -368,15 +374,21 @@ export const apiService = {
   },
 
   async savePrintMarker(marker: Omit<PrintMarker, 'id'>): Promise<PrintMarker> {
-    // Using insert for new markers to avoid upsert conflict issues without an ID
-    const { data, error } = await supabase.from('print_markers').insert({
+    // Construct the insert object dynamically to avoid errors if the schema isn't synced yet
+    const insertPayload: any = {
       print_id: marker.printId,
       ticket_id: marker.ticketId,
       x_percent: marker.xPercent,
       y_percent: marker.yPercent,
-      page_number: marker.pageNumber || 1,
       label: marker.label
-    }).select().single();
+    };
+
+    // Only include page_number if it's explicitly set to something other than the default
+    if (marker.pageNumber && marker.pageNumber > 1) {
+      insertPayload.page_number = marker.pageNumber;
+    }
+
+    const { data, error } = await supabase.from('print_markers').insert(insertPayload).select().single();
     if (error) throw error;
     return {
       id: data.id,
@@ -384,7 +396,7 @@ export const apiService = {
       ticketId: data.ticket_id,
       xPercent: data.x_percent,
       yPercent: data.y_percent,
-      pageNumber: data.page_number,
+      pageNumber: data.page_number || 1,
       label: data.label
     };
   },
