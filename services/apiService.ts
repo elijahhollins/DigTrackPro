@@ -264,8 +264,10 @@ export const apiService = {
       expires: ticket.expires,
       site_contact: ticket.siteContact,
       refresh_requested: ticket.refreshRequested ?? false,
+      // Fix: Use camelCase property noShowRequested instead of snake_case
       no_show_requested: ticket.noShowRequested ?? false,
       is_archived: ticket.isArchived ?? false,
+      // Fix: Use camelCase property documentUrl instead of snake_case
       document_url: ticket.documentUrl
     }).select().single();
     if (error) throw error;
@@ -366,7 +368,8 @@ export const apiService = {
   },
 
   async savePrintMarker(marker: Omit<PrintMarker, 'id'>): Promise<PrintMarker> {
-    const { data, error } = await supabase.from('print_markers').upsert({
+    // Using insert for new markers to avoid upsert conflict issues without an ID
+    const { data, error } = await supabase.from('print_markers').insert({
       print_id: marker.printId,
       ticket_id: marker.ticketId,
       x_percent: marker.xPercent,

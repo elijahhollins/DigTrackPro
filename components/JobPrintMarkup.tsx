@@ -127,11 +127,11 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
         canvas.height = viewport.height;
         canvas.width = viewport.width;
 
-        await page.render({
+        await (page.render({
           canvasContext: context!,
           viewport: viewport,
           canvas: canvas
-        } as any).promise;
+        } as any)).promise;
         
         if (!isCancelled) {
           setDocDims({ width: canvas.width, height: canvas.height });
@@ -280,12 +280,13 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
         pageNumber: currentPage,
         label: ticket?.ticketNo
       });
-      setMarkers([...markers, saved]);
+      setMarkers(prev => [...prev, saved]);
       setNewMarkerPos(null);
       setSelectedTicketId('');
       setIsPinMode(false);
-    } catch (err) {
-      alert("Save failed.");
+    } catch (err: any) {
+      console.error("Marker Save Error Details:", err);
+      alert(`Save failed: ${err.message || 'Database error occurred while placing pin.'}`);
     }
   };
 
