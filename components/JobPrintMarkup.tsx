@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Job, JobPrint, PrintMarker, DigTicket, TicketStatus } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
@@ -110,7 +109,6 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
     const renderPdf = async () => {
       setIsRenderingPage(true);
       try {
-        // Cancel existing render if any
         if (currentRenderTask.current) {
           currentRenderTask.current.cancel();
         }
@@ -126,7 +124,6 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
         const page = await pdfDocRef.current.getPage(currentPage);
         if (isCancelled) return;
 
-        // SAFE SCALE CALCULATION FOR MOBILE
         const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
         const maxDimLimit = isMobile ? 3000 : 5000;
         const unscaledViewport = page.getViewport({ scale: 1.0 });
@@ -136,7 +133,6 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
         const canvas = canvasRef.current!;
         const context = canvas.getContext('2d');
         
-        // Clear canvas before resizing to save memory
         if (context) context.clearRect(0, 0, canvas.width, canvas.height);
         
         canvas.height = viewport.height;
@@ -289,6 +285,40 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
     }
   };
 
+  const handleSwapTicket = async (markerId: string, newTicketId: string) => {
+    try {
+      const marker = markers.find(m => m.id === markerId);
+      if (!marker) return;
+
+      const newTicket = tickets.find(t => t.id === newTicketId);
+      if (!newTicket) return;
+
+      // In a real app we'd call an API, here we simulate and update local state
+      // We'll update the database record via the existing save service
+      const updatedMarker = await apiService.savePrintMarker({
+        printId: marker.printId,
+        ticketId: newTicketId,
+        xPercent: marker.xPercent,
+        yPercent: marker.yPercent,
+        pageNumber: marker.pageNumber,
+        label: newTicket.ticketNo
+      });
+
+      // Need to delete the old one first or the API handles upsert if configured
+      // For this implementation, we'll delete the old marker local state and add new
+      await apiService.deletePrintMarker(markerId);
+      
+      setMarkers(prev => [
+        ...prev.filter(m => m.id !== markerId),
+        updatedMarker
+      ]);
+      setSelectedMarkerId('');
+      alert("Pin successfully updated to renewed documentation.");
+    } catch (err: any) {
+      alert("Swap failed: " + err.message);
+    }
+  };
+
   const saveMarker = async () => {
     if (!print || !newMarkerPos || !selectedTicketId) return;
     const ticket = tickets.find(t => t.id === selectedTicketId);
@@ -322,7 +352,6 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
 
   return (
     <div className="fixed inset-0 bg-slate-950 z-[200] flex flex-col overflow-hidden touch-none select-none animate-in fade-in duration-300">
-      {/* HEADER: Simplified for Mobile */}
       <div className="p-4 sm:p-6 border-b border-white/5 flex items-center justify-between z-50 bg-slate-950/80 backdrop-blur-md gap-4">
         <div className="flex items-center gap-3 sm:gap-4 overflow-hidden">
           <div className="p-2.5 bg-brand/10 rounded-xl shrink-0 hidden sm:block shadow-inner">
@@ -361,7 +390,6 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
         onWheel={handleWheel}
         onClick={handleViewportClick}
       >
-        {/* Rendering Overlay */}
         {isRenderingPage && (
           <div className="absolute inset-0 z-[60] bg-slate-950/40 backdrop-blur-[2px] flex flex-col items-center justify-center transition-opacity">
             <div className="w-8 h-8 border-4 border-brand border-t-transparent rounded-full animate-spin mb-3 shadow-xl" />
@@ -400,9 +428,20 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
             <div className="absolute inset-0 pointer-events-none">
               {markers.filter(m => (m.pageNumber || 1) === currentPage).map(m => {
                 const ticket = tickets.find(t => t.id === m.ticketId);
-                const colorClass = getStatusDotColor(ticket ? getTicketStatus(ticket) : TicketStatus.OTHER);
+                const status = ticket ? getTicketStatus(ticket) : TicketStatus.OTHER;
+                const colorClass = getStatusDotColor(status);
                 const isSelected = selectedMarkerId === m.id;
                 const isVisible = (isSelected || hoveredMarkerId === m.id) && !isDragging;
+
+                // CHECK FOR RENEWAL: Find a ticket with the same number that is NOT archived and NOT expired
+                const renewalCandidate = ticket ? tickets.find(t => 
+                  t.ticketNo === ticket.ticketNo && 
+                  !t.isArchived && 
+                  getTicketStatus(t) !== TicketStatus.EXPIRED &&
+                  t.id !== ticket.id
+                ) : null;
+
+                const needsRenewal = status === TicketStatus.EXPIRED || ticket?.isArchived;
 
                 return (
                   <div key={m.id} className="absolute z-20 pointer-events-auto" style={{ left: `${m.xPercent}%`, top: `${m.yPercent}%` }}>
@@ -411,10 +450,14 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
                       onClick={(e) => { e.stopPropagation(); setSelectedMarkerId(isSelected ? '' : m.id); }}
                       onMouseEnter={() => setHoveredMarkerId(m.id)}
                       onMouseLeave={() => setHoveredMarkerId(null)}
-                      className={`w-10 h-10 rounded-full border-4 border-white shadow-2xl cursor-pointer flex items-center justify-center transition-all hover:scale-125 -translate-x-1/2 -translate-y-1/2 ${colorClass} ${isSelected ? 'ring-8 ring-white/30 scale-125' : ''}`}
+                      className={`w-10 h-10 rounded-full border-4 border-white shadow-2xl cursor-pointer flex items-center justify-center transition-all hover:scale-125 -translate-x-1/2 -translate-y-1/2 ${colorClass} ${isSelected ? 'ring-8 ring-white/30 scale-125' : ''} ${needsRenewal && !renewalCandidate ? 'animate-pulse ring-4 ring-rose-500/20' : ''}`}
                       style={{ transform: `translate(-50%, -50%) scale(${1 / Math.sqrt(transform.scale)})` }}
                     >
-                      <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+                      {renewalCandidate ? (
+                        <svg className="w-5 h-5 text-white animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357-2H15" /></svg>
+                      ) : (
+                        <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+                      )}
                     </div>
 
                     {isVisible && (
@@ -426,14 +469,28 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
                         <div className={`p-6 rounded-[2.5rem] border border-white/10 shadow-[0_30px_100px_rgba(0,0,0,0.5)] min-w-[280px] backdrop-blur-2xl ${isDarkMode ? 'bg-slate-900/95 text-white' : 'bg-white/95 text-slate-900'}`}>
                           <div className="flex justify-between items-start mb-4">
                             <div>
-                                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-brand">Ticket Entry</p>
+                                <p className={`text-[10px] font-black uppercase tracking-[0.2em] ${status === TicketStatus.EXPIRED ? 'text-rose-500' : 'text-brand'}`}>
+                                  {status === TicketStatus.EXPIRED ? 'EXPIRED ENTRY' : 'TICKET ENTRY'}
+                                </p>
                                 <p className="text-sm font-black font-mono">#{m.label}</p>
                             </div>
                             <button onClick={() => setSelectedMarkerId('')} className="p-2 opacity-40 hover:opacity-100 transition-opacity bg-black/5 rounded-xl">
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
                             </button>
                           </div>
-                          <p className="text-[11px] font-bold truncate mb-6 opacity-60 uppercase tracking-tight">{ticket?.street || 'No Location Defined'}</p>
+                          <p className="text-[11px] font-bold truncate mb-4 opacity-60 uppercase tracking-tight">{ticket?.street || 'No Location Defined'}</p>
+                          
+                          {renewalCandidate && (
+                            <button 
+                              // Fixed: Changed from handleSwapMarkerTicket to handleSwapTicket
+                              onClick={() => handleSwapTicket(m.id, renewalCandidate.id)}
+                              className="w-full mb-4 py-3 bg-emerald-500 text-white rounded-[1.2rem] font-black text-[9px] uppercase tracking-widest shadow-xl shadow-emerald-500/20 flex items-center justify-center gap-2 animate-pulse hover:scale-105 transition-all"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357-2H15" /></svg>
+                              Update to Renewed Record
+                            </button>
+                          )}
+
                           <div className="flex gap-2">
                             <button 
                               onClick={(e) => { e.stopPropagation(); ticket?.documentUrl && window.open(ticket.documentUrl, '_blank'); }}
@@ -475,10 +532,8 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
         )}
       </div>
 
-      {/* FLOATING CONTROLS: Moved Page Nav for Mobile visibility */}
       <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[100] flex flex-col items-center gap-4 w-full max-w-md px-4 pointer-events-none">
         
-        {/* Page Switcher Pill - Floating above the main bar */}
         {totalPages > 1 && (
           <div className="flex items-center gap-4 bg-slate-950/80 backdrop-blur-2xl border border-white/10 px-6 py-3 rounded-full shadow-2xl pointer-events-auto animate-in slide-in-from-bottom-2">
             <button 
@@ -513,10 +568,13 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
               value={selectedTicketId}
               onChange={(e) => setSelectedTicketId(e.target.value)}
             >
-              <option value="">Select Ticket Record...</option>
-              {tickets.filter(t => !t.isArchived).map(t => (
-                <option key={t.id} value={t.id}>#{t.ticketNo} • {t.street.substring(0, 20)}</option>
-              ))}
+              <option value="">Select Valid Ticket...</option>
+              {tickets
+                .filter(t => !t.isArchived && getTicketStatus(t) !== TicketStatus.EXPIRED)
+                .sort((a, b) => b.workDate.localeCompare(a.workDate))
+                .map(t => (
+                  <option key={t.id} value={t.id}>#{t.ticketNo} • {t.street.substring(0, 20)}</option>
+                ))}
             </select>
             <div className="flex gap-4">
               <button onClick={saveMarker} disabled={!selectedTicketId} className="flex-1 bg-brand text-slate-900 py-5 rounded-[1.2rem] font-black text-[10px] uppercase tracking-widest shadow-xl shadow-brand/20 transition-all hover:scale-105 active:scale-95 disabled:opacity-30">Lock Position</button>
