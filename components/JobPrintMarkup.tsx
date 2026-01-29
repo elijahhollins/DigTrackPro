@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Job, JobPrint, PrintMarker, DigTicket, TicketStatus } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
@@ -30,6 +31,7 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const pdfDocRef = useRef<pdfjs.PDFDocumentProxy | null>(null);
+  const loadedPrintIdRef = useRef<string | null>(null);
   const currentRenderTask = useRef<any>(null);
 
   // Navigation State
@@ -102,38 +104,51 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
     if (!print) return;
 
     if (!isPdfFile(print.url)) {
+      setIsMapReady(true);
       return;
     }
 
     let isCancelled = false;
     const renderPdf = async () => {
       setIsRenderingPage(true);
+      
+      // Only reset visibility if the document ID actually changed (not just the page)
+      if (loadedPrintIdRef.current !== print.id) {
+        setIsMapReady(false);
+      }
+
       try {
         if (currentRenderTask.current) {
           currentRenderTask.current.cancel();
         }
 
-        if (!pdfDocRef.current || pdfDocRef.current.loadingTask.docId !== print.id) {
+        if (!pdfDocRef.current || loadedPrintIdRef.current !== print.id) {
           const loadingTask = pdfjs.getDocument(print.url!);
           const pdf = await loadingTask.promise;
           if (isCancelled) return;
           pdfDocRef.current = pdf;
+          loadedPrintIdRef.current = print.id;
           setTotalPages(pdf.numPages);
         }
         
         const page = await pdfDocRef.current.getPage(currentPage);
         if (isCancelled) return;
 
+        // CONSERVATIVE LIMITS FOR MOBILE (2048 is the "safe" texture limit for many mobile browsers)
         const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-        const maxDimLimit = isMobile ? 3000 : 5000;
+        const maxDimLimit = isMobile ? 2048 : 4096;
         const unscaledViewport = page.getViewport({ scale: 1.0 });
         const renderScale = Math.min(maxDimLimit / unscaledViewport.width, maxDimLimit / unscaledViewport.height, 2.0);
         
         const viewport = page.getViewport({ scale: renderScale }); 
-        const canvas = canvasRef.current!;
-        const context = canvas.getContext('2d');
-        
-        if (context) context.clearRect(0, 0, canvas.width, canvas.height);
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const context = canvas.getContext('2d', { alpha: false });
+        if (context) {
+          context.fillStyle = 'white';
+          context.fillRect(0, 0, canvas.width, canvas.height);
+        }
         
         canvas.height = viewport.height;
         canvas.width = viewport.width;
@@ -148,12 +163,18 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
         await renderTask.promise;
         
         if (!isCancelled) {
+          // Trigger dimension update which fires auto-fit
           setDocDims({ width: canvas.width, height: canvas.height });
           setIsRenderingPage(false);
+          
+          // Fallback: If dimensions didn't change (same sized pages), performAutoFit won't trigger via useEffect
+          // so we ensure map readiness here.
+          setIsMapReady(true);
         }
       } catch (err: any) {
         if (err.name !== 'RenderingCancelledException') {
           console.error("PDF Render Error:", err);
+          setIsRenderingPage(false);
         }
       }
     };
@@ -246,6 +267,7 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
       setNewMarkerPos(null);
       setCurrentPage(1);
       pdfDocRef.current = null;
+      loadedPrintIdRef.current = null;
       if (!isPdfFile(newPrint.url)) {
         setDocDims({ width: 0, height: 0 });
       }
@@ -266,6 +288,7 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
         setIsMapReady(false);
         setDocDims({ width: 0, height: 0 });
         pdfDocRef.current = null;
+        loadedPrintIdRef.current = null;
     } catch (err) {
         alert("Purge failed.");
     } finally {
@@ -293,8 +316,6 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
       const newTicket = tickets.find(t => t.id === newTicketId);
       if (!newTicket) return;
 
-      // In a real app we'd call an API, here we simulate and update local state
-      // We'll update the database record via the existing save service
       const updatedMarker = await apiService.savePrintMarker({
         printId: marker.printId,
         ticketId: newTicketId,
@@ -304,8 +325,6 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
         label: newTicket.ticketNo
       });
 
-      // Need to delete the old one first or the API handles upsert if configured
-      // For this implementation, we'll delete the old marker local state and add new
       await apiService.deletePrintMarker(markerId);
       
       setMarkers(prev => [
@@ -433,7 +452,6 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
                 const isSelected = selectedMarkerId === m.id;
                 const isVisible = (isSelected || hoveredMarkerId === m.id) && !isDragging;
 
-                // CHECK FOR RENEWAL: Find a ticket with the same number that is NOT archived and NOT expired
                 const renewalCandidate = ticket ? tickets.find(t => 
                   t.ticketNo === ticket.ticketNo && 
                   !t.isArchived && 
@@ -482,7 +500,6 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
                           
                           {renewalCandidate && (
                             <button 
-                              // Fixed: Changed from handleSwapMarkerTicket to handleSwapTicket
                               onClick={() => handleSwapTicket(m.id, renewalCandidate.id)}
                               className="w-full mb-4 py-3 bg-emerald-500 text-white rounded-[1.2rem] font-black text-[9px] uppercase tracking-widest shadow-xl shadow-emerald-500/20 flex items-center justify-center gap-2 animate-pulse hover:scale-105 transition-all"
                             >
