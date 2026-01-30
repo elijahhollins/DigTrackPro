@@ -60,16 +60,16 @@ export const JobSummaryModal: React.FC<JobSummaryModalProps> = ({
           <div className="space-y-4">
             <div className="space-y-1">
               <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Customer / Entity</label>
-              <p className={`text-base font-black uppercase tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{job.customer}</p>
+              <p className={`text-base font-black uppercase tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-950'}`}>{job.customer}</p>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">
                 <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Base Location</label>
-                <p className={`text-[11px] font-bold ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>{job.address}</p>
+                <p className={`text-[11px] font-bold ${isDarkMode ? 'text-slate-300' : 'text-slate-950'}`}>{job.address}</p>
               </div>
               <div className="space-y-1">
                 <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Jurisdiction</label>
-                <p className={`text-[11px] font-bold ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>{job.city}, {job.state}</p>
+                <p className={`text-[11px] font-bold ${isDarkMode ? 'text-slate-300' : 'text-slate-950'}`}>{job.city}, {job.state}</p>
               </div>
             </div>
           </div>
