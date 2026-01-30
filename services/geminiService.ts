@@ -6,6 +6,7 @@ import { GoogleGenAI, Type } from "@google/genai";
  * This service extracts structured metadata from 811 locate tickets.
  */
 export const parseTicketData = async (input: string | { data: string; mimeType: string }) => {
+  // Create instance right before the call to ensure up-to-date API key access
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   try {
@@ -33,7 +34,7 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
         ]
       : [{ text: promptText }];
 
-    // Switching to gemini-3-pro-preview for superior document reasoning (Complex Task)
+    // Using gemini-3-pro-preview for superior document reasoning
     const response = await ai.models.generateContent({
       model: "gemini-3-pro-preview", 
       contents: [{ role: 'user', parts }],
@@ -57,7 +58,6 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
             expires: { type: Type.STRING },
             siteContact: { type: Type.STRING },
           },
-          // Reduced required fields to core essentials to prevent model generation failure on incomplete documents
           required: ["ticketNo", "street"],
         },
         temperature: 0.1,
@@ -65,8 +65,6 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
     });
 
     const jsonStr = response.text?.trim() || "{}";
-    
-    // Robust parsing that handles potential markdown blocks if responseMimeType is ignored by model
     const cleanJson = jsonStr.replace(/^```json\n?/, '').replace(/\n?```$/, '');
     
     try {
@@ -77,6 +75,9 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
     }
   } catch (error: any) {
     console.error("[Gemini] Extraction Failure:", error);
+    if (error.message?.includes('API_KEY')) {
+      throw new Error("AI API Key missing. Please click 'Enable AI Features' in the dashboard.");
+    }
     throw new Error(error.message || "AI Analysis failed. Please check your internet connection.");
   }
 };
