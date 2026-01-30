@@ -11,6 +11,7 @@ interface TeamManagementProps {
   onDeleteUser: (id: string) => void;
   onThemeChange?: (color: string) => void;
   onToggleRole?: (user: UserRecord) => void;
+  onOpenSelectKey?: () => Promise<void>;
 }
 
 const BRAND_COLORS = [
@@ -32,7 +33,8 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
   isDarkMode, 
   onDeleteUser, 
   onThemeChange, 
-  onToggleRole 
+  onToggleRole,
+  onOpenSelectKey
 }) => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [pushStatus, setPushStatus] = useState<'granted' | 'denied' | 'default'>(Notification.permission);
@@ -51,14 +53,12 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
         try {
           const subscription = await registration.pushManager.subscribe({
             userVisibleOnly: true,
-            // Updated with the user provided VAPID Public Key
             applicationServerKey: 'BMuI79vwIgC-aZR9pJOBtg0HU6r_WmLVWZXY97jYxgnyHLDzSe7JbWwFqMALq3OsC7vCbgdyxI_fTyATo_GLvwY'
           });
           await apiService.savePushSubscription(sessionUser.id, subscription);
           alert("Push notifications enabled successfully.");
         } catch (subErr) {
           console.warn("Push subscription failed:", subErr);
-          // Fallback: Notify user that local-only notifications are active
           alert("Native alerts enabled for this browser session.");
         }
       }
@@ -90,38 +90,55 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
 
   return (
     <div className="space-y-8 animate-in">
-      {/* Push Notification Toggle for Admins */}
-      {isAdmin && (
-        <section className={`p-6 rounded-2xl border ${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-100 shadow-sm'}`}>
+      {/* AI Connection & Push Section */}
+      <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {isAdmin && (
+          <div className={`p-6 rounded-2xl border ${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-100 shadow-sm'}`}>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                  <svg className="w-4 h-4 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+                  Desktop Alerts
+                </h3>
+                <p className={`text-[10px] font-bold uppercase tracking-tighter mt-1 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                  Browser Push Notifications
+                </p>
+              </div>
+              <button 
+                onClick={handleEnablePush}
+                disabled={pushStatus === 'granted' || isRegisteringPush}
+                className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                  pushStatus === 'granted' 
+                  ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' 
+                  : 'bg-brand text-slate-900 shadow-lg shadow-brand/20 hover:scale-105 active:scale-95'
+                }`}
+              >
+                {isRegisteringPush ? '...' : pushStatus === 'granted' ? 'Enabled' : 'Enable'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className={`p-6 rounded-2xl border ${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-100 shadow-sm'}`}>
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
-                <svg className="w-4 h-4 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
-                Admin Desktop Alerts
+                <svg className="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                Gemini AI Status
               </h3>
               <p className={`text-[10px] font-bold uppercase tracking-tighter mt-1 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                Get notified of No Shows and manual refresh requests.
+                Project Connection Terminal
               </p>
             </div>
             <button 
-              onClick={handleEnablePush}
-              disabled={pushStatus === 'granted' || isRegisteringPush}
-              className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
-                pushStatus === 'granted' 
-                ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' 
-                : 'bg-brand text-slate-900 shadow-lg shadow-brand/20 hover:scale-105 active:scale-95'
-              }`}
+              onClick={onOpenSelectKey}
+              className="px-4 py-2 bg-purple-500/10 text-purple-500 border border-purple-500/20 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-purple-500 hover:text-white transition-all shadow-lg active:scale-95"
             >
-              {isRegisteringPush ? 'Setting up...' : pushStatus === 'granted' ? 'Alerts Active' : 'Enable Alerts'}
+              Change AI Project
             </button>
           </div>
-          {pushStatus === 'denied' && (
-            <p className="text-[9px] font-bold text-rose-500 uppercase">
-              Notifications blocked by browser. Reset site permissions to enable.
-            </p>
-          )}
-        </section>
-      )}
+        </div>
+      </section>
 
       {/* Theme Selection */}
       <section className={`p-6 rounded-2xl border ${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-100 shadow-sm'}`}>
@@ -166,7 +183,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
         
         <div className="overflow-x-auto">
           <table className="w-full text-left">
-            <thead className={`${isDarkMode ? 'bg-black/20' : 'bg-slate-50'} text-[9px] font-black uppercase tracking-[0.2em] text-slate-500`}>
+            <thead className={`${isDarkMode ? 'bg-black/20' : 'bg-slate-50'} text-[9px] font-black uppercase tracking-[0.2em] text-slate-50`}>
               <tr>
                 <th className="px-6 py-3">Full Name</th>
                 <th className="px-6 py-3">Email / ID</th>

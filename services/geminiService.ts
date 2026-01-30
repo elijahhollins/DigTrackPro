@@ -34,9 +34,9 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
         ]
       : [{ text: promptText }];
 
-    // Using gemini-3-pro-preview for superior document reasoning
+    // Reverted to gemini-3-flash-preview for superior plan availability and stability
     const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview", 
+      model: "gemini-3-flash-preview", 
       contents: [{ role: 'user', parts }],
       config: {
         systemInstruction: "You are a specialized 811 locate ticket parser. You convert construction ticket images and text into precise structured data. Always return valid JSON.",
@@ -75,8 +75,8 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
     }
   } catch (error: any) {
     console.error("[Gemini] Extraction Failure:", error);
-    if (error.message?.includes('API_KEY')) {
-      throw new Error("AI API Key missing. Please click 'Enable AI Features' in the dashboard.");
+    if (error.message?.includes('API_KEY') || error.message?.includes('403') || error.message?.includes('404')) {
+      throw new Error("AI extraction requires a valid paid project key. Please go to Team > Change AI Project.");
     }
     throw new Error(error.message || "AI Analysis failed. Please check your internet connection.");
   }

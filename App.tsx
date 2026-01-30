@@ -131,14 +131,8 @@ const App: React.FC = () => {
   };
 
   const checkApiKey = async () => {
-    // Priority 1: Check window.process.env.API_KEY (System-injected or manually polyfilled)
-    const injectedKey = window.process?.env?.API_KEY;
-    if (injectedKey && injectedKey.length > 10) {
-      setHasApiKey(true);
-      return true;
-    }
-
-    // Priority 2: Use the bridge check for selected keys (required for Gemini 3 series)
+    // MANDATORY: Priority 1 is the explicit selection bridge. 
+    // This ensures we aren't using a dummy/low-permission key from the environment.
     try {
       if (window.aistudio?.hasSelectedApiKey) {
         const selected = await window.aistudio.hasSelectedApiKey();
@@ -150,6 +144,14 @@ const App: React.FC = () => {
     } catch (e) {
       console.warn("AI Studio bridge check failed", e);
     }
+
+    // Fallback: Only use process.env if it looks like a real, user-provided key (typically 30+ chars)
+    const injectedKey = window.process?.env?.API_KEY || '';
+    if (injectedKey && injectedKey.length > 30) {
+      setHasApiKey(true);
+      return true;
+    }
+
     setHasApiKey(false);
     return false;
   };
@@ -157,10 +159,10 @@ const App: React.FC = () => {
   const handleOpenSelectKey = async () => {
     if (window.aistudio?.openSelectKey) {
       await window.aistudio.openSelectKey();
-      // Assume success to mitigate race conditions as per developer guidelines
+      // Assume success to proceed to the app immediately
       setHasApiKey(true);
     } else {
-      alert("API Key selection is not available. Please ensure you are logged into AI Studio.");
+      alert("API selection is not available. Please ensure you are logged into AI Studio.");
     }
   };
 
@@ -251,7 +253,7 @@ const App: React.FC = () => {
     } catch (error: any) {
       if (error.message?.includes("Requested entity was not found")) {
         setHasApiKey(false);
-        if (confirm("Gemini AI key re-authentication required. Select a paid project API key to continue parsing.")) {
+        if (confirm("AI connection requires re-authentication. Would you like to select your paid project API key now?")) {
            handleOpenSelectKey();
         }
       } else {
@@ -567,7 +569,7 @@ const App: React.FC = () => {
         {activeView === 'calendar' && <CalendarView tickets={tickets} onEditTicket={setEditingTicket} onViewDoc={setViewingDocUrl} />}
         {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} isAdmin={isAdmin} isDarkMode={isDarkMode} onJobSelect={(job: Job) => handleJobSelection(job.jobNumber, job)} onViewDoc={setViewingDocUrl} />}
         {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} onAddPhoto={(data, file) => apiService.addPhoto(data, file)} onDeletePhoto={(id: string) => apiService.deletePhoto(id)} initialSearch={mediaFolderFilter} />}
-        {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} isDarkMode={isDarkMode} onAddUser={async (u) => { await apiService.addUser(u); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onThemeChange={applyThemeColor} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} />}
+        {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} isDarkMode={isDarkMode} onAddUser={async (u) => { await apiService.addUser(u); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onThemeChange={applyThemeColor} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onOpenSelectKey={handleOpenSelectKey} />}
         {(showTicketForm || editingTicket) && <TicketForm onSave={handleSaveTicket} onClose={() => { setShowTicketForm(false); setEditingTicket(null); }} initialData={editingTicket} isDarkMode={isDarkMode} existingTickets={tickets} />}
         {(showJobForm || editingJob) && <JobForm onSave={async (data) => { const job: Job = editingJob ? { ...editingJob, ...data } : { ...data, id: crypto.randomUUID(), createdAt: Date.now(), isComplete: false }; const saved = await apiService.saveJob(job); setJobs(prev => { const exists = prev.findIndex(j => j.id === saved.id); if (exists > -1) return prev.map(j => j.id === saved.id ? saved : j); return [...prev, saved]; }); setShowJobForm(false); setEditingJob(null); }} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} isDarkMode={isDarkMode} />}
         {selectedJobSummary && <JobSummaryModal job={selectedJobSummary} tickets={tickets.filter(t => t.jobNumber === selectedJobSummary.jobNumber)} onClose={() => setSelectedJobSummary(null)} onEdit={() => { setEditingJob(selectedJobSummary); setShowJobForm(true); setSelectedJobSummary(null); }} onDelete={() => handleDeleteJob(selectedJobSummary)} onToggleComplete={() => handleToggleJobCompletion(selectedJobSummary)} onViewMedia={() => { setMediaFolderFilter(selectedJobSummary.jobNumber); handleNavigate('photos'); }} onViewMarkup={() => { setShowMarkup(selectedJobSummary); setSelectedJobSummary(null); }} isDarkMode={isDarkMode} />}
