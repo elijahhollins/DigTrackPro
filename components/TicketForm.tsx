@@ -31,6 +31,21 @@ const normalizeDateStr = (date: string) => {
 };
 
 /**
+ * Robust helper to get mime type, especially for mobile browsers that might report empty type
+ */
+const getSafeMimeType = (file: File): string => {
+  if (file.type) return file.type;
+  const ext = file.name.split('.').pop()?.toLowerCase();
+  switch (ext) {
+    case 'pdf': return 'application/pdf';
+    case 'jpg':
+    case 'jpeg': return 'image/jpeg';
+    case 'png': return 'image/png';
+    default: return 'application/octet-stream';
+  }
+};
+
+/**
  * TicketForm Component
  * Supports both standard manual entry and advanced AI-powered batch ingestion.
  */
@@ -76,7 +91,19 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
       const activeItem = queue[activeIndex];
       if (activeItem?.status === 'ready' && activeItem.extractedData) {
         setFormData({
-          ...activeItem.extractedData,
+          jobNumber: activeItem.extractedData.jobNumber || '',
+          ticketNo: activeItem.extractedData.ticketNo || '',
+          street: activeItem.extractedData.street || '',
+          crossStreet: activeItem.extractedData.crossStreet || '',
+          place: activeItem.extractedData.place || '',
+          extent: activeItem.extractedData.extent || '',
+          county: activeItem.extractedData.county || '',
+          city: activeItem.extractedData.city || '',
+          state: activeItem.extractedData.state || '',
+          callInDate: activeItem.extractedData.callInDate || '',
+          workDate: activeItem.extractedData.workDate || '',
+          expires: activeItem.extractedData.expires || '',
+          siteContact: activeItem.extractedData.siteContact || '',
           documentUrl: activeItem.documentUrl || '',
         });
       }
@@ -91,15 +118,18 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
       setQueue(prev => prev.map(item => item.id === id ? { ...item, status: 'analyzing' } : item));
 
       const reader = new FileReader();
-      const base64Promise = new Promise<string>((resolve) => {
+      const base64Promise = new Promise<string>((resolve, reject) => {
         reader.onload = () => resolve((reader.result as string).split(',')[1]);
+        reader.onerror = () => reject(new Error("File read error"));
         reader.readAsDataURL(file);
       });
+      
       const base64Data = await base64Promise;
+      const mimeType = getSafeMimeType(file);
 
-      const extracted = await parseTicketData({ data: base64Data, mimeType: file.type });
+      const extracted = await parseTicketData({ data: base64Data, mimeType });
 
-      if (existingTickets) {
+      if (existingTickets && extracted.ticketNo) {
         const matched = existingTickets.find(t => 
           !t.isArchived &&
           t.ticketNo.trim().toUpperCase() === (extracted.ticketNo || "").trim().toUpperCase() &&
@@ -130,6 +160,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
       } : item));
 
     } catch (err: any) {
+      console.error("Process error:", err);
       setQueue(prev => prev.map(item => item.id === id ? { ...item, status: 'error', error: err.message } : item));
     }
   };
@@ -148,7 +179,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
     if (!isBatchMode) setIsBatchMode(true);
 
     const newItems: IngestionItem[] = files.map(file => ({
-      id: crypto.randomUUID(),
+      id: Math.random().toString(36).substring(7),
       file,
       status: 'pending'
     }));
@@ -188,6 +219,8 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
       try {
         await onSave(formData);
         onClose();
+      } catch (err: any) {
+        alert(err.message);
       } finally {
         setIsSubmittingManual(false);
       }
@@ -198,6 +231,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
     const nextQueue = queue.filter((_, i) => i !== index);
     if (nextQueue.length === 0) {
       setIsBatchMode(false);
+      setQueue([]);
     } else {
       setQueue(nextQueue);
       if (activeIndex >= index) {
@@ -272,13 +306,17 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
                     ? 'bg-brand text-slate-900 ring-2 ring-brand/50 scale-110' 
                     : item.status === 'saved'
                       ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 opacity-60'
-                      : isDarkMode ? 'bg-white/5 text-slate-500' : 'bg-slate-100 text-slate-400'
+                      : item.status === 'error'
+                        ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20'
+                        : isDarkMode ? 'bg-white/5 text-slate-500' : 'bg-slate-100 text-slate-400'
                 }`}
               >
                 {item.status === 'analyzing' || item.status === 'uploading' ? (
                   <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
                 ) : item.status === 'saved' ? (
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
+                ) : item.status === 'error' ? (
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
                 ) : (
                   <span className="text-[9px] font-black">{idx + 1}</span>
                 )}
@@ -319,6 +357,18 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
               <div className="w-20 h-20 border-4 border-brand border-t-transparent rounded-full animate-spin mb-8" />
               <h3 className="text-base font-black uppercase tracking-widest">AI Document Scan</h3>
               <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-2 animate-pulse">Processing {currentItem.file.name}...</p>
+            </div>
+          ) : isBatchMode && currentItem?.status === 'error' ? (
+            <div className="p-20 flex flex-col items-center justify-center text-center">
+              <div className="w-24 h-24 bg-rose-500/10 text-rose-500 rounded-[3rem] flex items-center justify-center mb-8 border-2 border-rose-500/20 shadow-xl">
+                <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+              </div>
+              <h3 className="text-lg font-black uppercase tracking-widest text-rose-500">Scan Failed</h3>
+              <p className="text-xs font-bold text-slate-400 mt-2">{currentItem.error}</p>
+              <div className="flex gap-3 mt-10 w-full max-w-sm">
+                 <button onClick={() => removeFromQueue(activeIndex)} className="flex-1 py-5 bg-rose-500 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest">Discard</button>
+                 <button onClick={moveToNext} className="flex-1 py-5 bg-white/5 text-slate-500 border border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest">Retry Next</button>
+              </div>
             </div>
           ) : isBatchMode && currentItem?.status === 'saved' ? (
             <div className="p-32 flex flex-col items-center justify-center text-center">
