@@ -23,6 +23,7 @@ declare global {
   }
   interface Window {
     aistudio?: AIStudio;
+    process?: { env: Record<string, string> };
   }
 }
 
@@ -130,12 +131,14 @@ const App: React.FC = () => {
   };
 
   const checkApiKey = async () => {
-    // Priority 1: Check if API key is already in process.env
-    if (process.env.API_KEY && process.env.API_KEY.length > 10) {
+    // Priority 1: Check window.process.env.API_KEY (System-injected or manually polyfilled)
+    const injectedKey = window.process?.env?.API_KEY;
+    if (injectedKey && injectedKey.length > 10) {
       setHasApiKey(true);
       return true;
     }
-    // Priority 2: Use the bridge to check if user has selected a key
+
+    // Priority 2: Use the bridge check for selected keys (required for Gemini 3 series)
     try {
       if (window.aistudio?.hasSelectedApiKey) {
         const selected = await window.aistudio.hasSelectedApiKey();
@@ -145,7 +148,7 @@ const App: React.FC = () => {
         }
       }
     } catch (e) {
-      console.warn("AI Studio key check failed", e);
+      console.warn("AI Studio bridge check failed", e);
     }
     setHasApiKey(false);
     return false;
@@ -154,10 +157,10 @@ const App: React.FC = () => {
   const handleOpenSelectKey = async () => {
     if (window.aistudio?.openSelectKey) {
       await window.aistudio.openSelectKey();
-      // Assume success to allow immediate interaction per requirements
+      // Assume success to mitigate race conditions as per developer guidelines
       setHasApiKey(true);
     } else {
-      alert("Project selection is not available in this environment.");
+      alert("API Key selection is not available. Please ensure you are logged into AI Studio.");
     }
   };
 
@@ -248,7 +251,7 @@ const App: React.FC = () => {
     } catch (error: any) {
       if (error.message?.includes("Requested entity was not found")) {
         setHasApiKey(false);
-        if (confirm("AI connection requires re-authentication. Would you like to select your API key now?")) {
+        if (confirm("Gemini AI key re-authentication required. Select a paid project API key to continue parsing.")) {
            handleOpenSelectKey();
         }
       } else {
