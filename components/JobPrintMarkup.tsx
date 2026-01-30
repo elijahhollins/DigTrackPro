@@ -56,9 +56,10 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
   const isPdfFile = (url?: string) => url?.toLowerCase().split('?')[0].endsWith('.pdf');
 
-  // 1. Initial Load
+  // 1. Initial Data Load
   useEffect(() => {
     const loadInitialData = async () => {
       setIsLoading(true);
@@ -112,7 +113,6 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
     const renderPdf = async () => {
       setIsRenderingPage(true);
       
-      // Only reset visibility if the document ID actually changed (not just the page)
       if (loadedPrintIdRef.current !== print.id) {
         setIsMapReady(false);
       }
@@ -134,11 +134,10 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
         const page = await pdfDocRef.current.getPage(currentPage);
         if (isCancelled) return;
 
-        // CONSERVATIVE LIMITS FOR MOBILE (2048 is the "safe" texture limit for many mobile browsers)
-        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-        const maxDimLimit = isMobile ? 2048 : 4096;
+        // CRITICAL STABILITY LIMIT: Mobile browser canvases are restricted by memory.
+        const maxDimLimit = isMobile ? 1600 : 4096;
         const unscaledViewport = page.getViewport({ scale: 1.0 });
-        const renderScale = Math.min(maxDimLimit / unscaledViewport.width, maxDimLimit / unscaledViewport.height, 2.0);
+        const renderScale = Math.min(maxDimLimit / unscaledViewport.width, maxDimLimit / unscaledViewport.height, 1.5);
         
         const viewport = page.getViewport({ scale: renderScale }); 
         const canvas = canvasRef.current;
@@ -163,25 +162,25 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
         await renderTask.promise;
         
         if (!isCancelled) {
-          // Trigger dimension update which fires auto-fit
           setDocDims({ width: canvas.width, height: canvas.height });
           setIsRenderingPage(false);
-          
-          // Fallback: If dimensions didn't change (same sized pages), performAutoFit won't trigger via useEffect
-          // so we ensure map readiness here.
           setIsMapReady(true);
+          
+          page.cleanup();
+          pdfDocRef.current?.cleanup();
         }
       } catch (err: any) {
         if (err.name !== 'RenderingCancelledException') {
           console.error("PDF Render Error:", err);
           setIsRenderingPage(false);
+          setIsMapReady(true);
         }
       }
     };
 
     renderPdf();
     return () => { isCancelled = true; };
-  }, [print, currentPage]);
+  }, [print, currentPage, isMobile]);
 
   useEffect(() => {
     if (docDims.width > 0) {
@@ -191,7 +190,11 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
 
   const handlePointerDown = (e: React.PointerEvent) => {
     if (isPinMode) return;
-    if ((e.target as HTMLElement).closest('.ui-isolation')) return;
+    // Check if the click is on a UI element that should not trigger pan/zoom
+    if ((e.target as HTMLElement).closest('.ui-isolation')) {
+      e.stopPropagation();
+      return;
+    }
 
     pointerDownPos.current = { x: e.clientX, y: e.clientY };
     lastPointerPos.current = { x: e.clientX, y: e.clientY };
@@ -278,352 +281,295 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
     }
   };
 
-  const purgeMap = async () => {
-    if (!confirm("Remove all pins and reset workspace?")) return;
-    setIsLoading(true);
-    try {
-        for (const m of markers) await apiService.deletePrintMarker(m.id);
-        setMarkers([]);
-        setPrint(null);
-        setIsMapReady(false);
-        setDocDims({ width: 0, height: 0 });
-        pdfDocRef.current = null;
-        loadedPrintIdRef.current = null;
-    } catch (err) {
-        alert("Purge failed.");
-    } finally {
-        setIsLoading(false);
-    }
-  };
-
-  const deleteMarker = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!confirm("Delete marker?")) return;
-    try {
-      await apiService.deletePrintMarker(id);
-      setMarkers(prev => prev.filter(m => m.id !== id));
-      setSelectedMarkerId('');
-    } catch (err) {
-      alert("Delete failed.");
-    }
-  };
-
-  const handleSwapTicket = async (markerId: string, newTicketId: string) => {
-    try {
-      const marker = markers.find(m => m.id === markerId);
-      if (!marker) return;
-
-      const newTicket = tickets.find(t => t.id === newTicketId);
-      if (!newTicket) return;
-
-      const updatedMarker = await apiService.savePrintMarker({
-        printId: marker.printId,
-        ticketId: newTicketId,
-        xPercent: marker.xPercent,
-        yPercent: marker.yPercent,
-        pageNumber: marker.pageNumber,
-        label: newTicket.ticketNo
-      });
-
-      await apiService.deletePrintMarker(markerId);
-      
-      setMarkers(prev => [
-        ...prev.filter(m => m.id !== markerId),
-        updatedMarker
-      ]);
-      setSelectedMarkerId('');
-      alert("Pin successfully updated to renewed documentation.");
-    } catch (err: any) {
-      alert("Swap failed: " + err.message);
-    }
-  };
-
   const saveMarker = async () => {
-    if (!print || !newMarkerPos || !selectedTicketId) return;
-    const ticket = tickets.find(t => t.id === selectedTicketId);
+    if (!newMarkerPos || !selectedTicketId || !print) return;
     try {
-      const saved = await apiService.savePrintMarker({
+      const ticket = tickets.find(t => t.id === selectedTicketId);
+      const label = ticket ? ticket.ticketNo : 'TKT';
+      const marker = await apiService.savePrintMarker({
         printId: print.id,
         ticketId: selectedTicketId,
         xPercent: newMarkerPos.x,
         yPercent: newMarkerPos.y,
         pageNumber: currentPage,
-        label: ticket?.ticketNo
+        label
       });
-      setMarkers(prev => [...prev, saved]);
+      setMarkers(prev => [...prev, marker]);
       setNewMarkerPos(null);
       setSelectedTicketId('');
-      setIsPinMode(false);
     } catch (err: any) {
-      console.error("Marker Save Error Details:", err);
-      alert(`Save failed: ${err.message || 'Database error occurred while placing pin.'}`);
+      alert("Failed to save marker: " + err.message);
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="fixed inset-0 bg-slate-950/90 z-[200] flex flex-col items-center justify-center text-white">
-        <div className="w-10 h-10 border-4 border-brand border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-[10px] font-black uppercase tracking-widest opacity-40">Loading Assets...</p>
-      </div>
-    );
-  }
+  const deleteMarker = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm("Delete this pin?")) return;
+    try {
+      await apiService.deletePrintMarker(id);
+      setMarkers(prev => prev.filter(m => m.id !== id));
+      setHoveredMarkerId(null);
+    } catch (err: any) {
+      alert("Delete failed: " + err.message);
+    }
+  };
+
+  // Filter markers for the current page
+  const visibleMarkers = markers.filter(m => (m.pageNumber || 1) === currentPage);
 
   return (
-    <div className="fixed inset-0 bg-slate-950 z-[200] flex flex-col overflow-hidden touch-none select-none animate-in fade-in duration-300">
-      <div className="p-4 sm:p-6 border-b border-white/5 flex items-center justify-between z-50 bg-slate-950/80 backdrop-blur-md gap-4">
-        <div className="flex items-center gap-3 sm:gap-4 overflow-hidden">
-          <div className="p-2.5 bg-brand/10 rounded-xl shrink-0 hidden sm:block shadow-inner">
-             <svg className="w-5 h-5 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 20l-5.447-2.724A2 2 0 013 15.483V4.517a2 2 0 011.553-1.943l7.19-1.438a2 2 0 011.514 0l7.19 1.438A2 2 0 0122 4.517v10.966a2 2 0 01-1.553 1.943L15 20l-3-3-3 3z" /></svg>
-          </div>
-          <div className="min-w-0">
-            <h2 className="text-[11px] sm:text-sm font-black text-white uppercase tracking-[0.2em] truncate">Job #{job.jobNumber} Assets</h2>
-            <p className="text-[8px] sm:text-[9px] font-black text-brand uppercase tracking-widest mt-0.5 truncate">Coordinate Control Map</p>
+    <div className="fixed inset-0 z-[200] bg-slate-950 flex flex-col animate-in fade-in duration-300">
+      {/* Header Overlay */}
+      <div className="absolute top-0 left-0 right-0 z-10 p-4 flex items-center justify-between pointer-events-none">
+        <div className="flex flex-col gap-1 pointer-events-auto">
+          <div className="bg-slate-900/80 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10 shadow-2xl flex items-center gap-3">
+             <div className="w-8 h-8 bg-brand rounded-xl flex items-center justify-center text-slate-900 shadow-lg shadow-brand/20">
+               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+             </div>
+             <div>
+               <h3 className="text-white text-xs font-black uppercase tracking-widest">{print?.fileName || 'Blueprint Vault'}</h3>
+               <p className="text-brand text-[8px] font-black uppercase tracking-tighter">Job #{job.jobNumber} Markup</p>
+             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 sm:gap-4 shrink-0">
-          <button onClick={() => fileInputRef.current?.click()} className="hidden sm:block px-4 py-3 bg-white/5 border border-white/10 text-slate-400 hover:text-white rounded-2xl text-[9px] font-black uppercase tracking-widest transition-all active:scale-95">
-            {isUploading ? 'Syncing...' : 'Update Print'}
+        <div className="flex items-center gap-2 pointer-events-auto">
+          <button 
+            onClick={() => setIsPinMode(!isPinMode)}
+            className={`p-3 rounded-2xl border transition-all ${isPinMode ? 'bg-brand text-slate-900 border-brand shadow-lg shadow-brand/20' : 'bg-slate-900/80 text-white border-white/10 backdrop-blur-md'}`}
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
           </button>
-          
-          {print && (
-             <button onClick={purgeMap} className="p-3 bg-white/5 border border-white/10 rounded-xl text-rose-500 hover:bg-rose-500 hover:text-white transition-all active:scale-90">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-             </button>
-          )}
-          
-          <button onClick={onClose} className="p-3 bg-white/10 rounded-2xl text-white hover:bg-rose-500 transition-all active:scale-90 shadow-lg">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
+          <button 
+            onClick={() => fileInputRef.current?.click()}
+            className="p-3 bg-slate-900/80 text-white border border-white/10 backdrop-blur-md rounded-2xl shadow-2xl transition-all active:scale-95"
+            title="Upload New Version"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+          </button>
+          <button 
+            onClick={onClose}
+            className="p-3 bg-rose-600 text-white rounded-2xl shadow-2xl transition-all active:scale-95"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
       </div>
 
+      {/* Viewport - Main Surface */}
       <div 
         ref={viewportRef}
-        className={`flex-1 overflow-hidden bg-slate-900 relative ${isPinMode ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'}`}
+        className="relative flex-1 overflow-hidden bg-slate-900 cursor-grab active:cursor-grabbing touch-none select-none"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
-        onPointerLeave={handlePointerUp}
         onWheel={handleWheel}
         onClick={handleViewportClick}
       >
-        {isRenderingPage && (
-          <div className="absolute inset-0 z-[60] bg-slate-950/40 backdrop-blur-[2px] flex flex-col items-center justify-center transition-opacity">
-            <div className="w-8 h-8 border-4 border-brand border-t-transparent rounded-full animate-spin mb-3 shadow-xl" />
-            <span className="text-[9px] font-black text-white uppercase tracking-[0.2em] drop-shadow-lg">Rendering Page {currentPage}...</span>
+        {!isMapReady && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/50 backdrop-blur-sm z-20">
+            <div className="w-12 h-12 border-4 border-brand border-t-transparent rounded-full animate-spin mb-4" />
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Loading High-Res Vector...</p>
           </div>
         )}
 
-        {print ? (
-          <div 
-            ref={contentWrapperRef}
-            className={`absolute origin-top-left bg-white shadow-[0_0_120px_rgba(0,0,0,0.6)] transition-opacity duration-500 ${isMapReady ? 'opacity-100' : 'opacity-0'}`}
-            style={{ 
-              transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
-              width: docDims.width || 1200,
-              height: docDims.height || 'auto'
-            }}
-          >
-            {isPdfFile(print.url) ? (
-              <canvas 
-                ref={canvasRef} 
-                className="block w-full h-auto" 
-                style={{ imageRendering: '-webkit-optimize-contrast' }}
-              />
-            ) : (
-              <img 
-                src={print.url} 
-                className="block w-full h-auto" 
-                alt="Blueprint" 
-                onLoad={(e) => {
-                  const img = e.currentTarget;
-                  setDocDims({ width: img.naturalWidth, height: img.naturalHeight });
-                }} 
-              />
-            )}
+        <div 
+          ref={contentWrapperRef}
+          className="absolute origin-top-left transition-transform duration-75"
+          style={{ 
+            transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
+            width: docDims.width || '100%',
+            height: docDims.height || '100%'
+          }}
+        >
+          {print ? (
+             isPdfFile(print.url) ? (
+               <canvas ref={canvasRef} className="shadow-2xl bg-white" />
+             ) : (
+               <img 
+                 src={print.url} 
+                 className="shadow-2xl bg-white" 
+                 onLoad={(e) => {
+                    const img = e.currentTarget;
+                    setDocDims({ width: img.naturalWidth, height: img.naturalHeight });
+                 }}
+               />
+             )
+          ) : (
+            <div className="flex flex-col items-center justify-center h-screen w-screen text-slate-500">
+               <svg className="w-20 h-20 mb-4 opacity-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+               <p className="text-sm font-black uppercase tracking-widest">No Documents In Vault</p>
+            </div>
+          )}
 
-            <div className="absolute inset-0 pointer-events-none">
-              {markers.filter(m => (m.pageNumber || 1) === currentPage).map(m => {
-                const ticket = tickets.find(t => t.id === m.ticketId);
-                const status = ticket ? getTicketStatus(ticket) : TicketStatus.OTHER;
-                const colorClass = getStatusDotColor(status);
-                const isSelected = selectedMarkerId === m.id;
-                const isVisible = (isSelected || hoveredMarkerId === m.id) && !isDragging;
+          {/* Markers Layer */}
+          {visibleMarkers.map(m => {
+            const ticket = tickets.find(t => t.id === m.ticketId);
+            const status = ticket ? getTicketStatus(ticket) : TicketStatus.OTHER;
+            const isHovered = hoveredMarkerId === m.id;
 
-                const renewalCandidate = ticket ? tickets.find(t => 
-                  t.ticketNo === ticket.ticketNo && 
-                  !t.isArchived && 
-                  getTicketStatus(t) !== TicketStatus.EXPIRED &&
-                  t.id !== ticket.id
-                ) : null;
-
-                const needsRenewal = status === TicketStatus.EXPIRED || ticket?.isArchived;
-
-                return (
-                  <div key={m.id} className="absolute z-20 pointer-events-auto" style={{ left: `${m.xPercent}%`, top: `${m.yPercent}%` }}>
-                    <div 
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={(e) => { e.stopPropagation(); setSelectedMarkerId(isSelected ? '' : m.id); }}
-                      onMouseEnter={() => setHoveredMarkerId(m.id)}
-                      onMouseLeave={() => setHoveredMarkerId(null)}
-                      className={`w-10 h-10 rounded-full border-4 border-white shadow-2xl cursor-pointer flex items-center justify-center transition-all hover:scale-125 -translate-x-1/2 -translate-y-1/2 ${colorClass} ${isSelected ? 'ring-8 ring-white/30 scale-125' : ''} ${needsRenewal && !renewalCandidate ? 'animate-pulse ring-4 ring-rose-500/20' : ''}`}
-                      style={{ transform: `translate(-50%, -50%) scale(${1 / Math.sqrt(transform.scale)})` }}
-                    >
-                      {renewalCandidate ? (
-                        <svg className="w-5 h-5 text-white animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357-2H15" /></svg>
-                      ) : (
-                        <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
-                      )}
-                    </div>
-
-                    {isVisible && (
-                      <div 
-                        className="ui-isolation absolute bottom-full left-1/2 -translate-x-1/2 mb-6 z-50 pointer-events-auto"
-                        style={{ transform: `scale(${1 / transform.scale})`, transformOrigin: 'bottom center' }}
-                        onPointerDown={(e) => e.stopPropagation()} 
-                      >
-                        <div className={`p-6 rounded-[2.5rem] border border-white/10 shadow-[0_30px_100px_rgba(0,0,0,0.5)] min-w-[280px] backdrop-blur-2xl ${isDarkMode ? 'bg-slate-900/95 text-white' : 'bg-white/95 text-slate-900'}`}>
-                          <div className="flex justify-between items-start mb-4">
-                            <div>
-                                <p className={`text-[10px] font-black uppercase tracking-[0.2em] ${status === TicketStatus.EXPIRED ? 'text-rose-500' : 'text-brand'}`}>
-                                  {status === TicketStatus.EXPIRED ? 'EXPIRED ENTRY' : 'TICKET ENTRY'}
-                                </p>
-                                <p className="text-sm font-black font-mono">#{m.label}</p>
-                            </div>
-                            <button onClick={() => setSelectedMarkerId('')} className="p-2 opacity-40 hover:opacity-100 transition-opacity bg-black/5 rounded-xl">
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
-                            </button>
-                          </div>
-                          <p className="text-[11px] font-bold truncate mb-4 opacity-60 uppercase tracking-tight">{ticket?.street || 'No Location Defined'}</p>
-                          
-                          {renewalCandidate && (
-                            <button 
-                              onClick={() => handleSwapTicket(m.id, renewalCandidate.id)}
-                              className="w-full mb-4 py-3 bg-emerald-500 text-white rounded-[1.2rem] font-black text-[9px] uppercase tracking-widest shadow-xl shadow-emerald-500/20 flex items-center justify-center gap-2 animate-pulse hover:scale-105 transition-all"
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357-2H15" /></svg>
-                              Update to Renewed Record
-                            </button>
-                          )}
-
-                          <div className="flex gap-2">
-                            <button 
-                              onClick={(e) => { e.stopPropagation(); ticket?.documentUrl && window.open(ticket.documentUrl, '_blank'); }}
-                              className="flex-1 py-4 bg-brand text-slate-900 rounded-[1.2rem] font-black text-[10px] uppercase tracking-widest shadow-xl shadow-brand/20 transition-all hover:scale-105 active:scale-95"
-                            >
-                              View Ticket
-                            </button>
-                            <button 
-                              onClick={(e) => deleteMarker(m.id, e)} 
-                              className="px-4 py-4 bg-rose-500/10 text-rose-500 rounded-[1.2rem] hover:bg-rose-500 hover:text-white transition-all flex items-center justify-center border border-rose-500/10 active:scale-90"
-                            >
-                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                            </button>
-                          </div>
+            return (
+              <div 
+                key={m.id}
+                className="absolute z-30 transition-transform ui-isolation"
+                style={{ left: `${m.xPercent}%`, top: `${m.yPercent}%`, transform: 'translate(-50%, -50%)' }}
+                onMouseEnter={() => !isMobile && setHoveredMarkerId(m.id)}
+                onMouseLeave={() => setHoveredMarkerId(null)}
+                onClick={(e) => {
+                   e.stopPropagation();
+                   if (isMobile) setHoveredMarkerId(hoveredMarkerId === m.id ? null : m.id);
+                }}
+              >
+                <div className={`relative flex flex-col items-center group`}>
+                   <div className={`w-8 h-8 rounded-full border-4 border-white shadow-2xl flex items-center justify-center transition-all ${getStatusDotColor(status)} ${isHovered ? 'scale-125' : 'scale-100'}`}>
+                      <span className="text-[10px] font-black text-white">{m.label?.slice(-2)}</span>
+                   </div>
+                   
+                   {(isHovered || isMobile && hoveredMarkerId === m.id) && (
+                     <div className="absolute bottom-full mb-3 bg-slate-900 border border-white/20 p-4 rounded-2xl shadow-2xl min-w-[200px] animate-in zoom-in-95 duration-200">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-1">Vault Record</p>
+                        <p className="text-sm font-black text-white mb-2">TKT: {m.label}</p>
+                        <div className="flex flex-wrap gap-2 mb-4">
+                           <span className="text-[10px] font-bold text-slate-300 truncate max-w-full">Loc: {ticket?.street}</span>
                         </div>
-                        <div className={`w-6 h-6 mx-auto -mt-3 rotate-45 border-r border-b border-white/10 ${isDarkMode ? 'bg-slate-900' : 'bg-white'}`} />
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-              {newMarkerPos && (
-                <div 
-                  className="absolute z-40 w-10 h-10 rounded-full bg-brand border-4 border-white animate-pulse shadow-2xl -translate-x-1/2 -translate-y-1/2"
-                  style={{ left: `${newMarkerPos.x}%`, top: `${newMarkerPos.y}%`, transform: `translate(-50%, -50%) scale(${1 / Math.sqrt(transform.scale)})` }}
-                />
-              )}
-            </div>
-          </div>
-        ) : (
-          <div className="h-full flex flex-col items-center justify-center text-center p-12">
-            <div className="w-24 h-24 bg-white/5 rounded-[3rem] border-2 border-dashed border-white/10 flex items-center justify-center mb-10 animate-pulse">
-              <svg className="w-10 h-10 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-            </div>
-            <h3 className="text-base font-black text-white uppercase tracking-[0.2em]">Map Engine Ready</h3>
-            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mt-4 mb-10 max-w-xs leading-relaxed">Upload a site blueprint (PDF or Image) to begin pinning asset locations.</p>
-            <button onClick={() => fileInputRef.current?.click()} className="px-12 py-5 bg-brand text-slate-900 rounded-[1.5rem] font-black text-[10px] uppercase tracking-[0.2em] shadow-2xl shadow-brand/20 transition-all hover:scale-105 active:scale-95">Load Workspace Print</button>
-          </div>
-        )}
-      </div>
+                        <div className="flex gap-2">
+                           <button 
+                             onClick={(e) => { e.stopPropagation(); if (ticket?.documentUrl) onViewTicket(ticket.documentUrl); }}
+                             className="flex-1 py-2 bg-brand text-slate-900 rounded-lg text-[9px] font-black uppercase tracking-widest"
+                           >
+                             View Doc
+                           </button>
+                           <button 
+                             onClick={(e) => deleteMarker(m.id, e)}
+                             className="p-2 bg-rose-500/10 text-rose-500 rounded-lg"
+                           >
+                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                           </button>
+                        </div>
+                        <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-[8px] border-l-transparent border-r-[8px] border-r-transparent border-t-[8px] border-t-slate-900" />
+                     </div>
+                   )}
+                </div>
+              </div>
+            );
+          })}
 
-      <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[100] flex flex-col items-center gap-4 w-full max-w-md px-4 pointer-events-none">
-        
-        {totalPages > 1 && (
-          <div className="flex items-center gap-4 bg-slate-950/80 backdrop-blur-2xl border border-white/10 px-6 py-3 rounded-full shadow-2xl pointer-events-auto animate-in slide-in-from-bottom-2">
-            <button 
-              onClick={() => setCurrentPage(p => Math.max(1, p - 1))} 
-              disabled={currentPage <= 1 || isRenderingPage} 
-              className="p-2 text-white hover:text-brand disabled:opacity-20 transition-all active:scale-75"
+          {/* New Placement Marker */}
+          {newMarkerPos && (
+            <div 
+              className="absolute z-40 animate-bounce transition-transform"
+              style={{ left: `${newMarkerPos.x}%`, top: `${newMarkerPos.y}%`, transform: 'translate(-50%, -50%)' }}
             >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M15 19l-7-7 7-7" /></svg>
-            </button>
-            <div className="flex flex-col items-center min-w-[80px]">
-              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Document</span>
-              <span className="text-xs font-black text-white">{currentPage} / {totalPages}</span>
+               <div className="w-10 h-10 rounded-full bg-brand border-4 border-white shadow-2xl flex items-center justify-center animate-pulse">
+                  <div className="w-2 h-2 bg-slate-900 rounded-full" />
+               </div>
             </div>
-            <button 
-              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} 
-              disabled={currentPage >= totalPages || isRenderingPage} 
-              className="p-2 text-white hover:text-brand disabled:opacity-20 transition-all active:scale-75"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M9 5l7 7-7 7" /></svg>
-            </button>
-          </div>
-        )}
-
-        {newMarkerPos && (
-          <div className="bg-slate-950/95 border border-white/10 p-8 rounded-[2.5rem] shadow-[0_40px_100px_rgba(0,0,0,0.8)] w-full animate-in slide-in-from-bottom-4 pointer-events-auto backdrop-blur-2xl ui-isolation">
-            <div className="flex justify-between items-center mb-6">
-              <h4 className="text-[10px] font-black text-white uppercase tracking-widest">Pin Asset to Site</h4>
-              <button onClick={() => setNewMarkerPos(null)} className="text-[10px] font-black uppercase text-slate-500 hover:text-white">Discard</button>
-            </div>
-            <select 
-              className={`w-full p-5 rounded-2xl text-xs font-bold mb-8 outline-none border focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200'}`}
-              value={selectedTicketId}
-              onChange={(e) => setSelectedTicketId(e.target.value)}
-            >
-              <option value="">Select Valid Ticket...</option>
-              {tickets
-                .filter(t => !t.isArchived && getTicketStatus(t) !== TicketStatus.EXPIRED)
-                .sort((a, b) => b.workDate.localeCompare(a.workDate))
-                .map(t => (
-                  <option key={t.id} value={t.id}>#{t.ticketNo} • {t.street.substring(0, 20)}</option>
-                ))}
-            </select>
-            <div className="flex gap-4">
-              <button onClick={saveMarker} disabled={!selectedTicketId} className="flex-1 bg-brand text-slate-900 py-5 rounded-[1.2rem] font-black text-[10px] uppercase tracking-widest shadow-xl shadow-brand/20 transition-all hover:scale-105 active:scale-95 disabled:opacity-30">Lock Position</button>
-              <button onClick={() => setNewMarkerPos(null)} className="flex-1 bg-white/5 text-slate-400 py-5 rounded-[1.2rem] font-black text-[10px] uppercase tracking-widest">Cancel</button>
-            </div>
-          </div>
-        )}
-
-        <div className="flex items-center gap-3 bg-slate-950/80 backdrop-blur-2xl border border-white/10 p-3 rounded-[2.2rem] shadow-2xl pointer-events-auto ui-isolation">
-          <div className="flex items-center gap-1 border-r border-white/10 pr-2 mr-1">
-             <button onClick={() => setTransform(prev => ({ ...prev, scale: prev.scale * 1.5 }))} className="p-4 bg-white/5 hover:bg-white/10 rounded-2xl text-white transition-all active:scale-90">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" /></svg>
-             </button>
-             <button onClick={() => setTransform(prev => ({ ...prev, scale: prev.scale / 1.5 }))} className="p-4 bg-white/5 hover:bg-white/10 rounded-2xl text-white transition-all active:scale-90">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M20 12H4" /></svg>
-             </button>
-             <button onClick={performAutoFit} className="p-4 bg-white/5 hover:bg-white/10 rounded-2xl text-white transition-all active:scale-90" title="Reset Fit">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
-             </button>
-          </div>
-          
-          <button 
-            onClick={() => { setIsPinMode(!isPinMode); setNewMarkerPos(null); }}
-            className={`flex items-center gap-4 px-10 py-4 rounded-[1.2rem] text-[10px] font-black uppercase tracking-[0.2em] transition-all shadow-xl ${isPinMode ? 'bg-brand text-slate-900 scale-105 ring-4 ring-brand/30' : 'bg-white/5 text-slate-400 hover:text-white'}`}
-          >
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
-            {isPinMode ? 'Placing' : 'Pin Drop'}
-          </button>
+          )}
         </div>
       </div>
 
-      <input type="file" multiple ref={fileInputRef} className="hidden" accept="image/*,application/pdf" onChange={handleFileUpload} />
+      {/* Footer Controls */}
+      <div className="absolute bottom-6 left-0 right-0 flex justify-center pointer-events-none px-4">
+        <div className="flex flex-col gap-4 items-center w-full max-w-lg">
+           {/* Placement Interface */}
+           {newMarkerPos && (
+             <div className="ui-isolation pointer-events-auto bg-slate-900/95 backdrop-blur-xl border border-white/20 p-6 rounded-[2.5rem] shadow-2xl w-full animate-in slide-in-from-bottom duration-300">
+               <div className="flex items-center justify-between mb-4">
+                 <h4 className="text-white font-black uppercase tracking-widest text-xs">Assign Pin to Ticket</h4>
+                 <button onClick={() => setNewMarkerPos(null)} className="text-slate-500 hover:text-white transition-colors">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
+                 </button>
+               </div>
+               
+               <div className="space-y-4">
+                 <select 
+                   className="w-full bg-slate-800 text-white px-4 py-3 rounded-2xl border border-white/10 text-xs font-bold outline-none focus:ring-4 focus:ring-brand/20"
+                   value={selectedTicketId}
+                   onChange={e => setSelectedTicketId(e.target.value)}
+                 >
+                   <option value="">Select Locate Asset...</option>
+                   {tickets.filter(t => !t.isArchived).map(t => (
+                     <option key={t.id} value={t.id}>{t.ticketNo} - {t.street}</option>
+                   ))}
+                 </select>
+                 
+                 <div className="flex gap-2">
+                    <button 
+                      onClick={saveMarker}
+                      disabled={!selectedTicketId}
+                      className="flex-1 bg-brand text-slate-900 py-3 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-lg shadow-brand/20 disabled:opacity-50 transition-all hover:scale-[1.02] active:scale-95"
+                    >
+                      Confirm Pin Assignment
+                    </button>
+                 </div>
+               </div>
+             </div>
+           )}
+
+           {/* PDF Pagination & Navigation Controls */}
+           {totalPages > 1 && (
+             <div 
+               className="ui-isolation pointer-events-auto flex items-center bg-slate-800/90 backdrop-blur px-4 py-2 rounded-2xl border border-white/10 shadow-2xl gap-4"
+               onPointerDown={(e) => e.stopPropagation()} // Prevent pan start
+             >
+               <button 
+                 disabled={currentPage <= 1 || isRenderingPage}
+                 onClick={(e) => {
+                    e.stopPropagation();
+                    setCurrentPage(prev => Math.max(1, prev - 1));
+                 }}
+                 className="p-3 text-white hover:bg-white/10 rounded-xl disabled:opacity-20 transition-all active:scale-90"
+               >
+                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 19l-7-7 7-7" /></svg>
+               </button>
+               
+               <div className="flex flex-col items-center min-w-[80px]">
+                 <span className="text-[10px] font-black text-white uppercase tracking-widest">Page</span>
+                 <span className="text-xs font-black text-brand">{currentPage} / {totalPages}</span>
+               </div>
+               
+               <button 
+                 disabled={currentPage >= totalPages || isRenderingPage}
+                 onClick={(e) => {
+                    e.stopPropagation();
+                    setCurrentPage(prev => Math.min(totalPages, prev + 1));
+                 }}
+                 className="p-3 text-white hover:bg-white/10 rounded-xl disabled:opacity-20 transition-all active:scale-90"
+               >
+                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M9 5l7 7-7 7" /></svg>
+               </button>
+             </div>
+           )}
+
+           {/* Toolbar */}
+           <div className="ui-isolation pointer-events-auto bg-slate-900/90 backdrop-blur-xl px-6 py-4 rounded-[2.5rem] border border-white/10 shadow-2xl flex items-center gap-6">
+              <div className="flex items-center gap-2 pr-4 border-r border-white/10">
+                 <button onClick={() => setTransform(prev => ({ ...prev, scale: prev.scale * 1.5 }))} className="p-2 text-white hover:bg-white/10 rounded-lg transition-colors">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" /></svg>
+                 </button>
+                 <button onClick={() => setTransform(prev => ({ ...prev, scale: prev.scale / 1.5 }))} className="p-2 text-white hover:bg-white/10 rounded-lg transition-colors">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M20 12H4" /></svg>
+                 </button>
+              </div>
+              <button 
+                onClick={performAutoFit}
+                className="flex flex-col items-center text-slate-400 hover:text-brand transition-colors"
+              >
+                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
+                 <span className="text-[8px] font-black uppercase mt-1">Reset</span>
+              </button>
+              <div className="w-px h-8 bg-white/10 mx-2" />
+              <div className="flex flex-col items-end">
+                 <span className="text-[10px] font-black text-white uppercase tracking-widest">{markers.length} Pins</span>
+                 <span className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter">Markup Density</span>
+              </div>
+           </div>
+        </div>
+      </div>
+
+      <input type="file" ref={fileInputRef} className="hidden" accept="application/pdf,image/*" onChange={handleFileUpload} />
     </div>
   );
 };
+
+export default JobPrintMarkup;

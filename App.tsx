@@ -50,6 +50,7 @@ const App: React.FC = () => {
   const [noShowTicket, setNoShowTicket] = useState<DigTicket | null>(null);
   const [globalSearch, setGlobalSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<TicketStatus | 'NO_SHOW' | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
   const [sortConfig, setSortConfig] = useState<{ field: SortField; order: SortOrder }>({
     field: 'createdAt',
     order: 'desc'
@@ -57,7 +58,6 @@ const App: React.FC = () => {
 
   const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
   
-  // Guard to prevent multiple initialization runs
   const initRef = useRef(false);
 
   useEffect(() => {
@@ -68,9 +68,7 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // Centralized Navigation Handler
   const handleNavigate = (view: AppView) => {
-    // Check if a form with potential unsaved changes is open
     const isFormActive = showTicketForm || editingTicket || showJobForm || editingJob || noShowTicket;
     
     if (isFormActive) {
@@ -78,7 +76,6 @@ const App: React.FC = () => {
       if (!confirmDiscard) return;
     }
 
-    // Reset all modal/overlay states
     setShowTicketForm(false);
     setEditingTicket(null);
     setShowJobForm(false);
@@ -88,7 +85,6 @@ const App: React.FC = () => {
     setNoShowTicket(null);
     setViewingDocUrl(null);
 
-    // Filter logic for media
     if (view !== 'photos') {
       setMediaFolderFilter(null);
     }
@@ -241,6 +237,20 @@ const App: React.FC = () => {
     } catch (error: any) { alert(error.message); }
   };
 
+  const handleToggleArchive = async (ticket: DigTicket, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const willArchive = !ticket.isArchived;
+    if (willArchive && !confirm(`Archive Ticket #${ticket.ticketNo}? It will be removed from the active vault and stored in project history.`)) return;
+    
+    try {
+      const updated = { ...ticket, isArchived: willArchive };
+      const saved = await apiService.saveTicket(updated);
+      setTickets(prev => prev.map(t => t.id === saved.id ? saved : t));
+    } catch (error: any) {
+      alert("Archive action failed: " + error.message);
+    }
+  };
+
   const handleJobSelection = async (jobNumber: string, jobEntity?: Job) => {
     if (jobEntity) { setSelectedJobSummary(jobEntity); return; }
     const existing = jobs.find(j => j.jobNumber === jobNumber);
@@ -307,8 +317,8 @@ const App: React.FC = () => {
 
   const activeTickets = useMemo(() => {
     const completedNumbers = new Set(jobs.filter(j => j.isComplete).map(j => j.jobNumber));
-    return tickets.filter(t => !completedNumbers.has(t.jobNumber) && !t.isArchived);
-  }, [tickets, jobs]);
+    return tickets.filter(t => !completedNumbers.has(t.jobNumber) && (showArchived || !t.isArchived));
+  }, [tickets, jobs, showArchived]);
 
   const filteredTickets = useMemo(() => {
     let res = activeTickets.filter(t => {
@@ -432,12 +442,25 @@ const App: React.FC = () => {
                 <h2 className="text-2xl font-black uppercase tracking-tight">Locate Vault</h2>
                 <p className={`text-[10px] font-bold uppercase tracking-widest mt-1 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Real-time Field Compliance Status</p>
               </div>
-              <div className="relative w-full sm:w-64 group">
-                <input type="text" placeholder="Filter vault..." className={`w-full pl-9 pr-4 py-2 border rounded-2xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-slate-300 shadow-sm text-black'}`} value={globalSearch} onChange={e => setGlobalSearch(e.target.value)} />
-                <svg className="w-4 h-4 text-slate-500 absolute left-3 top-2.5 group-focus-within:text-brand transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+              <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+                <button 
+                  onClick={() => setShowArchived(!showArchived)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-2xl border text-[10px] font-black uppercase tracking-widest transition-all ${
+                    showArchived 
+                      ? 'bg-slate-900 text-white border-slate-900' 
+                      : isDarkMode ? 'bg-white/5 border-white/5 text-slate-400 hover:text-white' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-400'
+                  }`}
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>
+                  {showArchived ? 'Active + History' : 'Include History'}
+                </button>
+                <div className="relative w-full sm:w-64 group">
+                  <input type="text" placeholder="Filter vault..." className={`w-full pl-9 pr-4 py-2 border rounded-2xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-slate-300 shadow-sm text-black'}`} value={globalSearch} onChange={e => setGlobalSearch(e.target.value)} />
+                  <svg className="w-4 h-4 text-slate-500 absolute left-3 top-2.5 group-focus-within:text-brand transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                </div>
               </div>
             </div>
-            <StatCards tickets={activeTickets} isDarkMode={isDarkMode} activeFilter={activeFilter} onFilterClick={setActiveFilter} />
+            <StatCards tickets={activeTickets.filter(t => !t.isArchived)} isDarkMode={isDarkMode} activeFilter={activeFilter} onFilterClick={setActiveFilter} />
             <div className={`${isDarkMode ? 'bg-[#1e293b] border-white/5 shadow-2xl shadow-black/40' : 'bg-white border-slate-200 shadow-xl shadow-slate-200/50'} rounded-[2.5rem] border overflow-hidden`}>
               <div className="overflow-x-auto no-scrollbar">
                 <table className="w-full text-left">
@@ -447,8 +470,8 @@ const App: React.FC = () => {
                       <th className="px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Tickets</th>
                       <th className="px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Location Info</th>
                       <th className="px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-center text-slate-500">State</th>
-                      <th className="px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-right text-slate-500">Expiry</th>
-                      <th className="px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-right text-slate-500">Actions</th>
+                      <th className={`px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-right ${isDarkMode ? 'text-slate-500' : 'text-slate-700'}`}>Expiry</th>
+                      <th className={`px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-right ${isDarkMode ? 'text-slate-500' : 'text-slate-700'}`}>Actions</th>
                     </tr>
                   </thead>
                   <tbody className={`divide-y ${isDarkMode ? 'divide-white/5' : 'divide-slate-100'}`}>
@@ -456,7 +479,7 @@ const App: React.FC = () => {
                       const jobTickets = groupedTickets.get(jobNum)!;
                       const jobEntity = jobs.find(j => j.jobNumber === jobNum);
                       const isExpanded = expandedJobs.has(jobNum);
-                      const statuses = jobTickets.map(t => getTicketStatus(t));
+                      const statuses = jobTickets.filter(t => !t.isArchived).map(t => getTicketStatus(t));
                       let aggregateStatus = TicketStatus.VALID;
                       if (statuses.includes(TicketStatus.EXPIRED)) aggregateStatus = TicketStatus.EXPIRED;
                       else if (statuses.includes(TicketStatus.REFRESH_NEEDED) || statuses.includes(TicketStatus.EXTENDABLE)) aggregateStatus = TicketStatus.REFRESH_NEEDED;
@@ -467,18 +490,26 @@ const App: React.FC = () => {
                             <td className="px-8 py-6"><span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-lg ${isDarkMode ? 'bg-white/5 text-slate-400' : 'bg-slate-100 text-slate-600'}`}>{jobTickets.length} Assets</span></td>
                             <td className="px-8 py-6"><div className="flex flex-col"><span className={`text-[11px] font-black uppercase tracking-tight truncate max-w-[200px] ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{ (jobEntity?.customer || 'Direct Client').replace(/^OTHER\/?/i, '') }</span><span className="text-[9px] font-bold truncate max-w-[200px] opacity-40">{jobEntity?.city || jobEntity?.address || 'Field Location'}</span></div></td>
                             <td className="px-8 py-6 text-center"><div className={`w-2.5 h-2.5 rounded-full mx-auto ring-4 ${aggregateStatus === TicketStatus.EXPIRED ? 'bg-rose-500 ring-rose-500/10' : aggregateStatus === TicketStatus.REFRESH_NEEDED ? 'bg-amber-500 ring-amber-500/10' : 'bg-emerald-500 ring-emerald-500/10'}`} /></td>
-                            <td className="px-8 py-6 text-right font-bold text-[10px] opacity-30">{isExpanded ? 'COLLAPSE' : 'DETAILS'}</td>
+                            <td className={`px-8 py-6 text-right font-black text-[10px] ${isDarkMode ? 'opacity-30 text-slate-400' : 'opacity-60 text-slate-900'}`}>{isExpanded ? 'COLLAPSE' : 'DETAILS'}</td>
                             <td className="px-8 py-6 text-right">{isAdmin && <button onClick={(e) => { e.stopPropagation(); jobEntity && handleDeleteJob(jobEntity); }} className="p-2.5 text-slate-400 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>}</td>
                           </tr>
                           {isExpanded && jobTickets.map((ticket: DigTicket) => {
                             const status = getTicketStatus(ticket);
                             return (
-                              <tr key={ticket.id} onClick={() => isAdmin && setEditingTicket(ticket)} className={`animate-in transition-all group ${isAdmin ? 'cursor-pointer' : ''} ${isDarkMode ? 'bg-white/[0.01]' : 'bg-slate-50/30'} border-l-4 border-slate-500/10`}>
-                                <td className="px-8 py-4 pl-16"><div className="flex items-center gap-3"><div className="w-2 h-2 rounded-full bg-slate-500/20" /><button onClick={(e) => { e.stopPropagation(); if (ticket.documentUrl) setViewingDocUrl(ticket.documentUrl); }} className={`text-[11px] font-mono font-bold tracking-tight transition-colors ${ticket.documentUrl ? 'hover:text-brand hover:underline text-brand' : 'opacity-40'}`}>{ticket.ticketNo}</button></div></td>
-                                <td colSpan={2} className={`px-8 py-4 text-[11px] font-bold truncate max-w-[400px] ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>{ticket.crossStreet || ticket.street}</td>
-                                <td className="px-8 py-4 text-center"><span className={`inline-flex px-2 py-0.5 rounded-lg text-[8px] font-black uppercase border tracking-widest ${getStatusColor(status)}`}>{status}</span></td>
-                                <td className={`px-8 py-4 text-[11px] font-bold text-right opacity-60`}>{new Date(ticket.expires).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</td>
-                                <td className="px-8 py-4 text-right"><div className="flex items-center justify-end gap-2"><button onClick={(e) => { e.stopPropagation(); setNoShowTicket(ticket); }} className={`p-2 rounded-xl transition-all border ${ticket.noShowRequested ? 'bg-rose-500 text-white border-rose-600 shadow-lg' : 'bg-rose-500/5 text-rose-500 border-rose-500/10 hover:bg-rose-500 hover:text-white'}`}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg></button><button onClick={(e) => handleToggleRefresh(ticket, e)} className={`p-2 rounded-xl transition-all border ${ticket.refreshRequested ? 'bg-amber-100 text-amber-600 border-amber-300' : 'bg-slate-100 text-slate-500 hover:text-brand'}`}><svg className={`w-4 h-4 ${ticket.refreshRequested ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357-2H15" /></svg></button>{isAdmin && <button onClick={(e) => handleDeleteTicket(ticket.id, e)} className="p-2 text-slate-500 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>}</div></td>
+                              <tr key={ticket.id} onClick={() => isAdmin && setEditingTicket(ticket)} className={`animate-in transition-all group ${isAdmin ? 'cursor-pointer' : ''} ${isDarkMode ? 'bg-white/[0.01]' : 'bg-slate-50/30'} border-l-4 border-slate-500/10 ${ticket.isArchived ? 'opacity-50 grayscale' : ''}`}>
+                                <td className="px-8 py-4 pl-16"><div className="flex items-center gap-3"><div className={`w-2 h-2 rounded-full ${ticket.isArchived ? 'bg-slate-400' : 'bg-brand'}`} /><button onClick={(e) => { e.stopPropagation(); if (ticket.documentUrl) setViewingDocUrl(ticket.documentUrl); }} className={`text-[11px] font-mono font-bold tracking-tight transition-colors ${ticket.documentUrl ? 'hover:text-brand hover:underline text-brand' : 'opacity-40'}`}>{ticket.ticketNo}</button></div></td>
+                                <td className="px-8 py-4"></td>
+                                <td className="px-8 py-4">
+                                  <div className="flex flex-col">
+                                    <span className={`text-[11px] font-bold truncate max-w-[300px] ${isDarkMode ? 'text-slate-300' : 'text-slate-950'}`}>{ticket.street}</span>
+                                    <span className={`text-[9px] font-black uppercase tracking-widest truncate max-w-[300px] ${isDarkMode ? 'opacity-40 text-slate-500' : 'opacity-80 text-slate-600'}`}>
+                                      {ticket.crossStreet ? `at ${ticket.crossStreet}` : 'No Cross Street'}
+                                    </span>
+                                  </div>
+                                </td>
+                                <td className="px-8 py-4 text-center"><span className={`inline-flex px-2 py-0.5 rounded-lg text-[8px] font-black uppercase border tracking-widest ${ticket.isArchived ? 'bg-slate-100 text-slate-500 border-slate-200' : getStatusColor(status)}`}>{ticket.isArchived ? 'ARCHIVED' : status}</span></td>
+                                <td className={`px-8 py-4 text-[11px] font-bold text-right ${isDarkMode ? 'opacity-60 text-slate-300' : 'opacity-100 text-slate-900'}`}>{new Date(ticket.expires).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</td>
+                                <td className="px-8 py-4 text-right"><div className="flex items-center justify-end gap-2"><button onClick={(e) => { e.stopPropagation(); setNoShowTicket(ticket); }} className={`p-2 rounded-xl transition-all border ${ticket.noShowRequested ? 'bg-rose-500 text-white border-rose-600 shadow-lg' : 'bg-rose-500/5 text-rose-500 border-rose-500/10 hover:bg-rose-500 hover:text-white'}`}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg></button><button onClick={(e) => handleToggleRefresh(ticket, e)} className={`p-2 rounded-xl transition-all border ${ticket.refreshRequested ? 'bg-amber-100 text-amber-600 border-amber-300' : 'bg-slate-100 text-slate-500 hover:text-brand'}`}><svg className={`w-4 h-4 ${ticket.refreshRequested ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357-2H15" /></svg></button><button onClick={(e) => handleToggleArchive(ticket, e)} className={`p-2 rounded-xl transition-all border ${ticket.isArchived ? 'bg-slate-900 text-white border-slate-900' : 'bg-slate-100 text-slate-500 hover:text-brand'}`} title={ticket.isArchived ? "Unarchive" : "Archive"}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg></button>{isAdmin && <button onClick={(e) => handleDeleteTicket(ticket.id, e)} className="p-2 text-slate-500 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>}</div></td>
                               </tr>
                             );
                           })}
@@ -507,7 +538,6 @@ const App: React.FC = () => {
             </button>
             
             <div className="w-full max-w-5xl h-[90vh] rounded-[2rem] bg-slate-900 shadow-2xl overflow-hidden border border-white/5 relative">
-              {/* SPECIAL HANDLER FOR MOBILE PDFS WHICH OFTEN FAIL IN IFRAMES */}
               {isMobile && viewingDocUrl.toLowerCase().includes('.pdf') ? (
                 <div className="h-full flex flex-col items-center justify-center p-10 text-center space-y-8 bg-slate-900">
                   <div className="w-24 h-24 bg-rose-500/10 rounded-[2.5rem] flex items-center justify-center border border-rose-500/20 shadow-2xl">
