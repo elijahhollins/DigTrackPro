@@ -153,9 +153,11 @@ const App: React.FC = () => {
   const handleOpenSelectKey = async () => {
     if (window.aistudio?.openSelectKey) {
       await window.aistudio.openSelectKey();
-      setHasApiKey(true); // Assume success per guidelines
+      // Assume success and refresh context immediately to mitigate key missing errors
+      setHasApiKey(true);
+      setTimeout(() => window.location.reload(), 150);
     } else {
-      alert("Billing selection is not available in this environment.");
+      alert("Project selection is not available in this environment.");
     }
   };
 
@@ -454,9 +456,9 @@ const App: React.FC = () => {
                   {!hasApiKey && (
                     <button 
                       onClick={handleOpenSelectKey}
-                      className="bg-amber-500/10 text-amber-600 text-[8px] font-black uppercase px-2 py-0.5 rounded-lg border border-amber-500/20 hover:bg-amber-500 hover:text-white transition-all"
+                      className="bg-brand text-slate-900 text-[9px] font-black uppercase px-3 py-1 rounded-lg shadow-lg shadow-brand/20 animate-pulse hover:scale-105 transition-all"
                     >
-                      Enable AI Parsing
+                      ⚠️ Connect AI Extraction
                     </button>
                   )}
                 </div>
@@ -507,7 +509,7 @@ const App: React.FC = () => {
                           <tr onClick={() => toggleJobExpansion(jobNum)} className={`transition-all cursor-pointer border-l-4 ${isExpanded ? 'border-brand' : 'border-transparent'} ${isDarkMode ? 'hover:bg-white/[0.03]' : 'hover:bg-slate-50/80'}`}>
                             <td className="px-8 py-6"><div className="flex items-center gap-4"><div className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${isExpanded ? 'bg-brand/10 border-brand/20 text-brand rotate-90' : 'bg-black/5 border-transparent opacity-40'}`}><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M9 5l7 7-7 7" /></svg></div><button onClick={(e) => { e.stopPropagation(); handleJobSelection(jobNum, jobEntity); }} className={`text-[13px] font-black hover:text-brand transition-colors text-left ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>JOB #{jobNum}</button></div></td>
                             <td className="px-8 py-6"><span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-lg ${isDarkMode ? 'bg-white/5 text-slate-400' : 'bg-slate-100 text-slate-600'}`}>{jobTickets.length} Assets</span></td>
-                            <td className="px-8 py-6"><div className="flex flex-col"><span className={`text-[11px] font-black uppercase tracking-tight truncate max-w-[200px] ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{ (jobEntity?.customer || 'Direct Client').replace(/^OTHER\/?/i, '') }</span><span className={`text-[9px] font-bold truncate max-w-[200px] ${isDarkMode ? 'opacity-40' : 'text-slate-600'}`}>{jobEntity?.city || jobEntity?.address || 'Field Location'}</span></div></td>
+                            <td className="px-8 py-6"><div className="flex flex-col"><span className={`text-[11px] font-black uppercase tracking-tight truncate max-w-[200px] ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{ (jobEntity?.customer || 'Direct Client').replace(/^OTHER\/?/i, '') }</span><span className={`text-[9px] font-bold truncate max-w-[200px] ${isDarkMode ? 'opacity-40' : 'text-slate-900 font-black'}`}>{jobEntity?.city || jobEntity?.address || 'Field Location'}</span></div></td>
                             <td className="px-8 py-6 text-center"><div className={`w-2.5 h-2.5 rounded-full mx-auto ring-4 ${aggregateStatus === TicketStatus.EXPIRED ? 'bg-rose-500 ring-rose-500/10' : aggregateStatus === TicketStatus.REFRESH_NEEDED ? 'bg-amber-500 ring-amber-500/10' : 'bg-emerald-500 ring-emerald-500/10'}`} /></td>
                             <td className={`px-8 py-6 text-right font-black text-[10px] ${isDarkMode ? 'opacity-30 text-slate-400' : 'opacity-60 text-slate-900'}`}>{isExpanded ? 'COLLAPSE' : 'DETAILS'}</td>
                             <td className="px-8 py-6 text-right">{isAdmin && <button onClick={(e) => { e.stopPropagation(); jobEntity && handleDeleteJob(jobEntity); }} className="p-2.5 text-slate-400 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>}</td>
@@ -521,7 +523,7 @@ const App: React.FC = () => {
                                 <td className="px-8 py-4">
                                   <div className="flex flex-col">
                                     <span className={`text-[11px] font-bold truncate max-w-[300px] ${isDarkMode ? 'text-slate-300' : 'text-slate-950'}`}>{ticket.street}</span>
-                                    <span className={`text-[9px] font-black uppercase tracking-widest truncate max-w-[300px] ${isDarkMode ? 'opacity-40 text-slate-500' : 'text-slate-800'}`}>
+                                    <span className={`text-[9px] font-black uppercase tracking-widest truncate max-w-[300px] ${isDarkMode ? 'opacity-40 text-slate-500' : 'text-black'}`}>
                                       {ticket.crossStreet ? `at ${ticket.crossStreet}` : 'No Cross Street'}
                                     </span>
                                   </div>

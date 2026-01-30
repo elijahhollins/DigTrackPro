@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { DigTicket } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
 import { parseTicketData } from '../services/geminiService.ts';
+import { getEnv } from '../lib/supabaseClient.ts';
 
 interface IngestionItem {
   id: string;
@@ -52,6 +53,10 @@ const getSafeMimeType = (file: File): string => {
 export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initialData, isDarkMode, existingTickets }) => {
   const [isBatchMode, setIsBatchMode] = useState(false);
   const [isSubmittingManual, setIsSubmittingManual] = useState(false);
+  const [hasApiKey, setHasApiKey] = useState(() => {
+    const key = getEnv('API_KEY');
+    return !!(key && key.length > 10);
+  });
   
   const [formData, setFormData] = useState({
     jobNumber: '', ticketNo: '', street: '', crossStreet: '', place: '', extent: '', county: '', city: '', state: '', callInDate: '', workDate: '', expires: '', siteContact: '', documentUrl: '',
@@ -109,6 +114,15 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
       }
     }
   }, [activeIndex, queue, isBatchMode]);
+
+  const handleOpenSelectKey = async () => {
+    if (window.aistudio?.openSelectKey) {
+      await window.aistudio.openSelectKey();
+      setHasApiKey(true);
+      // Brief delay and potential reload to ensure process.env is refreshed
+      setTimeout(() => window.location.reload(), 150);
+    }
+  };
 
   /**
    * Background Task: Process a single file
@@ -351,6 +365,14 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
               <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mt-3 max-w-xs leading-relaxed">
                 Drag & drop PDFs here. Gemini AI will handle the extraction while you review and confirm each record.
               </p>
+              {!hasApiKey && (
+                <button 
+                  onClick={(e) => { e.stopPropagation(); handleOpenSelectKey(); }}
+                  className="mt-10 px-8 py-4 bg-brand text-slate-900 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-brand/20 animate-pulse active:scale-95"
+                >
+                  ⚠️ Connect AI Service to Begin
+                </button>
+              )}
             </div>
           ) : isBatchMode && (currentItem?.status === 'analyzing' || currentItem?.status === 'uploading') ? (
             <div className="p-32 flex flex-col items-center justify-center text-center">
@@ -365,6 +387,16 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
               </div>
               <h3 className="text-lg font-black uppercase tracking-widest text-rose-500">Scan Failed</h3>
               <p className="text-xs font-bold text-slate-400 mt-2">{currentItem.error}</p>
+              
+              {currentItem.error?.toLowerCase().includes('api key') && (
+                 <button 
+                   onClick={handleOpenSelectKey}
+                   className="mt-6 px-8 py-3 bg-brand text-slate-900 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg active:scale-95"
+                 >
+                   Reconnect AI Service
+                 </button>
+              )}
+
               <div className="flex gap-3 mt-10 w-full max-w-sm">
                  <button onClick={() => removeFromQueue(activeIndex)} className="flex-1 py-5 bg-rose-500 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest">Discard</button>
                  <button onClick={moveToNext} className="flex-1 py-5 bg-white/5 text-slate-500 border border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest">Retry Next</button>
