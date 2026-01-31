@@ -3,7 +3,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { DigTicket } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
 import { parseTicketData } from '../services/geminiService.ts';
-import { getEnv } from '../lib/supabaseClient.ts';
 
 interface IngestionItem {
   id: string;
@@ -23,17 +22,11 @@ interface TicketFormProps {
   existingTickets?: DigTicket[];
 }
 
-/**
- * Normalizes YYYY-MM-DD or YYYY/MM/DD into a stable comparable format
- */
 const normalizeDateStr = (date: string) => {
   if (!date) return "";
   return date.replace(/\//g, '-').split('-').map(s => s.trim().padStart(2, '0')).join('-');
 };
 
-/**
- * Robust helper to get mime type, especially for mobile browsers that might report empty type
- */
 const getSafeMimeType = (file: File): string => {
   if (file.type) return file.type;
   const ext = file.name.split('.').pop()?.toLowerCase();
@@ -46,17 +39,10 @@ const getSafeMimeType = (file: File): string => {
   }
 };
 
-/**
- * TicketForm Component
- * Supports both standard manual entry and advanced AI-powered batch ingestion.
- */
 export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initialData, isDarkMode, existingTickets }) => {
   const [isBatchMode, setIsBatchMode] = useState(false);
   const [isSubmittingManual, setIsSubmittingManual] = useState(false);
-  const [hasApiKey, setHasApiKey] = useState(() => {
-    const key = getEnv('API_KEY');
-    return !!(key && key.length > 10);
-  });
+  const [hasApiKey, setHasApiKey] = useState(false);
   
   const [formData, setFormData] = useState({
     jobNumber: '', ticketNo: '', street: '', crossStreet: '', place: '', extent: '', county: '', city: '', state: '', callInDate: '', workDate: '', expires: '', siteContact: '', documentUrl: '',
@@ -67,7 +53,17 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Load initial data for single-edit mode
+  // Sync API Key state from window
+  useEffect(() => {
+    const check = () => {
+      const key = (window as any).process?.env?.API_KEY || '';
+      setHasApiKey(key.length > 20 && !key.includes('API_KEY'));
+    };
+    check();
+    const interval = setInterval(check, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
   useEffect(() => {
     if (initialData) {
       setFormData({
@@ -90,7 +86,6 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
     }
   }, [initialData]);
 
-  // Sync form with currently selected queue item in batch mode
   useEffect(() => {
     if (isBatchMode) {
       const activeItem = queue[activeIndex];
@@ -119,14 +114,9 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
     if (window.aistudio?.openSelectKey) {
       await window.aistudio.openSelectKey();
       setHasApiKey(true);
-      // Brief delay and potential reload to ensure process.env is refreshed
-      setTimeout(() => window.location.reload(), 150);
     }
   };
 
-  /**
-   * Background Task: Process a single file
-   */
   const processFile = async (id: string, file: File) => {
     try {
       setQueue(prev => prev.map(item => item.id === id ? { ...item, status: 'analyzing' } : item));
@@ -188,8 +178,6 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
     }
 
     if (files.length === 0) return;
-
-    // Switch to batch mode if not already
     if (!isBatchMode) setIsBatchMode(true);
 
     const newItems: IngestionItem[] = files.map(file => ({
@@ -265,15 +253,11 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
         onDrop={(e) => { e.preventDefault(); setIsDragging(false); handleFileUpload(e as any); }}
         className={`w-full max-w-2xl rounded-[2.5rem] shadow-2xl overflow-hidden border transition-all duration-300 ${isDragging ? 'scale-105 ring-4 ring-brand/50' : ''} ${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white border-slate-200'}`}
       >
-        
-        {/* HEADER AREA */}
         <div className="px-10 py-6 border-b flex justify-between items-center bg-black/5">
           <div className="flex-1">
             <h2 className="text-base font-black uppercase tracking-[0.2em] text-brand">
               {initialData ? 'Update Record' : isBatchMode ? 'Review & Confirm' : 'Ticket Entry'}
             </h2>
-            
-            {/* MODE SELECTOR */}
             {!initialData && (
               <div className="flex gap-4 mt-2">
                 <button 
@@ -308,7 +292,6 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
           </div>
         </div>
 
-        {/* BATCH STATUS STRIP */}
         {isBatchMode && queue.length > 0 && (
           <div className="px-10 py-4 bg-black/20 border-b border-white/5 flex items-center gap-3 overflow-x-auto no-scrollbar">
             {queue.map((item, idx) => (
@@ -351,7 +334,6 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
           </div>
         )}
 
-        {/* CONTENT AREA */}
         <div className="max-h-[70vh] overflow-y-auto no-scrollbar">
           {isBatchMode && queue.length === 0 ? (
             <div 
@@ -388,45 +370,19 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
               <h3 className="text-lg font-black uppercase tracking-widest text-rose-500">Scan Failed</h3>
               <p className="text-xs font-bold text-slate-400 mt-2">{currentItem.error}</p>
               
-              {currentItem.error?.toLowerCase().includes('api key') && (
-                 <button 
-                   onClick={handleOpenSelectKey}
-                   className="mt-6 px-8 py-3 bg-brand text-slate-900 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg active:scale-95"
-                 >
-                   Reconnect AI Service
-                 </button>
-              )}
+              <button 
+                onClick={handleOpenSelectKey}
+                className="mt-6 px-8 py-3 bg-brand text-slate-900 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg active:scale-95"
+              >
+                Reconnect AI Service
+              </button>
 
               <div className="flex gap-3 mt-10 w-full max-w-sm">
                  <button onClick={() => removeFromQueue(activeIndex)} className="flex-1 py-5 bg-rose-500 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest">Discard</button>
                  <button onClick={moveToNext} className="flex-1 py-5 bg-white/5 text-slate-500 border border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest">Retry Next</button>
               </div>
             </div>
-          ) : isBatchMode && currentItem?.status === 'saved' ? (
-            <div className="p-32 flex flex-col items-center justify-center text-center">
-               <div className="w-24 h-24 bg-emerald-500/10 text-emerald-500 rounded-[3rem] flex items-center justify-center mb-8 border-2 border-emerald-500/20 shadow-xl">
-                  <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
-               </div>
-               <h3 className="text-lg font-black uppercase tracking-widest text-emerald-500">Record Saved</h3>
-               <button onClick={moveToNext} className="mt-8 px-10 py-4 bg-emerald-500 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-emerald-500/20 transition-all hover:scale-105 active:scale-95">Review Next</button>
-            </div>
-          ) : isBatchMode && currentItem?.status === 'duplicate' ? (
-            <div className="p-20 flex flex-col items-center justify-center text-center">
-              <div className="w-24 h-24 bg-amber-500/10 text-amber-500 rounded-[3rem] flex items-center justify-center mb-8 border-2 border-amber-500/20 shadow-xl">
-                <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-              </div>
-              <h3 className="text-lg font-black uppercase tracking-widest text-amber-500">Duplicate Blocked</h3>
-              <div className={`mt-6 p-6 rounded-[2rem] border text-left w-full max-w-sm mx-auto ${isDarkMode ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-200'}`}>
-                 <p className="text-sm font-black font-mono">TKT: {currentItem.extractedData?.ticketNo || currentItem.matchedTicket?.ticketNo}</p>
-                 <p className="text-[11px] font-bold mt-1">Found in Project: {currentItem.extractedData?.jobNumber || currentItem.matchedTicket?.jobNumber}</p>
-              </div>
-              <div className="flex gap-3 mt-10 w-full max-w-sm">
-                 <button onClick={() => removeFromQueue(activeIndex)} className="flex-1 py-5 bg-rose-500 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest">Discard</button>
-                 <button onClick={moveToNext} className="flex-1 py-5 bg-white/5 text-slate-500 border border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest">Skip</button>
-              </div>
-            </div>
           ) : (
-            /* MAIN FORM (Used for both Manual and Batch Review) */
             <form onSubmit={handleSubmit} className="p-10 space-y-5">
               <div className="grid grid-cols-2 gap-5">
                 <div className="space-y-1">

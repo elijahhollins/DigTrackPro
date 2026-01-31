@@ -69,6 +69,20 @@ const App: React.FC = () => {
     }
   }, []);
 
+  // API Key Observer: Essential for standalone tabs where the key injection might be delayed
+  useEffect(() => {
+    const check = async () => {
+      const isKeyPresent = await checkApiKey();
+      if (isKeyPresent) {
+        setHasApiKey(true);
+      }
+    };
+
+    check();
+    const interval = setInterval(check, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
   const handleNavigate = (view: AppView) => {
     const isFormActive = showTicketForm || editingTicket || showJobForm || editingJob || noShowTicket;
     
@@ -130,40 +144,38 @@ const App: React.FC = () => {
     localStorage.setItem('dig_theme_mode', next ? 'dark' : 'light');
   };
 
-  const checkApiKey = async () => {
-    // Priority check: Has the user handshaked via the picker?
+  const checkApiKey = async (): Promise<boolean> => {
+    // 1. Check aistudio bridge (Highest reliability in standalone)
     try {
       if (window.aistudio?.hasSelectedApiKey) {
         const selected = await window.aistudio.hasSelectedApiKey();
-        if (selected) {
-          setHasApiKey(true);
-          return true;
-        }
+        if (selected) return true;
       }
     } catch (e) {
-      console.warn("AI Studio bridge check failed", e);
+      console.warn("Bridge check failed:", e);
     }
 
-    // Secondary check: Is there a legitimate-looking key in the process env?
-    // We increase length check to 35 to avoid capturing standard short dummy keys
+    // 2. Check process.env (Standard injection)
+    // Relaxed length to 20 to catch all valid keys while ignoring "API_KEY" or empty placeholders
     const injectedKey = window.process?.env?.API_KEY || '';
-    if (injectedKey && injectedKey.length > 35) {
-      setHasApiKey(true);
+    if (injectedKey && injectedKey.length > 20 && !injectedKey.includes('API_KEY')) {
       return true;
     }
 
-    setHasApiKey(false);
     return false;
   };
 
   const handleOpenSelectKey = async () => {
     if (window.aistudio?.openSelectKey) {
       await window.aistudio.openSelectKey();
-      // Assume success and refresh state
+      // Optimistically set to true to suppress flashing during project switch
       setHasApiKey(true);
-      setTimeout(() => checkApiKey(), 300);
+      setTimeout(async () => {
+        const stillValid = await checkApiKey();
+        setHasApiKey(stillValid);
+      }, 1000);
     } else {
-      alert("AI configuration dialog is not available in this browser window.");
+      alert("AI configuration dialog is not available. Please ensure you are logged into AI Studio.");
     }
   };
 
@@ -185,7 +197,10 @@ const App: React.FC = () => {
         initRef.current = false;
         return; 
       }
-      await checkApiKey();
+      
+      const keyFound = await checkApiKey();
+      setHasApiKey(keyFound);
+
       const [allUsersRes, allTicketsRes, allJobsRes, allPhotosRes, allNotesRes] = await Promise.allSettled([
         apiService.getUsers(),
         apiService.getTickets(),
@@ -252,9 +267,10 @@ const App: React.FC = () => {
         return [saved, ...prev];
       });
     } catch (error: any) {
-      if (error.message?.includes("entity was not found") || error.message?.includes("API key") || error.message?.includes("ACCESS_DENIED")) {
+      const msg = error.message?.toLowerCase() || '';
+      if (msg.includes("entity was not found") || msg.includes("api key") || msg.includes("access_denied")) {
         setHasApiKey(false);
-        if (confirm("AI connection lost or permission denied. To continue parsing, you must select an API key from a project with billing enabled. Reconnect now?")) {
+        if (confirm("AI connection lost or permission denied. Ensure billing is enabled and re-select your project in the AI configuration window. Re-connect now?")) {
            handleOpenSelectKey();
         }
       } else {
@@ -398,8 +414,8 @@ const App: React.FC = () => {
   const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
   const NAV_ITEMS: { id: AppView; label: string; icon: React.ReactNode }[] = [
-    { id: 'dashboard', label: 'Vault', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg> },
-    { id: 'jobs', label: 'Projects', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2-2v10a2 2 0 002 2z" /></svg> },
+    { id: 'dashboard', label: 'Vault', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg> },
+    { id: 'jobs', label: 'Projects', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg> },
     { id: 'calendar', label: 'Schedule', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
     { id: 'photos', label: 'Media', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
     { id: 'team', label: 'Team', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg> },
