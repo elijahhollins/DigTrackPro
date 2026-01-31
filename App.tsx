@@ -131,8 +131,7 @@ const App: React.FC = () => {
   };
 
   const checkApiKey = async () => {
-    // MANDATORY HANDSHAKE: Always verify via the AI Studio bridge first.
-    // This solves the "False Positive" issue where process.env has a restricted dummy key.
+    // Priority check: Has the user handshaked via the picker?
     try {
       if (window.aistudio?.hasSelectedApiKey) {
         const selected = await window.aistudio.hasSelectedApiKey();
@@ -145,7 +144,8 @@ const App: React.FC = () => {
       console.warn("AI Studio bridge check failed", e);
     }
 
-    // Fallback: Only trust the injected process key if we are reasonably sure it's valid (length check).
+    // Secondary check: Is there a legitimate-looking key in the process env?
+    // We increase length check to 35 to avoid capturing standard short dummy keys
     const injectedKey = window.process?.env?.API_KEY || '';
     if (injectedKey && injectedKey.length > 35) {
       setHasApiKey(true);
@@ -159,12 +159,11 @@ const App: React.FC = () => {
   const handleOpenSelectKey = async () => {
     if (window.aistudio?.openSelectKey) {
       await window.aistudio.openSelectKey();
-      // Assume success to refresh the environment and hide the warning
+      // Assume success and refresh state
       setHasApiKey(true);
-      // Wait a moment for session propagation then refresh local state
-      setTimeout(() => checkApiKey(), 500);
+      setTimeout(() => checkApiKey(), 300);
     } else {
-      alert("API selection is not available. Please ensure you are logged into AI Studio.");
+      alert("AI configuration dialog is not available in this browser window.");
     }
   };
 
@@ -253,9 +252,9 @@ const App: React.FC = () => {
         return [saved, ...prev];
       });
     } catch (error: any) {
-      if (error.message?.includes("Requested entity was not found") || error.message?.includes("API key")) {
+      if (error.message?.includes("entity was not found") || error.message?.includes("API key") || error.message?.includes("ACCESS_DENIED")) {
         setHasApiKey(false);
-        if (confirm("Gemini AI access requires re-authentication. Would you like to select your paid project API key now?")) {
+        if (confirm("AI connection lost or permission denied. To continue parsing, you must select an API key from a project with billing enabled. Reconnect now?")) {
            handleOpenSelectKey();
         }
       } else {
@@ -399,7 +398,7 @@ const App: React.FC = () => {
   const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
   const NAV_ITEMS: { id: AppView; label: string; icon: React.ReactNode }[] = [
-    { id: 'dashboard', label: 'Vault', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg> },
+    { id: 'dashboard', label: 'Vault', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg> },
     { id: 'jobs', label: 'Projects', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2-2v10a2 2 0 002 2z" /></svg> },
     { id: 'calendar', label: 'Schedule', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
     { id: 'photos', label: 'Media', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
@@ -571,7 +570,7 @@ const App: React.FC = () => {
         {activeView === 'calendar' && <CalendarView tickets={tickets} onEditTicket={setEditingTicket} onViewDoc={setViewingDocUrl} />}
         {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} isAdmin={isAdmin} isDarkMode={isDarkMode} onJobSelect={(job: Job) => handleJobSelection(job.jobNumber, job)} onViewDoc={setViewingDocUrl} />}
         {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} onAddPhoto={(data, file) => apiService.addPhoto(data, file)} onDeletePhoto={(id: string) => apiService.deletePhoto(id)} initialSearch={mediaFolderFilter} />}
-        {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} isDarkMode={isDarkMode} onAddUser={async (u) => { await apiService.addUser(u); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onThemeChange={applyThemeColor} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onOpenSelectKey={handleOpenSelectKey} />}
+        {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} isDarkMode={isDarkMode} hasApiKey={hasApiKey} onAddUser={async (u) => { await apiService.addUser(u); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onThemeChange={applyThemeColor} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onOpenSelectKey={handleOpenSelectKey} />}
         {(showTicketForm || editingTicket) && <TicketForm onSave={handleSaveTicket} onClose={() => { setShowTicketForm(false); setEditingTicket(null); }} initialData={editingTicket} isDarkMode={isDarkMode} existingTickets={tickets} />}
         {(showJobForm || editingJob) && <JobForm onSave={async (data) => { const job: Job = editingJob ? { ...editingJob, ...data } : { ...data, id: crypto.randomUUID(), createdAt: Date.now(), isComplete: false }; const saved = await apiService.saveJob(job); setJobs(prev => { const exists = prev.findIndex(j => j.id === saved.id); if (exists > -1) return prev.map(j => j.id === saved.id ? saved : j); return [...prev, saved]; }); setShowJobForm(false); setEditingJob(null); }} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} isDarkMode={isDarkMode} />}
         {selectedJobSummary && <JobSummaryModal job={selectedJobSummary} tickets={tickets.filter(t => t.jobNumber === selectedJobSummary.jobNumber)} onClose={() => setSelectedJobSummary(null)} onEdit={() => { setEditingJob(selectedJobSummary); setShowJobForm(true); setSelectedJobSummary(null); }} onDelete={() => handleDeleteJob(selectedJobSummary)} onToggleComplete={() => handleToggleJobCompletion(selectedJobSummary)} onViewMedia={() => { setMediaFolderFilter(selectedJobSummary.jobNumber); handleNavigate('photos'); }} onViewMarkup={() => { setShowMarkup(selectedJobSummary); setSelectedJobSummary(null); }} isDarkMode={isDarkMode} />}

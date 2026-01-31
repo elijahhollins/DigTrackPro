@@ -7,6 +7,7 @@ interface TeamManagementProps {
   users: UserRecord[];
   sessionUser: User;
   isDarkMode?: boolean;
+  hasApiKey: boolean;
   onAddUser: (user: Partial<UserRecord>) => Promise<void>;
   onDeleteUser: (id: string) => void;
   onThemeChange?: (color: string) => void;
@@ -31,6 +32,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
   users = [], 
   sessionUser, 
   isDarkMode, 
+  hasApiKey,
   onDeleteUser, 
   onThemeChange, 
   onToggleRole,
@@ -122,19 +124,24 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
         <div className={`p-6 rounded-2xl border ${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-100 shadow-sm'}`}>
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
-                <svg className="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                Gemini AI Status
-              </h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                  <svg className="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                  Gemini AI Status
+                </h3>
+                <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase ${hasApiKey ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-500 border border-rose-500/20 animate-pulse'}`}>
+                  {hasApiKey ? 'Connected' : 'Action Required'}
+                </span>
+              </div>
               <p className={`text-[10px] font-bold uppercase tracking-tighter mt-1 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                Project Connection Terminal
+                {hasApiKey ? 'Extraction Engine Ready' : 'Authentication Needed'}
               </p>
             </div>
             <button 
               onClick={onOpenSelectKey}
-              className="px-4 py-2 bg-purple-500/10 text-purple-500 border border-purple-500/20 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-purple-500 hover:text-white transition-all shadow-lg active:scale-95"
+              className={`px-4 py-2 border rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-purple-500 hover:text-white transition-all shadow-lg active:scale-95 ${hasApiKey ? 'bg-purple-500/10 text-purple-500 border-purple-500/20' : 'bg-purple-600 text-white border-purple-700 animate-bounce'}`}
             >
-              Change AI Project
+              {hasApiKey ? 'Switch AI Project' : 'Handshake AI'}
             </button>
           </div>
         </div>

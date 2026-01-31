@@ -8,6 +8,11 @@ import { GoogleGenAI, Type } from "@google/genai";
 export const parseTicketData = async (input: string | { data: string; mimeType: string }) => {
   // Use window.process explicitly to ensure we avoid polyfill scoping issues
   const apiKey = (window as any).process?.env?.API_KEY || '';
+  
+  if (!apiKey || apiKey.length < 30) {
+    throw new Error("AI Connection Stale: Please go to the Team tab and click 'Handshake AI' to select a valid project.");
+  }
+
   const ai = new GoogleGenAI({ apiKey });
   
   try {
@@ -34,7 +39,7 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
         ]
       : [{ text: promptText }];
 
-    // Using gemini-3-flash-preview as the primary robust extraction engine
+    // Using gemini-3-flash-preview for high performance and better availability
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview", 
       contents: { parts },
@@ -60,26 +65,25 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
           },
           required: ["ticketNo", "street"],
         },
-        temperature: 0.05,
+        temperature: 0,
       }
     });
 
     const jsonStr = response.text?.trim() || "{}";
-    // Sanitize string if model wrapped in markdown blocks
     const cleanJson = jsonStr.replace(/^```json\n?/, '').replace(/\n?```$/, '');
     
     try {
       return JSON.parse(cleanJson);
     } catch (e) {
       console.error("Gemini returned malformed response:", jsonStr);
-      throw new Error("Analysis failed: The AI response was not in the expected format. Please try again with a clearer image.");
+      throw new Error("Analysis failed: The AI response was malformed. Please ensure the image is clear.");
     }
   } catch (error: any) {
     console.error("[Gemini] OCR Extraction Failure:", error);
     
-    // Check for specific error codes related to project permissions
-    if (error.message?.includes('403') || error.message?.includes('404') || error.message?.includes('entity was not found')) {
-      throw new Error("ACCESS_DENIED: Your project does not have permission for the Gemini 3 model. Please ensure billing is enabled and you have selected the correct project in the AI Studio dialog.");
+    const msg = error.message?.toLowerCase() || '';
+    if (msg.includes('403') || msg.includes('404') || msg.includes('entity was not found') || msg.includes('permission')) {
+      throw new Error("ACCESS_DENIED: Your current AI project does not have permission for the Gemini 3 model. Ensure Billing is enabled in GCP and the 'Generative Language API' is toggled ON.");
     }
     
     throw new Error(error.message || "AI Analysis failed. Check your internet connection or API project status.");
