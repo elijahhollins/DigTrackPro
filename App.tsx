@@ -131,8 +131,8 @@ const App: React.FC = () => {
   };
 
   const checkApiKey = async () => {
-    // MANDATORY: Priority 1 is the explicit selection bridge. 
-    // This ensures we aren't using a dummy/low-permission key from the environment.
+    // MANDATORY HANDSHAKE: Always verify via the AI Studio bridge first.
+    // This solves the "False Positive" issue where process.env has a restricted dummy key.
     try {
       if (window.aistudio?.hasSelectedApiKey) {
         const selected = await window.aistudio.hasSelectedApiKey();
@@ -145,9 +145,9 @@ const App: React.FC = () => {
       console.warn("AI Studio bridge check failed", e);
     }
 
-    // Fallback: Only use process.env if it looks like a real, user-provided key (typically 30+ chars)
+    // Fallback: Only trust the injected process key if we are reasonably sure it's valid (length check).
     const injectedKey = window.process?.env?.API_KEY || '';
-    if (injectedKey && injectedKey.length > 30) {
+    if (injectedKey && injectedKey.length > 35) {
       setHasApiKey(true);
       return true;
     }
@@ -159,8 +159,10 @@ const App: React.FC = () => {
   const handleOpenSelectKey = async () => {
     if (window.aistudio?.openSelectKey) {
       await window.aistudio.openSelectKey();
-      // Assume success to proceed to the app immediately
+      // Assume success to refresh the environment and hide the warning
       setHasApiKey(true);
+      // Wait a moment for session propagation then refresh local state
+      setTimeout(() => checkApiKey(), 500);
     } else {
       alert("API selection is not available. Please ensure you are logged into AI Studio.");
     }
@@ -251,9 +253,9 @@ const App: React.FC = () => {
         return [saved, ...prev];
       });
     } catch (error: any) {
-      if (error.message?.includes("Requested entity was not found")) {
+      if (error.message?.includes("Requested entity was not found") || error.message?.includes("API key")) {
         setHasApiKey(false);
-        if (confirm("AI connection requires re-authentication. Would you like to select your paid project API key now?")) {
+        if (confirm("Gemini AI access requires re-authentication. Would you like to select your paid project API key now?")) {
            handleOpenSelectKey();
         }
       } else {
@@ -466,13 +468,13 @@ const App: React.FC = () => {
               <div>
                 <h2 className="text-2xl font-black uppercase tracking-tight">Locate Vault</h2>
                 <div className="flex items-center gap-2 mt-1">
-                  <p className={`text-[10px] font-bold uppercase tracking-widest ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Real-time Compliance Status</p>
+                  <p className={`text-[10px] font-bold uppercase tracking-widest ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Real-time Field Compliance</p>
                   {!hasApiKey && (
                     <button 
                       onClick={handleOpenSelectKey}
                       className="bg-brand text-slate-900 text-[9px] font-black uppercase px-3 py-1 rounded-lg shadow-lg shadow-brand/20 animate-pulse hover:scale-105 transition-all"
                     >
-                      ⚠️ Connect AI Extraction
+                      ⚠️ Connect Paid AI Project
                     </button>
                   )}
                 </div>
@@ -487,7 +489,7 @@ const App: React.FC = () => {
                   }`}
                 >
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>
-                  {showArchived ? 'Active + History' : 'Include History'}
+                  {showArchived ? 'History Included' : 'View History'}
                 </button>
                 <div className="relative w-full sm:w-64 group">
                   <input type="text" placeholder="Filter vault..." className={`w-full pl-9 pr-4 py-2 border rounded-2xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-slate-300 shadow-sm text-black'}`} value={globalSearch} onChange={e => setGlobalSearch(e.target.value)} />
