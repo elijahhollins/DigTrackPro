@@ -69,17 +69,27 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // API Key Observer: Essential for standalone tabs where the key injection might be delayed
+  // Optimized API Key Detection: Reliable for both Preview and Standalone tabs
   useEffect(() => {
+    let checkCount = 0;
     const check = async () => {
       const isKeyPresent = await checkApiKey();
       if (isKeyPresent) {
         setHasApiKey(true);
+        // Once found, we can slow down the polling significantly
+        return true;
       }
+      return false;
     };
 
     check();
-    const interval = setInterval(check, 3000);
+    const interval = setInterval(() => {
+      checkCount++;
+      check();
+      // Stop checking frequently after 30 seconds if nothing is found
+      if (checkCount > 10) clearInterval(interval);
+    }, 3000);
+    
     return () => clearInterval(interval);
   }, []);
 
@@ -145,20 +155,22 @@ const App: React.FC = () => {
   };
 
   const checkApiKey = async (): Promise<boolean> => {
-    // 1. Check aistudio bridge (Highest reliability in standalone)
+    // 1. Check AI Studio Bridge (Preview Mode)
     try {
       if (window.aistudio?.hasSelectedApiKey) {
         const selected = await window.aistudio.hasSelectedApiKey();
         if (selected) return true;
       }
     } catch (e) {
-      console.warn("Bridge check failed:", e);
+      console.warn("AI Bridge check failed");
     }
 
-    // 2. Check process.env (Standard injection)
-    // Relaxed length to 20 to catch all valid keys while ignoring "API_KEY" or empty placeholders
-    const injectedKey = window.process?.env?.API_KEY || '';
-    if (injectedKey && injectedKey.length > 20 && !injectedKey.includes('API_KEY')) {
+    // 2. Check Standard and Vite-prefixed environment variables (Standalone Mode)
+    const env = (window as any).process?.env || {};
+    const key = env.API_KEY || env.VITE_API_KEY || '';
+    
+    // Validate that it's a real key and not just the string 'API_KEY'
+    if (key && key.length > 25 && key !== 'API_KEY') {
       return true;
     }
 
@@ -168,14 +180,14 @@ const App: React.FC = () => {
   const handleOpenSelectKey = async () => {
     if (window.aistudio?.openSelectKey) {
       await window.aistudio.openSelectKey();
-      // Optimistically set to true to suppress flashing during project switch
+      // Assume success and force a check
       setHasApiKey(true);
       setTimeout(async () => {
         const stillValid = await checkApiKey();
         setHasApiKey(stillValid);
-      }, 1000);
+      }, 1500);
     } else {
-      alert("AI configuration dialog is not available. Please ensure you are logged into AI Studio.");
+      alert("AI Configuration can only be changed when running through AI Studio. For standalone apps, use environment variables.");
     }
   };
 
@@ -198,6 +210,7 @@ const App: React.FC = () => {
         return; 
       }
       
+      // Update key state immediately
       const keyFound = await checkApiKey();
       setHasApiKey(keyFound);
 
@@ -270,7 +283,7 @@ const App: React.FC = () => {
       const msg = error.message?.toLowerCase() || '';
       if (msg.includes("entity was not found") || msg.includes("api key") || msg.includes("access_denied")) {
         setHasApiKey(false);
-        if (confirm("AI connection lost or permission denied. Ensure billing is enabled and re-select your project in the AI configuration window. Re-connect now?")) {
+        if (confirm("AI connection lost or permission denied. Ensure billing is enabled in your Google Cloud project. If you are in AI Studio, re-select your project now?")) {
            handleOpenSelectKey();
         }
       } else {
@@ -414,7 +427,7 @@ const App: React.FC = () => {
   const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
   const NAV_ITEMS: { id: AppView; label: string; icon: React.ReactNode }[] = [
-    { id: 'dashboard', label: 'Vault', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg> },
+    { id: 'dashboard', label: 'Vault', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg> },
     { id: 'jobs', label: 'Projects', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg> },
     { id: 'calendar', label: 'Schedule', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
     { id: 'photos', label: 'Media', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },

@@ -10,22 +10,23 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script>
-      // Polyfill process.env safely to preserve system-injected keys (like API_KEY)
+      // Robust Polyfill for process.env
       window.process = window.process || { env: {} };
       window.process.env = window.process.env || {};
       
-      // Only set these if they don't already exist to prevent overwriting
+      // Sync from Vercel/Vite injected globals if they exist
+      if (typeof importMetaEnv !== 'undefined') {
+        Object.assign(window.process.env, importMetaEnv);
+      }
+
+      // Default Configuration Fallbacks
       if (!window.process.env.SUPABASE_URL) {
         window.process.env.SUPABASE_URL = "https://fusubnzndmngjfgatzrq.supabase.co";
       }
       if (!window.process.env.SUPABASE_ANON_KEY) {
         window.process.env.SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1c3VibnpuZG1uZ2pmZ2F0enJxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNTQ5NzcsImV4cCI6MjA4MjkzMDk3N30.O5Vp5R_KxAUpi8esYjqCHrjmyG3PzkNj1gDxpaNuKtI";
       }
-      if (!window.process.env.VAPID_PUBLIC_KEY) {
-        window.process.env.VAPID_PUBLIC_KEY = "BMuI79vwIgC-aZR9pJOBtg0HU6r_WmLVWZXY97jYxgnyHLDzSe7JbWwFqMALq3OsC7vCbgdyxI_fTyATo_GLvwY";
-      }
       
-      // Expose globally for module access
       var process = window.process;
     </script>
     <style>
