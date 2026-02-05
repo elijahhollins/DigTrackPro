@@ -10,17 +10,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script>
-      // Emergency Shim for process.env in the browser
+      // Polyfill process.env for SDK compatibility
       window.process = window.process || { env: {} };
-      
-      // If the build-time injection didn't work, we log it for the developer
-      setTimeout(() => {
-        if (!window.process.env.API_KEY || window.process.env.API_KEY === 'undefined') {
-          console.warn("DigTrack Pro: API_KEY is missing from environment. AI features will be disabled.");
-        } else {
-          console.log("DigTrack Pro: AI Engine Authenticated.");
-        }
-      }, 1000);
     </script>
     <style>
         :root {

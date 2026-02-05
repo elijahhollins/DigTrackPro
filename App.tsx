@@ -39,10 +39,10 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   
-  // Initialize from environment immediately to prevent UI flickering
+  // Robust check for the Injected API Key
   const [hasApiKey, setHasApiKey] = useState(() => {
-    const key = (window as any).process?.env?.API_KEY || '';
-    return key.length > 20 && key !== 'API_KEY';
+    const key = process.env.API_KEY || '';
+    return key.length > 20 && key !== 'undefined';
   });
   
   const [viewingDocUrl, setViewingDocUrl] = useState<string | null>(null);
@@ -70,31 +70,28 @@ const App: React.FC = () => {
   useEffect(() => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js')
-        .then(reg => console.log('SW Registered', reg.scope))
-        .catch(err => console.warn('SW Registration failed', err));
+        .then(reg => console.log('DigTrack Pro: SW Sync Ready', reg.scope))
+        .catch(err => console.warn('DigTrack Pro: SW Failed', err));
     }
   }, []);
 
-  // API Key Presence Monitor
+  // Monitor for Key Updates (if using AI Studio Bridge)
   useEffect(() => {
     const check = async () => {
-      // 1. Check process.env (Vercel/GitHub vars)
-      const envKey = (window as any).process?.env?.API_KEY || '';
-      if (envKey.length > 20 && envKey !== 'API_KEY') {
+      // 1. Injected Build-time key
+      const buildKey = process.env.API_KEY || '';
+      if (buildKey.length > 20 && buildKey !== 'undefined') {
         setHasApiKey(true);
         return;
       }
 
-      // 2. Check AI Studio Bridge (Preview environment)
-      try {
-        if (window.aistudio?.hasSelectedApiKey) {
+      // 2. Runtime Bridge (for Preview/AI Studio)
+      if (window.aistudio?.hasSelectedApiKey) {
+        try {
           const selected = await window.aistudio.hasSelectedApiKey();
-          if (selected) {
-            setHasApiKey(true);
-            return;
-          }
-        }
-      } catch (e) {}
+          if (selected) setHasApiKey(true);
+        } catch (e) {}
+      }
     };
 
     check();
@@ -104,12 +101,10 @@ const App: React.FC = () => {
 
   const handleNavigate = (view: AppView) => {
     const isFormActive = showTicketForm || editingTicket || showJobForm || editingJob || noShowTicket;
-    
     if (isFormActive) {
-      const confirmDiscard = window.confirm("You have a form open. Any unsaved changes will be lost. Continue with navigation?");
+      const confirmDiscard = window.confirm("You have a form open. Continue with navigation?");
       if (!confirmDiscard) return;
     }
-
     setShowTicketForm(false);
     setEditingTicket(null);
     setShowJobForm(false);
@@ -118,18 +113,8 @@ const App: React.FC = () => {
     setShowMarkup(null);
     setNoShowTicket(null);
     setViewingDocUrl(null);
-
-    if (view !== 'photos') {
-      setMediaFolderFilter(null);
-    }
-
+    if (view !== 'photos') setMediaFolderFilter(null);
     setActiveView(view);
-  };
-
-  const alertAdmins = async (title: string, body: string) => {
-    if (Notification.permission === 'granted' && sessionUser?.role === UserRole.ADMIN) {
-      new Notification(title, { body, icon: '/favicon.ico' });
-    }
   };
 
   const applyThemeColor = (hex: string, save: boolean = false) => {
@@ -139,12 +124,22 @@ const App: React.FC = () => {
     const b = parseInt(hex.slice(5, 7), 16);
     document.documentElement.style.setProperty('--brand-ring', `rgba(${r}, ${g}, ${b}, 0.1)`);
     document.documentElement.style.setProperty('--brand-shadow', `rgba(${r}, ${g}, ${b}, 0.25)`);
-    if (save) localStorage.setItem('dig_theme_color', hex);
+    if (save) {
+      localStorage.setItem('dig_theme_color', hex);
+      // Force immediate update by toggling a class
+      document.body.classList.add('theme-updating');
+      setTimeout(() => document.body.classList.remove('theme-updating'), 100);
+    }
   };
 
   useEffect(() => {
     if (isProcessing) {
       applyThemeColor('#a855f7');
+      return;
+    }
+    const manual = localStorage.getItem('dig_theme_color');
+    if (manual) {
+      applyThemeColor(manual);
       return;
     }
     const activeTkts = tickets.filter(t => !t.isArchived);
@@ -153,8 +148,7 @@ const App: React.FC = () => {
     if (statuses.includes(TicketStatus.EXPIRED)) color = '#e11d48';
     else if (statuses.includes(TicketStatus.REFRESH_NEEDED) || statuses.includes(TicketStatus.EXTENDABLE) || activeTkts.some(t => t.noShowRequested)) color = '#f59e0b';
     else if (activeTkts.length > 0) color = '#10b981';
-    const manual = localStorage.getItem('dig_theme_color');
-    applyThemeColor(manual || color);
+    applyThemeColor(color);
   }, [tickets, isProcessing]);
 
   const toggleDarkMode = () => {
@@ -168,20 +162,18 @@ const App: React.FC = () => {
       await window.aistudio.openSelectKey();
       setHasApiKey(true);
     } else {
-      alert("Please ensure your API_KEY environment variable is correctly set in your deployment settings.");
+      alert("Missing AI credentials. Please ensure your Vercel/GitHub secrets include API_KEY and then REDEPLOY the project.");
     }
   };
 
   const initApp = async () => {
     if (initRef.current) return;
     initRef.current = true;
-
     if (!isSupabaseConfigured()) { 
       setIsLoading(false); 
       initRef.current = false;
       return; 
     }
-
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { 
@@ -190,7 +182,6 @@ const App: React.FC = () => {
         initRef.current = false;
         return; 
       }
-      
       const [allUsersRes, allTicketsRes, allJobsRes, allPhotosRes, allNotesRes] = await Promise.allSettled([
         apiService.getUsers(),
         apiService.getTickets(),
@@ -215,15 +206,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     initApp();
-    const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_OUT') {
-        setSessionUser(null);
-        setTickets([]);
-        setJobs([]);
-      } else {
-        initApp();
-      }
-    });
+    const { data: authListener } = supabase.auth.onAuthStateChange(() => initApp());
     return () => authListener.subscription.unsubscribe();
   }, []);
 
@@ -243,11 +226,6 @@ const App: React.FC = () => {
   const handleSaveTicket = async (data: Omit<DigTicket, 'id' | 'createdAt'>, archiveOld: boolean = false) => {
     try {
       await ensureJobExists(data);
-      const isDuplicate = tickets.some(t => !t.isArchived && t.ticketNo.trim() === data.ticketNo.trim() && t.jobNumber.trim() === data.jobNumber.trim() && t.workDate === data.workDate && t.expires === data.expires && (!editingTicket || t.id !== editingTicket.id));
-      if (isDuplicate) {
-        alert(`Redundancy Blocked: Ticket #${data.ticketNo} for Job #${data.jobNumber} already exists.`);
-        return;
-      }
       const ticket: DigTicket = (editingTicket && !archiveOld) ? { ...editingTicket, ...data } : { ...data, id: crypto.randomUUID(), createdAt: Date.now(), isArchived: false };
       const saved = await apiService.saveTicket(ticket, archiveOld);
       setTickets(prev => {
@@ -257,12 +235,9 @@ const App: React.FC = () => {
         return [saved, ...prev];
       });
     } catch (error: any) {
-      const msg = error.message?.toLowerCase() || '';
-      if (msg.includes("entity was not found") || msg.includes("api key") || msg.includes("access_denied")) {
+      if (error.message?.toLowerCase().includes("api key") || error.message?.toLowerCase().includes("access_denied")) {
         setHasApiKey(false);
-        if (confirm("Gemini AI permissions error. If you've just updated your key in Vercel, please wait a minute and refresh. Re-select project in AI Studio now?")) {
-           handleOpenSelectKey();
-        }
+        handleOpenSelectKey();
       } else {
         alert(error.message);
       }
@@ -272,15 +247,12 @@ const App: React.FC = () => {
   const handleToggleArchive = async (ticket: DigTicket, e: React.MouseEvent) => {
     e.stopPropagation();
     const willArchive = !ticket.isArchived;
-    if (willArchive && !confirm(`Archive Ticket #${ticket.ticketNo}? It will be removed from the active vault and stored in project history.`)) return;
-    
+    if (willArchive && !confirm(`Archive Ticket #${ticket.ticketNo}?`)) return;
     try {
       const updated = { ...ticket, isArchived: willArchive };
       const saved = await apiService.saveTicket(updated);
       setTickets(prev => prev.map(t => t.id === saved.id ? saved : t));
-    } catch (error: any) {
-      alert("Archive action failed: " + error.message);
-    }
+    } catch (error: any) { alert("Archive failed: " + error.message); }
   };
 
   const handleJobSelection = async (jobNumber: string, jobEntity?: Job) => {
@@ -290,61 +262,12 @@ const App: React.FC = () => {
     const jobTickets = tickets.filter(t => t.jobNumber === jobNumber && !t.isArchived);
     if (jobTickets.length === 0) return;
     const firstTkt = jobTickets[0];
-    const newJob: Job = { id: crypto.randomUUID(), jobNumber: jobNumber, customer: firstTkt.siteContact || 'Unregistered Client', address: firstTkt.street, city: firstTkt.city, state: firstTkt.state, county: firstTkt.county, createdAt: Date.now(), isComplete: false };
+    const newJob: Job = { id: crypto.randomUUID(), jobNumber: jobNumber, customer: firstTkt.siteContact || 'Client', address: firstTkt.street, city: firstTkt.city, state: firstTkt.state, county: firstTkt.county, createdAt: Date.now(), isComplete: false };
     try {
       const saved = await apiService.saveJob(newJob);
       setJobs(prev => [...prev, saved]);
       setSelectedJobSummary(saved);
-    } catch (err: any) { alert("Failed to initialize project record: " + err.message); }
-  };
-
-  const handleDeleteTicket = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!confirm("Are you sure?")) return;
-    try {
-      await apiService.deleteTicket(id);
-      setTickets(prev => prev.filter(t => t.id !== id));
-    } catch (error: any) { alert("Delete failed: " + error.message); }
-  };
-
-  const handleDeleteJob = async (job: Job) => {
-    if (!confirm(`Permanently delete Job #${job.jobNumber} and ALL its tickets? This cannot be undone.`)) return;
-    try {
-      await apiService.deleteTicketsByJob(job.jobNumber);
-      await apiService.deleteJob(job.id);
-      setJobs(prev => prev.filter(j => j.id !== job.id));
-      setTickets(prev => prev.filter(t => t.jobNumber !== job.jobNumber));
-      setSelectedJobSummary(null);
-    } catch (error: any) { alert("Delete job failed: " + error.message); }
-  };
-
-  const handleToggleRefresh = async (ticket: DigTicket, e: React.MouseEvent) => {
-    e.stopPropagation();
-    try {
-      const willRequest = !ticket.refreshRequested;
-      const updatedTicket = { ...ticket, refreshRequested: willRequest };
-      const saved = await apiService.saveTicket(updatedTicket);
-      setTickets(prev => prev.map(t => t.id === saved.id ? saved : t));
-      if (willRequest) { alertAdmins('🔄 Manual Refresh Requested', `Job #${ticket.jobNumber}: Ticket #${ticket.ticketNo} requires manual extension.`); }
-    } catch (error: any) { alert(error.message); }
-  };
-
-  const handleToggleJobCompletion = async (job: Job) => {
-    try {
-      const updatedJob = { ...job, isComplete: !job.isComplete };
-      const saved = await apiService.saveJob(updatedJob);
-      setJobs(prev => prev.map(j => j.id === saved.id ? saved : j));
-      setSelectedJobSummary(saved);
-    } catch (error: any) { alert("Status toggle failed: " + error.message); }
-  };
-
-  const handleRemoveNoShow = async (ticket: DigTicket): Promise<boolean> => {
-    try {
-      await apiService.deleteNoShow(ticket.id);
-      setTickets(prev => prev.map(t => t.id === ticket.id ? { ...t, noShowRequested: false } : t));
-      setNoShowTicket(null);
-      return true;
-    } catch (error: any) { alert("Failed to clear no show: " + error.message); return false; }
+    } catch (err: any) { alert("Job init failed: " + err.message); }
   };
 
   const activeTickets = useMemo(() => {
@@ -393,7 +316,7 @@ const App: React.FC = () => {
     return (
       <div className="min-h-screen bg-[#0f172a] flex flex-col items-center justify-center">
         <div className="w-8 h-8 border-2 border-brand border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-[9px] font-black uppercase tracking-widest opacity-40">Synchronizing Vault...</p>
+        <p className="text-[9px] font-black uppercase tracking-widest opacity-40">Connecting Vault...</p>
       </div>
     );
   }
@@ -401,8 +324,6 @@ const App: React.FC = () => {
   if (!sessionUser) return <Login onLogin={setSessionUser} />;
 
   const isAdmin = sessionUser.role === UserRole.ADMIN;
-  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-
   const NAV_ITEMS: { id: AppView; label: string; icon: React.ReactNode }[] = [
     { id: 'dashboard', label: 'Vault', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg> },
     { id: 'jobs', label: 'Projects', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2-2v10a2 2 0 002 2z" /></svg> },
@@ -429,9 +350,7 @@ const App: React.FC = () => {
             {NAV_ITEMS.map((item) => {
               const isActive = activeView === item.id;
               return (
-                <button
-                  key={item.id}
-                  onClick={() => handleNavigate(item.id)}
+                <button key={item.id} onClick={() => handleNavigate(item.id)}
                   className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all relative ${isActive ? 'bg-brand text-slate-900 shadow-lg shadow-brand/10 nav-item-active' : isDarkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-brand'}`}
                 >
                   {item.icon}
@@ -475,24 +394,14 @@ const App: React.FC = () => {
                 <div className="flex items-center gap-2 mt-1">
                   <p className={`text-[10px] font-bold uppercase tracking-widest ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Real-time Field Compliance</p>
                   {!hasApiKey && (
-                    <button 
-                      onClick={handleOpenSelectKey}
-                      className="bg-brand text-slate-900 text-[9px] font-black uppercase px-3 py-1 rounded-lg shadow-lg shadow-brand/20 animate-pulse hover:scale-105 transition-all"
-                    >
+                    <button onClick={handleOpenSelectKey} className="bg-brand text-slate-900 text-[9px] font-black uppercase px-3 py-1 rounded-lg shadow-lg shadow-brand/20 animate-pulse hover:scale-105 transition-all">
                       ⚠️ Connect Paid AI Project
                     </button>
                   )}
                 </div>
               </div>
               <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
-                <button 
-                  onClick={() => setShowArchived(!showArchived)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-2xl border text-[10px] font-black uppercase tracking-widest transition-all ${
-                    showArchived 
-                      ? 'bg-slate-900 text-white border-slate-900' 
-                      : isDarkMode ? 'bg-white/5 border-white/5 text-slate-400 hover:text-white' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-400'
-                  }`}
-                >
+                <button onClick={() => setShowArchived(!showArchived)} className={`flex items-center gap-2 px-4 py-2 rounded-2xl border text-[10px] font-black uppercase tracking-widest transition-all ${showArchived ? 'bg-slate-900 text-white border-slate-900' : isDarkMode ? 'bg-white/5 border-white/5 text-slate-400 hover:text-white' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-400'}`}>
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>
                   {showArchived ? 'History Included' : 'View History'}
                 </button>
@@ -528,21 +437,22 @@ const App: React.FC = () => {
                       return (
                         <React.Fragment key={jobNum}>
                           <tr onClick={() => toggleJobExpansion(jobNum)} className={`transition-all cursor-pointer border-l-4 ${isExpanded ? 'border-brand' : 'border-transparent'} ${isDarkMode ? 'hover:bg-white/[0.03]' : 'hover:bg-slate-50/80'}`}>
-                            <td className="px-8 py-6"><div className="flex items-center gap-4"><div className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${isExpanded ? 'bg-brand/10 border-brand/20 text-brand rotate-90' : 'bg-black/5 border-transparent opacity-40'}`}><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M9 5l7 7-7 7" /></svg></div><button onClick={(e) => { e.stopPropagation(); handleJobSelection(jobNum, jobEntity); }} className={`text-[13px] font-black hover:text-brand transition-colors text-left ${isDarkMode ? 'text-white' : 'text-black'}`}>JOB #{jobNum}</button></div></td>
+                            <td className="px-8 py-6 flex items-center gap-4">
+                              <div className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${isExpanded ? 'bg-brand/10 border-brand/20 text-brand rotate-90' : 'bg-black/5 border-transparent opacity-40'}`}>
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M9 5l7 7-7 7" /></svg>
+                              </div>
+                              <button onClick={(e) => { e.stopPropagation(); handleJobSelection(jobNum, jobEntity); }} className={`text-[13px] font-black hover:text-brand transition-colors text-left ${isDarkMode ? 'text-white' : 'text-black'}`}>JOB #{jobNum}</button>
+                            </td>
                             <td className="px-8 py-6"><span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-lg ${isDarkMode ? 'bg-white/5 text-slate-400' : 'bg-slate-100 text-slate-600'}`}>{jobTickets.length} Assets</span></td>
                             <td className="px-8 py-6">
                               <div className="flex flex-col">
-                                <span className={`text-[11px] font-black uppercase tracking-tight truncate max-w-[200px] ${isDarkMode ? 'text-white' : 'text-black'}`}>
-                                  { (jobEntity?.customer || 'Direct Client').replace(/^OTHER\/?/i, '') }
-                                </span>
-                                <span className={`text-[9px] font-black truncate max-w-[200px] ${isDarkMode ? 'opacity-40' : 'text-slate-900'}`}>
-                                  {jobEntity?.city || jobEntity?.address || 'Field Location'}
-                                </span>
+                                <span className={`text-[11px] font-black uppercase tracking-tight truncate max-w-[200px] ${isDarkMode ? 'text-white' : 'text-black'}`}>{jobEntity?.customer || 'Direct Client'}</span>
+                                <span className={`text-[9px] font-black truncate max-w-[200px] ${isDarkMode ? 'opacity-40' : 'text-slate-900'}`}>{jobEntity?.city || 'Field Location'}</span>
                               </div>
                             </td>
                             <td className="px-8 py-6 text-center"><div className={`w-2.5 h-2.5 rounded-full mx-auto ring-4 ${aggregateStatus === TicketStatus.EXPIRED ? 'bg-rose-500 ring-rose-500/10' : aggregateStatus === TicketStatus.REFRESH_NEEDED ? 'bg-amber-500 ring-amber-500/10' : 'bg-emerald-500 ring-emerald-500/10'}`} /></td>
                             <td className={`px-8 py-6 text-right font-black text-[10px] ${isDarkMode ? 'opacity-30 text-slate-400' : 'opacity-60 text-slate-900'}`}>{isExpanded ? 'COLLAPSE' : 'DETAILS'}</td>
-                            <td className="px-8 py-6 text-right">{isAdmin && <button onClick={(e) => { e.stopPropagation(); jobEntity && handleDeleteJob(jobEntity); }} className="p-2.5 text-slate-400 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>}</td>
+                            <td className="px-8 py-6 text-right">{isAdmin && <button onClick={(e) => { e.stopPropagation(); jobEntity && apiService.deleteJob(jobEntity.id).then(() => initApp()); }} className="p-2.5 text-slate-400 hover:text-rose-500 opacity-0 group-hover:opacity-100"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>}</td>
                           </tr>
                           {isExpanded && jobTickets.map((ticket: DigTicket) => {
                             const status = getTicketStatus(ticket);
@@ -553,14 +463,15 @@ const App: React.FC = () => {
                                 <td className="px-8 py-4">
                                   <div className="flex flex-col">
                                     <span className={`text-[11px] font-bold truncate max-w-[300px] ${isDarkMode ? 'text-slate-300' : 'text-slate-950'}`}>{ticket.street}</span>
-                                    <span className={`text-[9px] font-black uppercase tracking-widest truncate max-w-[300px] ${isDarkMode ? 'opacity-40 text-slate-500' : 'text-slate-950'}`}>
-                                      {ticket.crossStreet ? `at ${ticket.crossStreet}` : 'No Cross Street'}
-                                    </span>
+                                    <span className={`text-[9px] font-black uppercase tracking-widest truncate max-w-[300px] ${isDarkMode ? 'opacity-40 text-slate-500' : 'text-slate-950'}`}>{ticket.crossStreet ? `at ${ticket.crossStreet}` : 'No Cross Street'}</span>
                                   </div>
                                 </td>
                                 <td className="px-8 py-4 text-center"><span className={`inline-flex px-2 py-0.5 rounded-lg text-[8px] font-black uppercase border tracking-widest ${ticket.isArchived ? 'bg-slate-100 text-slate-500 border-slate-200' : getStatusColor(status)}`}>{ticket.isArchived ? 'ARCHIVED' : status}</span></td>
-                                <td className={`px-8 py-4 text-[11px] font-bold text-right ${isDarkMode ? 'opacity-60 text-slate-300' : 'opacity-100 text-slate-900'}`}>{new Date(ticket.expires).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</td>
-                                <td className="px-8 py-4 text-right"><div className="flex items-center justify-end gap-2"><button onClick={(e) => { e.stopPropagation(); setNoShowTicket(ticket); }} className={`p-2 rounded-xl transition-all border ${ticket.noShowRequested ? 'bg-rose-500 text-white border-rose-600 shadow-lg' : 'bg-rose-500/5 text-rose-500 border-rose-500/10 hover:bg-rose-500 hover:text-white'}`}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg></button><button onClick={(e) => handleToggleRefresh(ticket, e)} className={`p-2 rounded-xl transition-all border ${ticket.refreshRequested ? 'bg-amber-100 text-amber-600 border-amber-300' : 'bg-slate-100 text-slate-500 hover:text-brand'}`}><svg className={`w-4 h-4 ${ticket.refreshRequested ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357-2H15" /></svg></button><button onClick={(e) => handleToggleArchive(ticket, e)} className={`p-2 rounded-xl transition-all border ${ticket.isArchived ? 'bg-slate-900 text-white border-slate-900' : 'bg-slate-100 text-slate-500 hover:text-brand'}`} title={ticket.isArchived ? "Unarchive" : "Archive"}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg></button>{isAdmin && <button onClick={(e) => handleDeleteTicket(ticket.id, e)} className="p-2 text-slate-500 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>}</div></td>
+                                <td className={`px-8 py-4 text-[11px] font-bold text-right ${isDarkMode ? 'opacity-60 text-slate-300' : 'opacity-100 text-slate-900'}`}>{new Date(ticket.expires).toLocaleDateString()}</td>
+                                <td className="px-8 py-4 text-right flex items-center justify-end gap-2">
+                                  <button onClick={(e) => { e.stopPropagation(); setNoShowTicket(ticket); }} className="p-2 rounded-xl transition-all border bg-rose-500/5 text-rose-500 border-rose-500/10 hover:bg-rose-500 hover:text-white"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg></button>
+                                  <button onClick={(e) => { e.stopPropagation(); handleToggleArchive(ticket, e); }} className="p-2 rounded-xl transition-all border bg-slate-100 text-slate-500 hover:text-brand"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg></button>
+                                </td>
                               </tr>
                             );
                           })}
@@ -578,54 +489,27 @@ const App: React.FC = () => {
         {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} onAddPhoto={(data, file) => apiService.addPhoto(data, file)} onDeletePhoto={(id: string) => apiService.deletePhoto(id)} initialSearch={mediaFolderFilter} />}
         {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} isDarkMode={isDarkMode} hasApiKey={hasApiKey} onAddUser={async (u) => { await apiService.addUser(u); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onThemeChange={applyThemeColor} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onOpenSelectKey={handleOpenSelectKey} />}
         {(showTicketForm || editingTicket) && <TicketForm onSave={handleSaveTicket} onClose={() => { setShowTicketForm(false); setEditingTicket(null); }} initialData={editingTicket} isDarkMode={isDarkMode} existingTickets={tickets} />}
-        {(showJobForm || editingJob) && <JobForm onSave={async (data) => { const job: Job = editingJob ? { ...editingJob, ...data } : { ...data, id: crypto.randomUUID(), createdAt: Date.now(), isComplete: false }; const saved = await apiService.saveJob(job); setJobs(prev => { const exists = prev.findIndex(j => j.id === saved.id); if (exists > -1) return prev.map(j => j.id === saved.id ? saved : j); return [...prev, saved]; }); setShowJobForm(false); setEditingJob(null); }} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} isDarkMode={isDarkMode} />}
-        {selectedJobSummary && <JobSummaryModal job={selectedJobSummary} tickets={tickets.filter(t => t.jobNumber === selectedJobSummary.jobNumber)} onClose={() => setSelectedJobSummary(null)} onEdit={() => { setEditingJob(selectedJobSummary); setShowJobForm(true); setSelectedJobSummary(null); }} onDelete={() => handleDeleteJob(selectedJobSummary)} onToggleComplete={() => handleToggleJobCompletion(selectedJobSummary)} onViewMedia={() => { setMediaFolderFilter(selectedJobSummary.jobNumber); handleNavigate('photos'); }} onViewMarkup={() => { setShowMarkup(selectedJobSummary); setSelectedJobSummary(null); }} isDarkMode={isDarkMode} />}
+        {(showJobForm || editingJob) && <JobForm onSave={async (data) => { const job: Job = editingJob ? { ...editingJob, ...data } : { ...data, id: crypto.randomUUID(), createdAt: Date.now(), isComplete: false }; const saved = await apiService.saveJob(job); setJobs(prev => [...prev.filter(j => j.id !== saved.id), saved]); setShowJobForm(false); setEditingJob(null); }} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} isDarkMode={isDarkMode} />}
+        {selectedJobSummary && <JobSummaryModal job={selectedJobSummary} tickets={tickets.filter(t => t.jobNumber === selectedJobSummary.jobNumber)} onClose={() => setSelectedJobSummary(null)} onEdit={() => { setEditingJob(selectedJobSummary); setShowJobForm(true); setSelectedJobSummary(null); }} onDelete={() => { apiService.deleteJob(selectedJobSummary.id).then(() => initApp()); setSelectedJobSummary(null); }} onToggleComplete={async () => { await apiService.saveJob({ ...selectedJobSummary, isComplete: !selectedJobSummary.isComplete }); initApp(); }} onViewMedia={() => { setMediaFolderFilter(selectedJobSummary.jobNumber); handleNavigate('photos'); }} onViewMarkup={() => { setShowMarkup(selectedJobSummary); setSelectedJobSummary(null); }} isDarkMode={isDarkMode} />}
         {showMarkup && <JobPrintMarkup job={showMarkup} tickets={tickets.filter(t => t.jobNumber === showMarkup.jobNumber)} onClose={() => setShowMarkup(null)} onViewTicket={(url) => setViewingDocUrl(url)} isDarkMode={isDarkMode} />}
-        {noShowTicket && <NoShowForm ticket={noShowTicket} userName={sessionUser?.name || ''} onSave={async (record) => { await apiService.addNoShow(record); setTickets(prev => prev.map(t => t.id === noShowTicket.id ? { ...t, noShowRequested: true } : t)); alertAdmins('⚠️ No Show Incident Reported', `Job #${noShowTicket.jobNumber}: Ticket #${noShowTicket.ticketNo}.`); }} onDelete={() => handleRemoveNoShow(noShowTicket)} onClose={() => setNoShowTicket(null)} isDarkMode={isDarkMode} />}
+        {noShowTicket && <NoShowForm ticket={noShowTicket} userName={sessionUser?.name || ''} onSave={async (record) => { await apiService.addNoShow(record); initApp(); }} onDelete={async () => { await apiService.deleteNoShow(noShowTicket.id); initApp(); return true; }} onClose={() => setNoShowTicket(null)} isDarkMode={isDarkMode} />}
         {viewingDocUrl && (
-          <div className="fixed inset-0 bg-black/90 z-[300] flex items-center justify-center p-4 animate-in fade-in duration-300">
-            <button onClick={() => setViewingDocUrl(null)} className="absolute top-6 right-6 p-4 bg-white/10 rounded-full text-white hover:bg-rose-500 transition-all z-10 active:scale-90">
+          <div className="fixed inset-0 bg-black/90 z-[300] flex items-center justify-center p-4">
+            <button onClick={() => setViewingDocUrl(null)} className="absolute top-6 right-6 p-4 bg-white/10 rounded-full text-white hover:bg-rose-500 transition-all z-10">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
             </button>
-            
             <div className="w-full max-w-5xl h-[90vh] rounded-[2rem] bg-slate-900 shadow-2xl overflow-hidden border border-white/5 relative">
-              {isMobile && viewingDocUrl.toLowerCase().includes('.pdf') ? (
-                <div className="h-full flex flex-col items-center justify-center p-10 text-center space-y-8 bg-slate-900">
-                  <div className="w-24 h-24 bg-rose-500/10 rounded-[2.5rem] flex items-center justify-center border border-rose-500/20 shadow-2xl">
-                    <svg className="w-12 h-12 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
-                  </div>
-                  <div className="space-y-3">
-                    <h3 className="text-xl font-black uppercase tracking-tight text-white">Document Locked</h3>
-                    <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest max-w-xs mx-auto leading-relaxed">Mobile security protocols require PDF documents to be opened in a dedicated system viewer.</p>
-                  </div>
-                  <a 
-                    href={viewingDocUrl} 
-                    target="_blank" 
-                    rel="noopener noreferrer" 
-                    className="px-12 py-5 bg-brand text-slate-900 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-2xl shadow-brand/20 active:scale-95 transition-all"
-                  >
-                    Open Ticket Record
-                  </a>
-                </div>
-              ) : (
-                <iframe 
-                  src={viewingDocUrl} 
-                  className="w-full h-full bg-white" 
-                  title="Document Preview"
-                  loading="lazy"
-                />
-              )}
+              <iframe src={viewingDocUrl} className="w-full h-full bg-white" title="Document Preview" />
             </div>
           </div>
         )}
       </main>
-      <nav className={`sm:hidden fixed bottom-0 left-0 right-0 z-50 px-4 pb-6 pt-3 backdrop-blur-xl border-t flex justify-between items-center ${isDarkMode ? 'bg-[#1e293b]/95 border-white/5 shadow-[0_-10px_30px_rgba(0,0,0,0.5)]' : 'bg-white/95 border-slate-200 shadow-[0_-10px_30px_rgba(0,0,0,0.1)]'}`}>
+      <nav className={`sm:hidden fixed bottom-0 left-0 right-0 z-50 px-4 pb-6 pt-3 backdrop-blur-xl border-t flex justify-between items-center ${isDarkMode ? 'bg-[#1e293b]/95 border-white/5' : 'bg-white/95 border-slate-200'}`}>
         {NAV_ITEMS.map((item) => {
           const isActive = activeView === item.id;
           return <button key={item.id} onClick={() => handleNavigate(item.id)} className={`flex flex-col items-center gap-1 transition-all ${isActive ? 'text-brand scale-110' : 'text-slate-500 opacity-60'}`}><div className={`p-2 rounded-xl ${isActive ? 'bg-brand/10' : ''}`}>{item.icon}</div><span className="text-[8px] font-black uppercase tracking-widest">{item.label}</span></button>;
         })}
       </nav>
-      {isAdmin && activeView === 'dashboard' && <button onClick={() => { setEditingTicket(null); setShowTicketForm(true); }} className="sm:hidden fixed bottom-24 right-6 w-14 h-14 bg-brand rounded-2xl shadow-2xl flex items-center justify-center text-[#0f172a] z-40 border-4 border-[#0f172a]"><svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg></button>}
     </div>
   );
 };
