@@ -10,16 +10,14 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script>
-      // Robust Polyfill for process.env
+      // Polyfill process.env safely to satisfy SDK requirements
       window.process = window.process || { env: {} };
       window.process.env = window.process.env || {};
       
-      // Sync from Vercel/Vite injected globals if they exist
-      if (typeof importMetaEnv !== 'undefined') {
-        Object.assign(window.process.env, importMetaEnv);
-      }
-
-      // Default Configuration Fallbacks
+      // Attempt to capture keys from various possible injection points
+      const capturedKey = window.process.env.API_KEY || '';
+      
+      // Default Configuration Fallbacks for Supabase
       if (!window.process.env.SUPABASE_URL) {
         window.process.env.SUPABASE_URL = "https://fusubnzndmngjfgatzrq.supabase.co";
       }

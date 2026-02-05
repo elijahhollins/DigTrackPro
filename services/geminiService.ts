@@ -6,15 +6,9 @@ import { GoogleGenAI, Type } from "@google/genai";
  * This service extracts structured metadata from 811 locate tickets.
  */
 export const parseTicketData = async (input: string | { data: string; mimeType: string }) => {
-  // Use window.process explicitly to ensure we avoid polyfill scoping issues
-  // and get the most current key injected by the browser bridge.
-  const apiKey = (window as any).process?.env?.API_KEY || '';
-  
-  if (!apiKey || apiKey.length < 20 || apiKey.includes('API_KEY')) {
-    throw new Error("AI Connection Lost: Please go to the Team tab and click 'Handshake AI' to select a valid project.");
-  }
-
-  const ai = new GoogleGenAI({ apiKey });
+  // Initialization must happen inside the function to ensure current key is used.
+  // The SDK strictly requires process.env.API_KEY as the source.
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   try {
     const isMedia = typeof input !== 'string';
@@ -40,7 +34,7 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
         ]
       : [{ text: promptText }];
 
-    // Using gemini-3-flash-preview for high performance and high availability
+    // Using gemini-3-flash-preview for balanced speed and accuracy in OCR tasks.
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview", 
       contents: { parts },
@@ -84,7 +78,7 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
     
     const msg = error.message?.toLowerCase() || '';
     if (msg.includes('403') || msg.includes('404') || msg.includes('entity was not found') || msg.includes('permission')) {
-      throw new Error("ACCESS_DENIED: Your current project does not have permission for the Gemini 3 model. Check billing in GCP Console.");
+      throw new Error("ACCESS_DENIED: Your current project does not have permission for the Gemini 3 model. Ensure billing is enabled in the Google Cloud Console.");
     }
     
     throw new Error(error.message || "AI Analysis failed. Check your internet connection or API project status.");

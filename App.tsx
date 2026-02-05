@@ -38,7 +38,13 @@ const App: React.FC = () => {
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [hasApiKey, setHasApiKey] = useState(false);
+  
+  // Initialize from environment immediately to prevent UI flickering
+  const [hasApiKey, setHasApiKey] = useState(() => {
+    const key = (window as any).process?.env?.API_KEY || '';
+    return key.length > 20 && key !== 'API_KEY';
+  });
+  
   const [viewingDocUrl, setViewingDocUrl] = useState<string | null>(null);
   const [mediaFolderFilter, setMediaFolderFilter] = useState<string | null>(null);
   
@@ -69,27 +75,30 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // Optimized API Key Detection: Reliable for both Preview and Standalone tabs
+  // API Key Presence Monitor
   useEffect(() => {
-    let checkCount = 0;
     const check = async () => {
-      const isKeyPresent = await checkApiKey();
-      if (isKeyPresent) {
+      // 1. Check process.env (Vercel/GitHub vars)
+      const envKey = (window as any).process?.env?.API_KEY || '';
+      if (envKey.length > 20 && envKey !== 'API_KEY') {
         setHasApiKey(true);
-        // Once found, we can slow down the polling significantly
-        return true;
+        return;
       }
-      return false;
+
+      // 2. Check AI Studio Bridge (Preview environment)
+      try {
+        if (window.aistudio?.hasSelectedApiKey) {
+          const selected = await window.aistudio.hasSelectedApiKey();
+          if (selected) {
+            setHasApiKey(true);
+            return;
+          }
+        }
+      } catch (e) {}
     };
 
     check();
-    const interval = setInterval(() => {
-      checkCount++;
-      check();
-      // Stop checking frequently after 30 seconds if nothing is found
-      if (checkCount > 10) clearInterval(interval);
-    }, 3000);
-    
+    const interval = setInterval(check, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -154,40 +163,12 @@ const App: React.FC = () => {
     localStorage.setItem('dig_theme_mode', next ? 'dark' : 'light');
   };
 
-  const checkApiKey = async (): Promise<boolean> => {
-    // 1. Check AI Studio Bridge (Preview Mode)
-    try {
-      if (window.aistudio?.hasSelectedApiKey) {
-        const selected = await window.aistudio.hasSelectedApiKey();
-        if (selected) return true;
-      }
-    } catch (e) {
-      console.warn("AI Bridge check failed");
-    }
-
-    // 2. Check Standard and Vite-prefixed environment variables (Standalone Mode)
-    const env = (window as any).process?.env || {};
-    const key = env.API_KEY || env.VITE_API_KEY || '';
-    
-    // Validate that it's a real key and not just the string 'API_KEY'
-    if (key && key.length > 25 && key !== 'API_KEY') {
-      return true;
-    }
-
-    return false;
-  };
-
   const handleOpenSelectKey = async () => {
     if (window.aistudio?.openSelectKey) {
       await window.aistudio.openSelectKey();
-      // Assume success and force a check
       setHasApiKey(true);
-      setTimeout(async () => {
-        const stillValid = await checkApiKey();
-        setHasApiKey(stillValid);
-      }, 1500);
     } else {
-      alert("AI Configuration can only be changed when running through AI Studio. For standalone apps, use environment variables.");
+      alert("Please ensure your API_KEY environment variable is correctly set in your deployment settings.");
     }
   };
 
@@ -210,10 +191,6 @@ const App: React.FC = () => {
         return; 
       }
       
-      // Update key state immediately
-      const keyFound = await checkApiKey();
-      setHasApiKey(keyFound);
-
       const [allUsersRes, allTicketsRes, allJobsRes, allPhotosRes, allNotesRes] = await Promise.allSettled([
         apiService.getUsers(),
         apiService.getTickets(),
@@ -283,7 +260,7 @@ const App: React.FC = () => {
       const msg = error.message?.toLowerCase() || '';
       if (msg.includes("entity was not found") || msg.includes("api key") || msg.includes("access_denied")) {
         setHasApiKey(false);
-        if (confirm("AI connection lost or permission denied. Ensure billing is enabled in your Google Cloud project. If you are in AI Studio, re-select your project now?")) {
+        if (confirm("Gemini AI permissions error. If you've just updated your key in Vercel, please wait a minute and refresh. Re-select project in AI Studio now?")) {
            handleOpenSelectKey();
         }
       } else {
@@ -428,7 +405,7 @@ const App: React.FC = () => {
 
   const NAV_ITEMS: { id: AppView; label: string; icon: React.ReactNode }[] = [
     { id: 'dashboard', label: 'Vault', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg> },
-    { id: 'jobs', label: 'Projects', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg> },
+    { id: 'jobs', label: 'Projects', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2-2v10a2 2 0 002 2z" /></svg> },
     { id: 'calendar', label: 'Schedule', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
     { id: 'photos', label: 'Media', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
     { id: 'team', label: 'Team', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg> },
@@ -551,11 +528,11 @@ const App: React.FC = () => {
                       return (
                         <React.Fragment key={jobNum}>
                           <tr onClick={() => toggleJobExpansion(jobNum)} className={`transition-all cursor-pointer border-l-4 ${isExpanded ? 'border-brand' : 'border-transparent'} ${isDarkMode ? 'hover:bg-white/[0.03]' : 'hover:bg-slate-50/80'}`}>
-                            <td className="px-8 py-6"><div className="flex items-center gap-4"><div className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${isExpanded ? 'bg-brand/10 border-brand/20 text-brand rotate-90' : 'bg-black/5 border-transparent opacity-40'}`}><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M9 5l7 7-7 7" /></svg></div><button onClick={(e) => { e.stopPropagation(); handleJobSelection(jobNum, jobEntity); }} className={`text-[13px] font-black hover:text-brand transition-colors text-left ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>JOB #{jobNum}</button></div></td>
+                            <td className="px-8 py-6"><div className="flex items-center gap-4"><div className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${isExpanded ? 'bg-brand/10 border-brand/20 text-brand rotate-90' : 'bg-black/5 border-transparent opacity-40'}`}><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M9 5l7 7-7 7" /></svg></div><button onClick={(e) => { e.stopPropagation(); handleJobSelection(jobNum, jobEntity); }} className={`text-[13px] font-black hover:text-brand transition-colors text-left ${isDarkMode ? 'text-white' : 'text-black'}`}>JOB #{jobNum}</button></div></td>
                             <td className="px-8 py-6"><span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-lg ${isDarkMode ? 'bg-white/5 text-slate-400' : 'bg-slate-100 text-slate-600'}`}>{jobTickets.length} Assets</span></td>
                             <td className="px-8 py-6">
                               <div className="flex flex-col">
-                                <span className={`text-[11px] font-black uppercase tracking-tight truncate max-w-[200px] ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                                <span className={`text-[11px] font-black uppercase tracking-tight truncate max-w-[200px] ${isDarkMode ? 'text-white' : 'text-black'}`}>
                                   { (jobEntity?.customer || 'Direct Client').replace(/^OTHER\/?/i, '') }
                                 </span>
                                 <span className={`text-[9px] font-black truncate max-w-[200px] ${isDarkMode ? 'opacity-40' : 'text-slate-900'}`}>
