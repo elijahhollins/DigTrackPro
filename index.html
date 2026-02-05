@@ -10,22 +10,17 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script>
-      // Polyfill process.env safely to satisfy SDK requirements
+      // Emergency Shim for process.env in the browser
       window.process = window.process || { env: {} };
-      window.process.env = window.process.env || {};
       
-      // Attempt to capture keys from various possible injection points
-      const capturedKey = window.process.env.API_KEY || '';
-      
-      // Default Configuration Fallbacks for Supabase
-      if (!window.process.env.SUPABASE_URL) {
-        window.process.env.SUPABASE_URL = "https://fusubnzndmngjfgatzrq.supabase.co";
-      }
-      if (!window.process.env.SUPABASE_ANON_KEY) {
-        window.process.env.SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1c3VibnpuZG1uZ2pmZ2F0enJxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNTQ5NzcsImV4cCI6MjA4MjkzMDk3N30.O5Vp5R_KxAUpi8esYjqCHrjmyG3PzkNj1gDxpaNuKtI";
-      }
-      
-      var process = window.process;
+      // If the build-time injection didn't work, we log it for the developer
+      setTimeout(() => {
+        if (!window.process.env.API_KEY || window.process.env.API_KEY === 'undefined') {
+          console.warn("DigTrack Pro: API_KEY is missing from environment. AI features will be disabled.");
+        } else {
+          console.log("DigTrack Pro: AI Engine Authenticated.");
+        }
+      }, 1000);
     </script>
     <style>
         :root {
