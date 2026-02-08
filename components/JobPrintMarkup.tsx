@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
+import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { Job, DigTicket, JobPrint, PrintMarker, TicketStatus } from '../types';
 import { apiService } from '../services/apiService';
 import { getTicketStatus } from '../utils/dateUtils';
@@ -41,7 +42,7 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({
   const [showReplaceModal, setShowReplaceModal] = useState(false);
   const [markerToReplace, setMarkerToReplace] = useState<PrintMarker | null>(null);
   const [isPDF, setIsPDF] = useState(false);
-  const [pdfDocument, setPdfDocument] = useState<any>(null);
+  const [pdfDocument, setPdfDocument] = useState<PDFDocumentProxy | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
@@ -83,9 +84,9 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({
         setPdfDocument(pdf);
         setNumPages(pdf.numPages);
         setPageNumber(1);
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error loading PDF:', error);
-        alert('Failed to load PDF');
+        alert(`Failed to load PDF: ${error?.message || 'Unknown error'}`);
       }
     }
   };
