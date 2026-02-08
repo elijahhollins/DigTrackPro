@@ -7,7 +7,8 @@ import { supabase, isSupabaseConfigured, getEnv } from './lib/supabaseClient.ts'
 import TicketForm from './components/TicketForm.tsx';
 import JobForm from './components/JobForm.tsx';
 import { JobSummaryModal } from './components/JobSummaryModal.tsx';
-import { JobPrintMarkup } from './components/JobPrintMarkup.tsx';
+// Fixed: Changed named import to default import to match JobPrintMarkup.tsx definition
+import JobPrintMarkup from './components/JobPrintMarkup.tsx';
 import StatCards from './components/StatCards.tsx';
 import JobReview from './components/JobReview.tsx';
 import PhotoManager from './components/PhotoManager.tsx';
@@ -27,14 +28,6 @@ declare global {
   }
 }
 
-const BRAND_PRESETS = [
-  { name: 'Blue', hex: '#3b82f6' },
-  { name: 'Orange', hex: '#f59e0b' },
-  { name: 'Red', hex: '#e11d48' },
-  { name: 'Green', hex: '#10b981' },
-  { name: 'Purple', hex: '#8b5cf6' },
-];
-
 const App: React.FC = () => {
   const [sessionUser, setSessionUser] = useState<User | null>(null);
   const [activeView, setActiveView] = useState<AppView>('dashboard');
@@ -47,6 +40,7 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   
+  // Robust check for the Injected API Key
   const [hasApiKey, setHasApiKey] = useState(() => {
     const key = process.env.API_KEY || '';
     return key.length > 20 && key !== 'undefined';
@@ -82,13 +76,17 @@ const App: React.FC = () => {
     }
   }, []);
 
+  // Monitor for Key Updates (if using AI Studio Bridge)
   useEffect(() => {
     const check = async () => {
+      // 1. Injected Build-time key
       const buildKey = process.env.API_KEY || '';
       if (buildKey.length > 20 && buildKey !== 'undefined') {
         setHasApiKey(true);
         return;
       }
+
+      // 2. Runtime Bridge (for Preview/AI Studio)
       if (window.aistudio?.hasSelectedApiKey) {
         try {
           const selected = await window.aistudio.hasSelectedApiKey();
@@ -96,6 +94,7 @@ const App: React.FC = () => {
         } catch (e) {}
       }
     };
+
     check();
     const interval = setInterval(check, 5000);
     return () => clearInterval(interval);
@@ -128,6 +127,9 @@ const App: React.FC = () => {
     document.documentElement.style.setProperty('--brand-shadow', `rgba(${r}, ${g}, ${b}, 0.25)`);
     if (save) {
       localStorage.setItem('dig_theme_color', hex);
+      // Force immediate update by toggling a class
+      document.body.classList.add('theme-updating');
+      setTimeout(() => document.body.classList.remove('theme-updating'), 100);
     }
   };
 
@@ -161,7 +163,7 @@ const App: React.FC = () => {
       await window.aistudio.openSelectKey();
       setHasApiKey(true);
     } else {
-      alert("Missing AI credentials.");
+      alert("Missing AI credentials. Please ensure your Vercel/GitHub secrets include API_KEY and then REDEPLOY the project.");
     }
   };
 
@@ -341,6 +343,7 @@ const App: React.FC = () => {
             </div>
             <div className="hidden lg:block">
               <h1 className="text-sm font-black uppercase tracking-tight group-hover:text-brand transition-colors">DigTrack Pro</h1>
+              <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest leading-none">Locate Manager</p>
             </div>
           </div>
           
@@ -353,30 +356,18 @@ const App: React.FC = () => {
                 >
                   {item.icon}
                   <span className="hidden md:inline">{item.label}</span>
+                  {isActive && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-slate-900 rounded-full" />}
                 </button>
               );
             })}
           </nav>
 
           <div className="flex items-center gap-2 shrink-0">
-            {/* Minimal Color Palette Toggle */}
-            <div className="flex items-center gap-1.5 bg-black/10 p-1.5 rounded-xl border border-white/5 mr-2">
-              {BRAND_PRESETS.map(p => (
-                <button 
-                  key={p.hex}
-                  onClick={() => applyThemeColor(p.hex, true)}
-                  className="w-4 h-4 rounded-full transition-transform hover:scale-125 border border-white/20 shadow-sm"
-                  style={{ backgroundColor: p.hex }}
-                  title={`Switch to ${p.name}`}
-                />
-              ))}
-            </div>
-
             <div className="hidden sm:flex items-center gap-1">
                {isAdmin && (
                 <>
                   <button onClick={() => { setEditingJob(null); setShowJobForm(true); }} className={`p-2 rounded-xl transition-all ${isDarkMode ? 'bg-white/5 text-slate-300' : 'bg-slate-100 text-slate-900 hover:text-brand'}`} title="New Job">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 v2M7 7h10" /></svg>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
                   </button>
                   <button onClick={() => { setEditingTicket(null); setShowTicketForm(true); }} className="bg-brand text-[#0f172a] p-2 rounded-xl shadow-lg shadow-brand/20 hover:scale-105 active:scale-95 transition-all" title="New Ticket">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
@@ -384,6 +375,7 @@ const App: React.FC = () => {
                 </>
               )}
             </div>
+            <div className="w-px h-6 bg-black/10 mx-1 hidden sm:block" />
             <button onClick={toggleDarkMode} className={`p-2.5 rounded-xl transition-all ${isDarkMode ? 'bg-white/5 text-amber-300' : 'bg-slate-100 text-slate-900'}`}>
               {isDarkMode ? <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M12 7a5 5 0 100 10 5 5 0 000-10z" /></svg> : <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>}
             </button>
@@ -404,7 +396,7 @@ const App: React.FC = () => {
                   <p className={`text-[10px] font-bold uppercase tracking-widest ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Real-time Field Compliance</p>
                   {!hasApiKey && (
                     <button onClick={handleOpenSelectKey} className="bg-brand text-slate-900 text-[9px] font-black uppercase px-3 py-1 rounded-lg shadow-lg shadow-brand/20 animate-pulse hover:scale-105 transition-all">
-                      ⚠️ Connect AI Project
+                      ⚠️ Connect Paid AI Project
                     </button>
                   )}
                 </div>

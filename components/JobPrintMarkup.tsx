@@ -1,536 +1,596 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Job, DigTicket, JobPrint, PrintMarker, TicketStatus } from '../types';
-import { apiService } from '../services/apiService';
-import { getTicketStatus } from '../utils/dateUtils';
+
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Job, JobPrint, PrintMarker, DigTicket, TicketStatus } from '../types.ts';
+import { apiService } from '../services/apiService.ts';
+import { getTicketStatus, getStatusDotColor } from '../utils/dateUtils.ts';
+import * as pdfjs from 'pdfjs-dist';
+
+// Use a more robust worker URL for mobile compatibility
+pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs`;
 
 interface JobPrintMarkupProps {
   job: Job;
   tickets: DigTicket[];
   onClose: () => void;
   onViewTicket: (url: string) => void;
-  isDarkMode: boolean;
+  isDarkMode?: boolean;
 }
 
-export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ 
-  job, 
-  tickets, 
-  onClose, 
-  onViewTicket, 
-  isDarkMode 
-}) => {
-  const [prints, setPrints] = useState<JobPrint[]>([]);
-  const [selectedPrint, setSelectedPrint] = useState<JobPrint | null>(null);
+export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, onClose, onViewTicket, isDarkMode }) => {
+  const [print, setPrint] = useState<JobPrint | null>(null);
   const [markers, setMarkers] = useState<PrintMarker[]>([]);
-  const [isPinMode, setIsPinMode] = useState(false);
-  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
-  const [hoveredMarkerId, setHoveredMarkerId] = useState<string | null>(null);
-  const [scale, setScale] = useState(1);
-  const [position, setPosition] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [numPages, setNumPages] = useState<number>(1);
-  const [pageNumber, setPageNumber] = useState(1);
-  const [isLoading, setIsLoading] = useState(false);
-  const [uploadingFile, setUploadingFile] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRenderingPage, setIsRenderingPage] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isMapReady, setIsMapReady] = useState(false);
   
-  // New state for replace feature (after line 52)
-  const [showReplaceModal, setShowReplaceModal] = useState(false);
-  const [markerToReplace, setMarkerToReplace] = useState<PrintMarker | null>(null);
+  // Document Dimensions
+  const [docDims, setDocDims] = useState({ width: 0, height: 0 });
+  
+  // PDF Multi-page State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const pdfDocRef = useRef<pdfjs.PDFDocumentProxy | null>(null);
+  const loadedPrintIdRef = useRef<string | null>(null);
+  const currentRenderTask = useRef<any>(null);
 
-  const containerRef = useRef<HTMLDivElement>(null);
-  const imageRef = useRef<HTMLImageElement>(null);
+  // Navigation State
+  const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
+  const [isPinMode, setIsPinMode] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  
+  const pointerDownPos = useRef({ x: 0, y: 0 });
+  const lastPointerPos = useRef({ x: 0, y: 0 });
+  const dragThresholdMet = useRef(false);
+  
+  // Tooltip/Marker State
+  const [hoveredMarkerId, setHoveredMarkerId] = useState<string | null>(null);
+
+  // Placement State
+  const [newMarkerPos, setNewMarkerPos] = useState<{ x: number, y: number } | null>(null);
+  const [selectedTicketId, setSelectedTicketId] = useState<string>('');
+  
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const contentWrapperRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Load prints on mount
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  const isPdfFile = (url?: string) => url?.toLowerCase().split('?')[0].endsWith('.pdf');
+
+  // Calculate Critical Status for UI Coloring
+  const jobStatus = (() => {
+    if (tickets.length === 0) return TicketStatus.VALID;
+    const statuses = tickets.map(t => getTicketStatus(t));
+    if (statuses.includes(TicketStatus.EXPIRED)) return TicketStatus.EXPIRED;
+    if (statuses.includes(TicketStatus.REFRESH_NEEDED) || statuses.includes(TicketStatus.EXTENDABLE)) return TicketStatus.REFRESH_NEEDED;
+    return TicketStatus.VALID;
+  })();
+
+  const brandColor = (() => {
+    switch(jobStatus) {
+      case TicketStatus.EXPIRED: return 'bg-rose-600';
+      case TicketStatus.REFRESH_NEEDED: return 'bg-amber-500';
+      default: return 'bg-brand';
+    }
+  })();
+
+  const brandText = brandColor.replace('bg-', 'text-');
+
+  // 1. Initial Data Load
   useEffect(() => {
-    loadPrints();
+    const loadInitialData = async () => {
+      setIsLoading(true);
+      try {
+        const prints = await apiService.getJobPrints(job.jobNumber);
+        const activePrint = prints.find(p => p.isPinned) || prints[0] || null;
+        setPrint(activePrint);
+        
+        if (activePrint) {
+          const m = await apiService.getPrintMarkers(activePrint.id);
+          setMarkers(m);
+        }
+      } catch (err) {
+        console.error("Failed to load blueprint data", err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    loadInitialData();
   }, [job.jobNumber]);
 
-  // Load markers when print is selected
-  useEffect(() => {
-    if (selectedPrint) {
-      loadMarkers();
-    }
-  }, [selectedPrint]);
-
-  const loadPrints = async () => {
-    setIsLoading(true);
-    const jobPrints = await apiService.getJobPrints(job.jobNumber);
-    setPrints(jobPrints);
-    if (jobPrints.length > 0) {
-      const pinned = jobPrints.find(p => p.isPinned) || jobPrints[0];
-      setSelectedPrint(pinned);
-    }
-    setIsLoading(false);
-  };
-
-  const loadMarkers = async () => {
-    if (!selectedPrint) return;
-    const printMarkers = await apiService.getPrintMarkers(selectedPrint.id);
-    setMarkers(printMarkers);
-  };
-
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    setUploadingFile(true);
-    try {
-      const newPrint = await apiService.uploadJobPrint(job.jobNumber, file);
-      setPrints(prev => [...prev, newPrint]);
-      setSelectedPrint(newPrint);
-    } catch (error) {
-      console.error('Upload failed:', error);
-      alert('Failed to upload file');
-    }
-    setUploadingFile(false);
-  };
-
-  const handleImageClick = async (e: React.MouseEvent<HTMLImageElement>) => {
-    if (!isPinMode || !selectedTicketId || !imageRef.current) return;
-
-    const rect = imageRef.current.getBoundingClientRect();
-    const xPercent = ((e.clientX - rect.left) / rect.width) * 100;
-    const yPercent = ((e.clientY - rect.top) / rect.height) * 100;
-
-    const ticket = tickets.find(t => t.id === selectedTicketId);
-    if (!ticket || !selectedPrint) return;
-
-    try {
-      const newMarker = await apiService.savePrintMarker({
-        printId: selectedPrint.id,
-        ticketId: selectedTicketId,
-        xPercent,
-        yPercent,
-        pageNumber,
-        label: ticket.ticketNo
+  // 2. Auto-Fit Logic - Enhanced with requestAnimationFrame for stability
+  const performAutoFit = useCallback(() => {
+    if (!viewportRef.current || docDims.width === 0) return;
+    
+    requestAnimationFrame(() => {
+      if (!viewportRef.current) return;
+      const vRect = viewportRef.current.getBoundingClientRect();
+      const padding = 40; 
+      const availableWidth = vRect.width - (padding * 2);
+      const availableHeight = vRect.height - (padding * 2);
+      
+      const scale = Math.min(availableWidth / docDims.width, availableHeight / docDims.height);
+      
+      setTransform({
+        x: (vRect.width - docDims.width * scale) / 2,
+        y: (vRect.height - docDims.height * scale) / 2,
+        scale: scale
       });
-      setMarkers(prev => [...prev, newMarker]);
-      setIsPinMode(false);
-      setSelectedTicketId(null);
-    } catch (error) {
-      console.error('Failed to save marker:', error);
-      alert('Failed to place marker');
+      setIsMapReady(true);
+    });
+  }, [docDims]);
+
+  // Handle Container Resizing
+  useEffect(() => {
+    if (!viewportRef.current) return;
+    const observer = new ResizeObserver(() => performAutoFit());
+    observer.observe(viewportRef.current);
+    return () => observer.disconnect();
+  }, [performAutoFit]);
+
+  // 3. Document Rendering (PDF or Image)
+  useEffect(() => {
+    if (!print) return;
+
+    if (!isPdfFile(print.url)) {
+      // Logic for standard images is handled by <img> onLoad
+      setIsMapReady(true);
+      return;
     }
+
+    let isCancelled = false;
+    const renderPdf = async () => {
+      setIsRenderingPage(true);
+      
+      if (loadedPrintIdRef.current !== print.id) {
+        setIsMapReady(false);
+      }
+
+      try {
+        if (currentRenderTask.current) {
+          currentRenderTask.current.cancel();
+        }
+
+        if (!pdfDocRef.current || loadedPrintIdRef.current !== print.id) {
+          const loadingTask = pdfjs.getDocument(print.url!);
+          const pdf = await loadingTask.promise;
+          if (isCancelled) return;
+          pdfDocRef.current = pdf;
+          loadedPrintIdRef.current = print.id;
+          setTotalPages(pdf.numPages);
+        }
+        
+        const page = await pdfDocRef.current.getPage(currentPage);
+        if (isCancelled) return;
+
+        // CRITICAL STABILITY LIMIT: Mobile browser canvases are restricted by memory.
+        const maxDimLimit = isMobile ? 2048 : 4096;
+        const unscaledViewport = page.getViewport({ scale: 1.0 });
+        const renderScale = Math.min(maxDimLimit / unscaledViewport.width, maxDimLimit / unscaledViewport.height, 2.0);
+        
+        const viewport = page.getViewport({ scale: renderScale }); 
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const context = canvas.getContext('2d', { alpha: false });
+        if (context) {
+          context.fillStyle = 'white';
+          context.fillRect(0, 0, canvas.width, canvas.height);
+        }
+        
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+
+        const renderTask = page.render({
+          canvasContext: context!,
+          viewport: viewport,
+          canvas: canvas
+        } as any);
+
+        currentRenderTask.current = renderTask;
+        await renderTask.promise;
+        
+        if (!isCancelled) {
+          setDocDims({ width: canvas.width, height: canvas.height });
+          setIsRenderingPage(false);
+          setIsMapReady(true);
+          
+          page.cleanup();
+          pdfDocRef.current?.cleanup();
+        }
+      } catch (err: any) {
+        if (err.name !== 'RenderingCancelledException') {
+          console.error("PDF Render Error:", err);
+          setIsRenderingPage(false);
+          setIsMapReady(true);
+        }
+      }
+    };
+
+    renderPdf();
+    return () => { isCancelled = true; };
+  }, [print, currentPage, isMobile]);
+
+  useEffect(() => {
+    if (docDims.width > 0) {
+      performAutoFit();
+    }
+  }, [docDims, performAutoFit]);
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    if (isPinMode) return;
+    if ((e.target as HTMLElement).closest('.ui-isolation')) {
+      return;
+    }
+
+    pointerDownPos.current = { x: e.clientX, y: e.clientY };
+    lastPointerPos.current = { x: e.clientX, y: e.clientY };
+    dragThresholdMet.current = false;
+    setIsDragging(true);
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!isDragging) return;
+
+    const dxTotal = Math.abs(e.clientX - pointerDownPos.current.x);
+    const dyTotal = Math.abs(e.clientY - pointerDownPos.current.y);
+    
+    if (!dragThresholdMet.current && (dxTotal > 5 || dyTotal > 5)) {
+      dragThresholdMet.current = true;
+    }
+
+    if (dragThresholdMet.current) {
+      const dx = e.clientX - lastPointerPos.current.x;
+      const dy = e.clientY - lastPointerPos.current.y;
+      setTransform(prev => ({ ...prev, x: prev.x + dx, y: prev.y + dy }));
+      lastPointerPos.current = { x: e.clientX, y: e.clientY };
+    }
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    setIsDragging(false);
+    (e.target as HTMLElement).releasePointerCapture(e.pointerId);
   };
 
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    setScale(prev => Math.min(Math.max(prev * delta, 0.1), 5));
+    if (!viewportRef.current) return;
+    const vRect = viewportRef.current.getBoundingClientRect();
+
+    const zoomSpeed = 0.0012;
+    const scaleFactor = Math.exp(-e.deltaY * zoomSpeed);
+    const newScale = Math.min(Math.max(transform.scale * scaleFactor, 0.005), 40);
+
+    const mouseX = e.clientX - vRect.left;
+    const mouseY = e.clientY - vRect.top;
+    const contentX = (mouseX - transform.x) / transform.scale;
+    const contentY = (mouseY - transform.y) / transform.scale;
+    const nextX = mouseX - contentX * newScale;
+    const nextY = mouseY - contentY * newScale;
+
+    setTransform({ x: nextX, y: nextY, scale: newScale });
   };
 
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (isPinMode) return;
-    setIsDragging(true);
-    setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
-  };
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging || isPinMode) return;
-    setPosition({
-      x: e.clientX - dragStart.x,
-      y: e.clientY - dragStart.y
-    });
-  };
-
-  const handleMouseUp = () => {
-    setIsDragging(false);
-  };
-
-  const deleteMarker = async (markerId: string) => {
-    try {
-      await apiService.deletePrintMarker(markerId);
-      setMarkers(prev => prev.filter(m => m.id !== markerId));
-    } catch (error) {
-      console.error('Failed to delete marker:', error);
-      alert('Failed to delete marker');
-    }
-  };
-
-  // New function for replace feature (after deleteMarker at line 315)
-  const handleReplaceTicket = (markerId: string) => {
-    const marker = markers.find(m => m.id === markerId);
-    if (!marker) return;
-    setMarkerToReplace(marker);
-    setShowReplaceModal(true);
-  };
-
-  // New function to save ticket replacement
-  const saveTicketReplacement = async (newTicketId: string) => {
-    if (!markerToReplace) return;
-
-    try {
-      // Get the old and new tickets
-      const oldTicket = tickets.find(t => t.id === markerToReplace.ticketId);
-      const newTicket = tickets.find(t => t.id === newTicketId);
-      
-      if (!oldTicket || !newTicket) {
-        alert('Ticket not found');
-        return;
-      }
-
-      // Archive the old ticket
-      await apiService.saveTicket({ ...oldTicket, isArchived: true });
-
-      // Update the marker with new ticket info
-      await apiService.deletePrintMarker(markerToReplace.id);
-      const updatedMarker = await apiService.savePrintMarker({
-        printId: markerToReplace.printId,
-        ticketId: newTicketId,
-        xPercent: markerToReplace.xPercent,
-        yPercent: markerToReplace.yPercent,
-        pageNumber: markerToReplace.pageNumber,
-        label: newTicket.ticketNo
-      });
-
-      // Update local state
-      setMarkers(prev => prev.map(m => 
-        m.id === markerToReplace.id ? updatedMarker : m
-      ));
-
-      // Close modal
-      setShowReplaceModal(false);
-      setMarkerToReplace(null);
-
-      alert('Ticket replaced successfully');
-    } catch (error) {
-      console.error('Failed to replace ticket:', error);
-      alert('Failed to replace ticket');
-    }
-  };
-
-  const getTicketForMarker = (marker: PrintMarker): DigTicket | undefined => {
-    return tickets.find(t => t.id === marker.ticketId);
-  };
-
-  const getMarkerColor = (marker: PrintMarker): string => {
-    const ticket = getTicketForMarker(marker);
-    if (!ticket) return 'bg-slate-500';
+  const handleViewportClick = (e: React.MouseEvent) => {
+    if (dragThresholdMet.current) return;
+    if (!isPinMode || !contentWrapperRef.current) return;
     
-    const status = getTicketStatus(ticket);
-    switch (status) {
-      case TicketStatus.VALID:
-        return 'bg-emerald-500';
-      case TicketStatus.EXTENDABLE:
-        return 'bg-orange-500';
-      case TicketStatus.REFRESH_NEEDED:
-        return 'bg-amber-500';
-      case TicketStatus.EXPIRED:
-        return 'bg-rose-600';
-      default:
-        return 'bg-slate-500';
+    const rect = contentWrapperRef.current.getBoundingClientRect();
+    const xPct = ((e.clientX - rect.left) / rect.width) * 100;
+    const yPct = ((e.clientY - rect.top) / rect.height) * 100;
+
+    if (xPct >= 0 && xPct <= 100 && yPct >= 0 && yPct <= 100) {
+      setNewMarkerPos({ x: xPct, y: yPct });
     }
   };
 
-  const activeTickets = tickets.filter(t => !t.isArchived);
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploading(true);
+    setIsMapReady(false);
+    try {
+      const newPrint = await apiService.uploadJobPrint(job.jobNumber, file);
+      setPrint(newPrint);
+      setMarkers([]);
+      setNewMarkerPos(null);
+      setCurrentPage(1);
+      pdfDocRef.current = null;
+      loadedPrintIdRef.current = null;
+      if (!isPdfFile(newPrint.url)) {
+        setDocDims({ width: 0, height: 0 });
+      }
+    } catch (err: any) {
+      alert("Upload failed: " + err.message);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const saveMarker = async () => {
+    if (!newMarkerPos || !selectedTicketId || !print) return;
+    try {
+      const ticket = tickets.find(t => t.id === selectedTicketId);
+      const label = ticket ? ticket.ticketNo : 'TKT';
+      const marker = await apiService.savePrintMarker({
+        printId: print.id,
+        ticketId: selectedTicketId,
+        xPercent: newMarkerPos.x,
+        yPercent: newMarkerPos.y,
+        pageNumber: currentPage,
+        label
+      });
+      setMarkers(prev => [...prev, marker]);
+      setNewMarkerPos(null);
+      setSelectedTicketId('');
+    } catch (err: any) {
+      alert("Failed to save marker: " + err.message);
+    }
+  };
+
+  const deleteMarker = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm("Delete this pin?")) return;
+    try {
+      await apiService.deletePrintMarker(id);
+      setMarkers(prev => prev.filter(m => m.id !== id));
+      setHoveredMarkerId(null);
+    } catch (err: any) {
+      alert("Delete failed: " + err.message);
+    }
+  };
+
+  const visibleMarkers = markers.filter(m => (m.pageNumber || 1) === currentPage);
 
   return (
-    <div className="fixed inset-0 bg-slate-900 z-50 flex flex-col">
-      {/* Header */}
-      <div className="bg-slate-800 border-b border-white/10 p-4 flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-white">{job.jobNumber} - Blueprint Markup</h2>
-          <p className="text-sm text-slate-400">{job.customer} • {job.address}</p>
+    <div className="fixed inset-0 z-[200] bg-slate-950 flex flex-col animate-in fade-in duration-300">
+      {/* Header Overlay */}
+      <div className="absolute top-0 left-0 right-0 z-10 p-4 flex items-center justify-between pointer-events-none">
+        <div className="flex flex-col gap-1 pointer-events-auto">
+          <div className="bg-slate-900/80 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10 shadow-2xl flex items-center gap-3 transition-all">
+             <div className={`w-8 h-8 ${brandColor} rounded-xl flex items-center justify-center text-slate-900 shadow-lg transition-all duration-500`}>
+               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+             </div>
+             <div>
+               <h3 className="text-white text-xs font-black uppercase tracking-widest">{print?.fileName || 'Blueprint Vault'}</h3>
+               <p className={`${brandText} text-[8px] font-black uppercase tracking-tighter transition-all duration-500`}>Job #{job.jobNumber} Markup</p>
+             </div>
+          </div>
         </div>
-        <button
-          onClick={onClose}
-          className="p-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition-colors"
+
+        <div className="flex items-center gap-2 pointer-events-auto">
+          <button 
+            onClick={() => setIsPinMode(!isPinMode)}
+            className={`p-3 rounded-2xl border transition-all ${isPinMode ? `${brandColor} text-slate-900 border-white/20 shadow-lg` : 'bg-slate-900/80 text-white border-white/10 backdrop-blur-md'}`}
+            title="Toggle Pin Mode"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+          </button>
+          <button 
+            onClick={() => fileInputRef.current?.click()}
+            className="p-3 bg-slate-900/80 text-white border border-white/10 backdrop-blur-md rounded-2xl shadow-2xl transition-all active:scale-95"
+            title="Upload New Version"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+          </button>
+          <button 
+            onClick={onClose}
+            className="p-3 bg-rose-600 text-white rounded-2xl shadow-2xl transition-all active:scale-95"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+      </div>
+
+      {/* Viewport - Main Surface */}
+      <div 
+        ref={viewportRef}
+        className="relative flex-1 overflow-hidden bg-slate-950 cursor-grab active:cursor-grabbing touch-none select-none"
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onWheel={handleWheel}
+        onClick={handleViewportClick}
+      >
+        {!isMapReady && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/50 backdrop-blur-sm z-20">
+            <div className={`w-12 h-12 border-4 ${brandColor.replace('bg-', 'border-')} border-t-transparent rounded-full animate-spin mb-4 transition-colors`} />
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Synchronizing Vault Assets...</p>
+          </div>
+        )}
+
+        <div 
+          ref={contentWrapperRef}
+          className="absolute origin-top-left transition-transform duration-75 ease-out"
+          style={{ 
+            transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
+            width: docDims.width || '100%',
+            height: docDims.height || '100%'
+          }}
         >
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
-
-      <div className="flex-1 flex overflow-hidden">
-        {/* Sidebar */}
-        <div className="w-80 bg-slate-800 border-r border-white/10 overflow-y-auto p-4 space-y-4">
-          {/* Upload Section */}
-          <div className="space-y-2">
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploadingFile}
-              className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 text-white rounded-lg font-medium transition-colors"
-            >
-              {uploadingFile ? 'Uploading...' : '+ Upload Print/Blueprint'}
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*,.pdf"
-              onChange={handleFileUpload}
-              className="hidden"
-            />
-          </div>
-
-          {/* Prints List */}
-          {prints.length > 0 && (
-            <div className="space-y-2">
-              <h3 className="text-sm font-semibold text-slate-300 uppercase">Prints</h3>
-              {prints.map(print => (
-                <button
-                  key={print.id}
-                  onClick={() => setSelectedPrint(print)}
-                  className={`w-full p-3 rounded-lg text-left transition-colors ${
-                    selectedPrint?.id === print.id
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                  }`}
-                >
-                  <div className="text-sm font-medium truncate">{print.fileName}</div>
-                  <div className="text-xs opacity-75">
-                    {new Date(print.createdAt).toLocaleDateString()}
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Tickets List */}
-          {selectedPrint && (
-            <div className="space-y-2">
-              <h3 className="text-sm font-semibold text-slate-300 uppercase">Pin Tickets</h3>
-              {activeTickets.map(ticket => {
-                const status = getTicketStatus(ticket);
-                const isExpired = status === TicketStatus.EXPIRED;
-                
-                return (
-                  <div
-                    key={ticket.id}
-                    className={`p-3 rounded-lg border ${
-                      isPinMode && selectedTicketId === ticket.id
-                        ? 'bg-blue-600 border-blue-500 text-white'
-                        : isExpired
-                        ? 'bg-rose-900/30 border-rose-700 text-rose-200'
-                        : 'bg-slate-700 border-white/10 text-slate-300'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-medium text-sm">{ticket.ticketNo}</span>
-                      <button
-                        onClick={() => {
-                          setIsPinMode(true);
-                          setSelectedTicketId(ticket.id);
-                        }}
-                        className={`px-2 py-1 rounded text-xs font-medium ${
-                          isPinMode && selectedTicketId === ticket.id
-                            ? 'bg-white text-blue-600'
-                            : 'bg-slate-600 hover:bg-slate-500 text-white'
-                        }`}
-                      >
-                        {isPinMode && selectedTicketId === ticket.id ? 'Placing...' : 'Pin'}
-                      </button>
-                    </div>
-                    <div className="text-xs opacity-75">{ticket.street}</div>
-                    {isExpired && (
-                      <div className="text-xs text-rose-300 mt-1">⚠ Expired</div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Controls */}
-          <div className="space-y-2">
-            <h3 className="text-sm font-semibold text-slate-300 uppercase">Controls</h3>
-            <button
-              onClick={() => setScale(1)}
-              className="w-full px-3 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm"
-            >
-              Reset Zoom
-            </button>
-            <button
-              onClick={() => setPosition({ x: 0, y: 0 })}
-              className="w-full px-3 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm"
-            >
-              Reset Position
-            </button>
-          </div>
-        </div>
-
-        {/* Main Canvas */}
-        <div className="flex-1 relative bg-slate-950 overflow-hidden">
-          {!selectedPrint ? (
-            <div className="absolute inset-0 flex items-center justify-center text-slate-500">
-              <div className="text-center">
-                <svg className="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                </svg>
-                <p className="text-lg">No print selected</p>
-                <p className="text-sm">Upload a blueprint to get started</p>
-              </div>
-            </div>
+          {print ? (
+             isPdfFile(print.url) ? (
+               <canvas ref={canvasRef} className="shadow-2xl bg-white" />
+             ) : (
+               <img 
+                 src={print.url} 
+                 className="shadow-2xl bg-white max-w-none" 
+                 onLoad={(e) => {
+                    const img = e.currentTarget;
+                    setDocDims({ width: img.naturalWidth, height: img.naturalHeight });
+                 }}
+               />
+             )
           ) : (
-            <div
-              ref={containerRef}
-              className="absolute inset-0 overflow-hidden cursor-move"
-              onWheel={handleWheel}
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUp}
-              onMouseLeave={handleMouseUp}
-            >
-              <div
-                style={{
-                  transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
-                  transformOrigin: 'center center',
-                  transition: isDragging ? 'none' : 'transform 0.1s ease-out'
-                }}
-                className="relative inline-block"
-              >
-                <img
-                  ref={imageRef}
-                  src={selectedPrint.url}
-                  alt="Blueprint"
-                  onClick={handleImageClick}
-                  className={`max-w-none ${isPinMode ? 'cursor-crosshair' : 'cursor-grab'}`}
-                  style={{ userSelect: 'none' }}
-                  draggable={false}
-                />
-
-                {/* Markers (line 406-455) */}
-                {markers
-                  .filter(m => m.pageNumber === pageNumber)
-                  .map(marker => {
-                    const ticket = getTicketForMarker(marker);
-                    const isExpired = ticket && getTicketStatus(ticket) === TicketStatus.EXPIRED;
-                    const isHovered = hoveredMarkerId === marker.id;
-
-                    return (
-                      <div
-                        key={marker.id}
-                        style={{
-                          position: 'absolute',
-                          left: `${marker.xPercent}%`,
-                          top: `${marker.yPercent}%`,
-                          transform: 'translate(-50%, -50%)'
-                        }}
-                        onMouseEnter={() => setHoveredMarkerId(marker.id)}
-                        onMouseLeave={() => setHoveredMarkerId(null)}
-                      >
-                        {/* Marker Pin */}
-                        <div className={`${getMarkerColor(marker)} w-8 h-8 rounded-full border-2 border-white shadow-lg flex items-center justify-center text-white text-xs font-bold cursor-pointer`}>
-                          {marker.label}
-                        </div>
-
-                        {/* Tooltip */}
-                        {isHovered && ticket && (
-                          <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 bg-slate-900 text-white p-3 rounded-lg shadow-xl border border-white/20 whitespace-nowrap z-10">
-                            <div className="font-semibold text-sm mb-1">{ticket.ticketNo}</div>
-                            <div className="text-xs text-slate-300 mb-2">{ticket.street}</div>
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => onViewTicket(ticket.documentUrl || '')}
-                                className="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-xs"
-                              >
-                                View
-                              </button>
-                              {isExpired && (
-                                <button
-                                  onClick={() => handleReplaceTicket(marker.id)}
-                                  className="px-2 py-1 bg-orange-600 hover:bg-orange-700 rounded text-xs"
-                                >
-                                  Replace Pin
-                                </button>
-                              )}
-                              <button
-                                onClick={() => deleteMarker(marker.id)}
-                                className="px-2 py-1 bg-rose-600 hover:bg-rose-700 rounded text-xs"
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-              </div>
+            <div className="flex flex-col items-center justify-center h-full w-full text-slate-500">
+               <svg className="w-20 h-20 mb-4 opacity-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+               <p className="text-sm font-black uppercase tracking-widest">Workspace Offline</p>
             </div>
           )}
 
-          {/* Pin Mode Indicator */}
-          {isPinMode && (
-            <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white px-6 py-3 rounded-lg shadow-lg font-semibold">
-              Click on the blueprint to place pin
+          {/* Markers Layer */}
+          {visibleMarkers.map(m => {
+            const ticket = tickets.find(t => t.id === m.ticketId);
+            const status = ticket ? getTicketStatus(ticket) : TicketStatus.OTHER;
+            const isHovered = hoveredMarkerId === m.id;
+
+            return (
+              <div 
+                key={m.id}
+                className="absolute z-30 transition-transform ui-isolation"
+                style={{ left: `${m.xPercent}%`, top: `${m.yPercent}%`, transform: 'translate(-50%, -50%)' }}
+                onMouseEnter={() => !isMobile && setHoveredMarkerId(m.id)}
+                onMouseLeave={() => setHoveredMarkerId(null)}
+                onClick={(e) => {
+                   e.stopPropagation();
+                   if (isMobile) setHoveredMarkerId(hoveredMarkerId === m.id ? null : m.id);
+                }}
+              >
+                <div className={`relative flex flex-col items-center`}>
+                   <div className={`w-8 h-8 rounded-full border-4 border-white shadow-2xl flex items-center justify-center transition-all ${getStatusDotColor(status)} ${isHovered ? 'scale-150 z-50' : 'scale-100'}`}>
+                      <span className="text-[10px] font-black text-white">{m.label?.slice(-2)}</span>
+                   </div>
+                   
+                   {(isHovered || isMobile && hoveredMarkerId === m.id) && (
+                     <div className="absolute bottom-full mb-3 bg-slate-900 border border-white/20 p-4 rounded-2xl shadow-2xl min-w-[220px] animate-in zoom-in-95 duration-200 z-50">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-1">Asset Node</p>
+                        <p className="text-sm font-black text-white mb-2">TKT: {m.label}</p>
+                        <div className="flex flex-wrap gap-2 mb-4">
+                           <span className="text-[10px] font-bold text-slate-300 truncate max-w-full">Loc: {ticket?.street}</span>
+                        </div>
+                        <div className="flex gap-2">
+                           <button 
+                             onClick={(e) => { e.stopPropagation(); if (ticket?.documentUrl) onViewTicket(ticket.documentUrl); }}
+                             className={`flex-1 py-2 ${brandColor} text-slate-900 rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors`}
+                           >
+                             View Doc
+                           </button>
+                           <button 
+                             onClick={(e) => deleteMarker(m.id, e)}
+                             className="p-2 bg-rose-500/10 text-rose-500 rounded-lg hover:bg-rose-500 hover:text-white transition-all"
+                           >
+                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                           </button>
+                        </div>
+                        <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-[8px] border-l-transparent border-r-[8px] border-r-transparent border-t-[8px] border-t-slate-900" />
+                     </div>
+                   )}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* New Placement Marker */}
+          {newMarkerPos && (
+            <div 
+              className="absolute z-40 animate-bounce transition-transform"
+              style={{ left: `${newMarkerPos.x}%`, top: `${newMarkerPos.y}%`, transform: 'translate(-50%, -50%)' }}
+            >
+               <div className={`w-10 h-10 rounded-full ${brandColor} border-4 border-white shadow-2xl flex items-center justify-center animate-pulse`}>
+                  <div className="w-2.5 h-2.5 bg-slate-900 rounded-full" />
+               </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* Replace Modal */}
-      {showReplaceModal && markerToReplace && (
-        <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-white/20 rounded-lg max-w-md w-full p-6">
-            <h3 className="text-xl font-bold text-white mb-4">Replace Expired Ticket</h3>
-            
-            {/* Current Ticket Info */}
-            <div className="mb-4 p-3 bg-rose-900/30 border border-rose-700 rounded-lg">
-              <div className="text-sm text-rose-200 mb-1">Current Ticket:</div>
-              {(() => {
-                const currentTicket = getTicketForMarker(markerToReplace);
-                return currentTicket ? (
-                  <>
-                    <div className="font-semibold text-white">{currentTicket.ticketNo}</div>
-                    <div className="text-sm text-slate-300">{currentTicket.street}</div>
-                  </>
-                ) : (
-                  <div className="text-slate-400">Ticket not found</div>
-                );
-              })()}
-            </div>
+      {/* Footer Controls */}
+      <div className="absolute bottom-6 left-0 right-0 flex justify-center pointer-events-none px-4">
+        <div className="flex flex-col gap-4 items-center w-full max-w-lg">
+           {/* Placement Interface */}
+           {newMarkerPos && (
+             <div className="ui-isolation pointer-events-auto bg-slate-900/95 backdrop-blur-xl border border-white/20 p-6 rounded-[2.5rem] shadow-2xl w-full animate-in slide-in-from-bottom duration-300">
+               <div className="flex items-center justify-between mb-4">
+                 <h4 className="text-white font-black uppercase tracking-widest text-xs">Finalize Node Placement</h4>
+                 <button onClick={() => setNewMarkerPos(null)} className="text-slate-500 hover:text-white transition-colors">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
+                 </button>
+               </div>
+               
+               <div className="space-y-4">
+                 <select 
+                   className="w-full bg-slate-800 text-white px-4 py-3 rounded-2xl border border-white/10 text-xs font-bold outline-none focus:ring-4 focus:ring-brand/20"
+                   value={selectedTicketId}
+                   onChange={e => setSelectedTicketId(e.target.value)}
+                 >
+                   <option value="">Select Compliance Reference...</option>
+                   {tickets.filter(t => !t.isArchived).map(t => (
+                     <option key={t.id} value={t.id}>{t.ticketNo} - {t.street}</option>
+                   ))}
+                 </select>
+                 
+                 <div className="flex gap-2">
+                    <button 
+                      onClick={saveMarker}
+                      disabled={!selectedTicketId}
+                      className={`flex-1 ${brandColor} text-slate-900 py-3 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-lg disabled:opacity-50 transition-all hover:scale-[1.02] active:scale-95`}
+                    >
+                      Commit Node Location
+                    </button>
+                 </div>
+               </div>
+             </div>
+           )}
 
-            {/* Replacement Ticket Selection */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-slate-300 mb-2">
-                Select Replacement Ticket:
-              </label>
-              <div className="space-y-2 max-h-64 overflow-y-auto">
-                {activeTickets
-                  .filter(t => t.id !== markerToReplace.ticketId)
-                  .map(ticket => {
-                    const status = getTicketStatus(ticket);
-                    const isExpired = status === TicketStatus.EXPIRED;
-                    
-                    return (
-                      <button
-                        key={ticket.id}
-                        onClick={() => saveTicketReplacement(ticket.id)}
-                        disabled={isExpired}
-                        className={`w-full p-3 rounded-lg text-left transition-colors ${
-                          isExpired
-                            ? 'bg-slate-700/50 text-slate-500 cursor-not-allowed'
-                            : 'bg-slate-700 hover:bg-slate-600 text-white'
-                        }`}
-                      >
-                        <div className="font-medium text-sm">{ticket.ticketNo}</div>
-                        <div className="text-xs opacity-75">{ticket.street}</div>
-                        {isExpired && (
-                          <div className="text-xs text-rose-400 mt-1">Expired - Cannot use</div>
-                        )}
-                      </button>
-                    );
-                  })}
+           {/* PDF Pagination & Navigation Controls */}
+           {totalPages > 1 && (
+             <div 
+               className="ui-isolation pointer-events-auto flex items-center bg-slate-800/90 backdrop-blur px-4 py-2 rounded-2xl border border-white/10 shadow-2xl gap-4"
+             >
+               <button 
+                 disabled={currentPage <= 1 || isRenderingPage}
+                 onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                 className="p-3 text-white hover:bg-white/10 rounded-xl disabled:opacity-20 transition-all active:scale-90"
+               >
+                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 19l-7-7 7-7" /></svg>
+               </button>
+               
+               <div className="flex flex-col items-center min-w-[80px]">
+                 <span className="text-[10px] font-black text-white uppercase tracking-widest">Blueprint Page</span>
+                 <span className={`text-xs font-black ${brandText}`}>{currentPage} / {totalPages}</span>
+               </div>
+               
+               <button 
+                 disabled={currentPage >= totalPages || isRenderingPage}
+                 onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                 className="p-3 text-white hover:bg-white/10 rounded-xl disabled:opacity-20 transition-all active:scale-90"
+               >
+                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M9 5l7 7-7 7" /></svg>
+               </button>
+             </div>
+           )}
+
+           {/* Toolbar */}
+           <div className="ui-isolation pointer-events-auto bg-slate-900/90 backdrop-blur-xl px-6 py-4 rounded-[2.5rem] border border-white/10 shadow-2xl flex items-center gap-6">
+              <div className="flex items-center gap-2 pr-4 border-r border-white/10">
+                 <button onClick={() => setTransform(prev => ({ ...prev, scale: prev.scale * 1.5 }))} className="p-2 text-white hover:bg-white/10 rounded-lg transition-colors">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4v16m8-8H4" /></svg>
+                 </button>
+                 <button onClick={() => setTransform(prev => ({ ...prev, scale: prev.scale / 1.5 }))} className="p-2 text-white hover:bg-white/10 rounded-lg transition-colors">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M20 12H4" /></svg>
+                 </button>
               </div>
-            </div>
-
-            {/* Actions */}
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  setShowReplaceModal(false);
-                  setMarkerToReplace(null);
-                }}
-                className="flex-1 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg"
+              <button 
+                onClick={performAutoFit}
+                className="flex flex-col items-center text-slate-400 hover:text-brand transition-colors"
               >
-                Cancel
+                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
+                 <span className="text-[8px] font-black uppercase mt-1">Recalibrate</span>
               </button>
-            </div>
-          </div>
+              <div className="w-px h-8 bg-white/10 mx-2" />
+              <div className="flex flex-col items-end">
+                 <span className="text-[10px] font-black text-white uppercase tracking-widest">{markers.length} Pinned</span>
+                 <span className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter">Site Mapping</span>
+              </div>
+           </div>
         </div>
-      )}
+      </div>
+
+      <input type="file" ref={fileInputRef} className="hidden" accept="application/pdf,image/*" onChange={handleFileUpload} />
     </div>
   );
 };
+
+export default JobPrintMarkup;
