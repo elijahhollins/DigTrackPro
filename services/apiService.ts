@@ -311,7 +311,7 @@ export const apiService = {
   },
 
   async getJobPrints(jobNumber: string): Promise<JobPrint[]> {
-    const { data, error } = await supabase.from('job_prints').select('*').eq('job_number', jobNumber);
+    const { data, error } = await supabase.from('job_prints').select('*').eq('job_number', jobNumber).eq('is_pinned', true);
     if (error) return [];
     return (data || []).map(p => {
       const { data: { publicUrl } } = supabase.storage.from('job-prints').getPublicUrl(p.storage_path);
