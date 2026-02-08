@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
+import * as pdfjsLib from 'pdfjs-dist';
 import { Job, DigTicket, JobPrint, PrintMarker, TicketStatus } from '../types';
 import { apiService } from '../services/apiService';
 import { getTicketStatus } from '../utils/dateUtils';
+
+// Set worker source for PDF.js
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 interface JobPrintMarkupProps {
   job: Job;
@@ -36,9 +40,12 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({
   // New state for replace feature (after line 52)
   const [showReplaceModal, setShowReplaceModal] = useState(false);
   const [markerToReplace, setMarkerToReplace] = useState<PrintMarker | null>(null);
+  const [isPDF, setIsPDF] = useState(false);
+  const [pdfDocument, setPdfDocument] = useState<any>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load prints on mount
@@ -50,16 +57,68 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({
   useEffect(() => {
     if (selectedPrint) {
       loadMarkers();
+      loadPrintContent();
     }
   }, [selectedPrint]);
+
+  // Render PDF page when PDF document or page number changes
+  useEffect(() => {
+    if (isPDF && pdfDocument && canvasRef.current) {
+      renderPDFPage();
+    }
+  }, [isPDF, pdfDocument, pageNumber, scale]);
+
+  const loadPrintContent = async () => {
+    if (!selectedPrint) return;
+    
+    // Check if the file is a PDF
+    const fileName = selectedPrint.fileName.toLowerCase();
+    const isPDFFile = fileName.endsWith('.pdf');
+    setIsPDF(isPDFFile);
+    
+    if (isPDFFile) {
+      try {
+        const loadingTask = pdfjsLib.getDocument(selectedPrint.url);
+        const pdf = await loadingTask.promise;
+        setPdfDocument(pdf);
+        setNumPages(pdf.numPages);
+        setPageNumber(1);
+      } catch (error) {
+        console.error('Error loading PDF:', error);
+        alert('Failed to load PDF');
+      }
+    }
+  };
+
+  const renderPDFPage = async () => {
+    if (!pdfDocument || !canvasRef.current) return;
+    
+    try {
+      const page = await pdfDocument.getPage(pageNumber);
+      const canvas = canvasRef.current;
+      const context = canvas.getContext('2d');
+      
+      if (!context) return;
+      
+      const viewport = page.getViewport({ scale: scale });
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      
+      await page.render({
+        canvasContext: context,
+        viewport: viewport
+      }).promise;
+    } catch (error) {
+      console.error('Error rendering PDF page:', error);
+    }
+  };
 
   const loadPrints = async () => {
     setIsLoading(true);
     const jobPrints = await apiService.getJobPrints(job.jobNumber);
     setPrints(jobPrints);
     if (jobPrints.length > 0) {
-      const pinned = jobPrints.find(p => p.isPinned) || jobPrints[0];
-      setSelectedPrint(pinned);
+      setSelectedPrint(jobPrints[0]);
     }
     setIsLoading(false);
   };
@@ -77,7 +136,7 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({
     setUploadingFile(true);
     try {
       const newPrint = await apiService.uploadJobPrint(job.jobNumber, file);
-      setPrints(prev => [...prev, newPrint]);
+      setPrints([newPrint]);
       setSelectedPrint(newPrint);
     } catch (error) {
       console.error('Upload failed:', error);
@@ -86,10 +145,13 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({
     setUploadingFile(false);
   };
 
-  const handleImageClick = async (e: React.MouseEvent<HTMLImageElement>) => {
-    if (!isPinMode || !selectedTicketId || !imageRef.current) return;
+  const handleImageClick = async (e: React.MouseEvent<HTMLCanvasElement | HTMLImageElement>) => {
+    if (!isPinMode || !selectedTicketId) return;
+    
+    const element = isPDF ? canvasRef.current : imageRef.current;
+    if (!element) return;
 
-    const rect = imageRef.current.getBoundingClientRect();
+    const rect = element.getBoundingClientRect();
     const xPercent = ((e.clientX - rect.left) / rect.width) * 100;
     const yPercent = ((e.clientY - rect.top) / rect.height) * 100;
 
@@ -264,29 +326,6 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({
             />
           </div>
 
-          {/* Prints List */}
-          {prints.length > 0 && (
-            <div className="space-y-2">
-              <h3 className="text-sm font-semibold text-slate-300 uppercase">Prints</h3>
-              {prints.map(print => (
-                <button
-                  key={print.id}
-                  onClick={() => setSelectedPrint(print)}
-                  className={`w-full p-3 rounded-lg text-left transition-colors ${
-                    selectedPrint?.id === print.id
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                  }`}
-                >
-                  <div className="text-sm font-medium truncate">{print.fileName}</div>
-                  <div className="text-xs opacity-75">
-                    {new Date(print.createdAt).toLocaleDateString()}
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-
           {/* Tickets List */}
           {selectedPrint && (
             <div className="space-y-2">
@@ -335,6 +374,29 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({
           {/* Controls */}
           <div className="space-y-2">
             <h3 className="text-sm font-semibold text-slate-300 uppercase">Controls</h3>
+            {isPDF && numPages > 1 && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <button
+                    onClick={() => setPageNumber(prev => Math.max(1, prev - 1))}
+                    disabled={pageNumber <= 1}
+                    className="flex-1 px-3 py-2 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:text-slate-600 text-white rounded-lg text-sm"
+                  >
+                    Prev
+                  </button>
+                  <span className="text-white text-sm px-2">
+                    {pageNumber} / {numPages}
+                  </span>
+                  <button
+                    onClick={() => setPageNumber(prev => Math.min(numPages, prev + 1))}
+                    disabled={pageNumber >= numPages}
+                    className="flex-1 px-3 py-2 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:text-slate-600 text-white rounded-lg text-sm"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
             <button
               onClick={() => setScale(1)}
               className="w-full px-3 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm"
@@ -380,15 +442,24 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({
                 }}
                 className="relative inline-block"
               >
-                <img
-                  ref={imageRef}
-                  src={selectedPrint.url}
-                  alt="Blueprint"
-                  onClick={handleImageClick}
-                  className={`max-w-none ${isPinMode ? 'cursor-crosshair' : 'cursor-grab'}`}
-                  style={{ userSelect: 'none' }}
-                  draggable={false}
-                />
+                {isPDF ? (
+                  <canvas
+                    ref={canvasRef}
+                    onClick={handleImageClick}
+                    className={`max-w-none ${isPinMode ? 'cursor-crosshair' : 'cursor-grab'}`}
+                    style={{ userSelect: 'none' }}
+                  />
+                ) : (
+                  <img
+                    ref={imageRef}
+                    src={selectedPrint.url}
+                    alt="Blueprint"
+                    onClick={handleImageClick}
+                    className={`max-w-none ${isPinMode ? 'cursor-crosshair' : 'cursor-grab'}`}
+                    style={{ userSelect: 'none' }}
+                    draggable={false}
+                  />
+                )}
 
                 {/* Markers (line 406-455) */}
                 {markers
