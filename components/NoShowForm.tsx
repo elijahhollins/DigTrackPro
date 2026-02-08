@@ -33,6 +33,7 @@ const NoShowForm: React.FC<NoShowFormProps> = ({ ticket, userName, onSave, onDel
 
       setIsLoading(true);
       try {
+        // Fixed: apiService.getNoShows now exists
         const all = await apiService.getNoShows();
         if (!isMounted) return;
         
@@ -97,9 +98,11 @@ const NoShowForm: React.FC<NoShowFormProps> = ({ ticket, userName, onSave, onDel
         .map(k => `${k}: ${selections[k].trim()}`)
         .join(', ');
 
+      // Fixed: handleSubmit now includes companyId in NoShowRecord to satisfy type requirement
       const record: NoShowRecord = {
         id: crypto.randomUUID(),
         ticketId: ticket.id,
+        companyId: ticket.companyId,
         jobNumber: ticket.jobNumber,
         utilities: selectedKeys,
         companies: companiesInfo,

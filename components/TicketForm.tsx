@@ -15,7 +15,8 @@ interface IngestionItem {
 }
 
 interface TicketFormProps {
-  onSave: (data: Omit<DigTicket, 'id' | 'createdAt'>, archiveOld?: boolean) => Promise<void>;
+  // Fixed: Prop type onSave now omits companyId to align with handleSaveTicket signature in App.tsx
+  onSave: (data: Omit<DigTicket, 'id' | 'createdAt' | 'companyId'>, archiveOld?: boolean) => Promise<void>;
   onClose: () => void;
   initialData?: DigTicket | null;
   isDarkMode?: boolean;
@@ -154,6 +155,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
 
       setQueue(prev => prev.map(item => item.id === id ? { ...item, status: 'uploading' } : item));
       const targetJobNumber = extracted.jobNumber || 'unassigned';
+      // Fixed: Updated apiService.addTicketFile call which now exists
       const publicUrl = await apiService.addTicketFile(targetJobNumber, file);
 
       setQueue(prev => prev.map(item => item.id === id ? { 
@@ -209,6 +211,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    // Fixed: Passing formData which now matches the prop signature (Omit DigTicket 'id' | 'createdAt' | 'companyId')
     if (isBatchMode) {
       const currentId = queue[activeIndex]?.id;
       await onSave(formData);

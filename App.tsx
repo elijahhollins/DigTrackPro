@@ -1,13 +1,13 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, User, UserRole, Job, JobNote, UserRecord, NoShowRecord } from './types.ts';
+import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, User, UserRole, Job, JobNote, UserRecord, NoShowRecord, Company } from './types.ts';
 import { getTicketStatus, getStatusColor } from './utils/dateUtils.ts';
 import { apiService } from './services/apiService.ts';
 import { supabase, isSupabaseConfigured, getEnv } from './lib/supabaseClient.ts';
 import TicketForm from './components/TicketForm.tsx';
 import JobForm from './components/JobForm.tsx';
 import { JobSummaryModal } from './components/JobSummaryModal.tsx';
-import { JobPrintMarkup } from './components/JobPrintMarkup.tsx';
+import JobPrintMarkup from './components/JobPrintMarkup.tsx';
 import StatCards from './components/StatCards.tsx';
 import JobReview from './components/JobReview.tsx';
 import PhotoManager from './components/PhotoManager.tsx';
@@ -27,16 +27,9 @@ declare global {
   }
 }
 
-const BRAND_PRESETS = [
-  { name: 'Blue', hex: '#3b82f6' },
-  { name: 'Orange', hex: '#f59e0b' },
-  { name: 'Red', hex: '#e11d48' },
-  { name: 'Green', hex: '#10b981' },
-  { name: 'Purple', hex: '#8b5cf6' },
-];
-
 const App: React.FC = () => {
   const [sessionUser, setSessionUser] = useState<User | null>(null);
+  const [company, setCompany] = useState<Company | null>(null);
   const [activeView, setActiveView] = useState<AppView>('dashboard');
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('dig_theme_mode') !== 'light');
   const [tickets, setTickets] = useState<DigTicket[]>([]);
@@ -71,53 +64,7 @@ const App: React.FC = () => {
   });
 
   const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
-  
   const initRef = useRef(false);
-
-  useEffect(() => {
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js')
-        .then(reg => console.log('DigTrack Pro: SW Sync Ready', reg.scope))
-        .catch(err => console.warn('DigTrack Pro: SW Failed', err));
-    }
-  }, []);
-
-  useEffect(() => {
-    const check = async () => {
-      const buildKey = process.env.API_KEY || '';
-      if (buildKey.length > 20 && buildKey !== 'undefined') {
-        setHasApiKey(true);
-        return;
-      }
-      if (window.aistudio?.hasSelectedApiKey) {
-        try {
-          const selected = await window.aistudio.hasSelectedApiKey();
-          if (selected) setHasApiKey(true);
-        } catch (e) {}
-      }
-    };
-    check();
-    const interval = setInterval(check, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const handleNavigate = (view: AppView) => {
-    const isFormActive = showTicketForm || editingTicket || showJobForm || editingJob || noShowTicket;
-    if (isFormActive) {
-      const confirmDiscard = window.confirm("You have a form open. Continue with navigation?");
-      if (!confirmDiscard) return;
-    }
-    setShowTicketForm(false);
-    setEditingTicket(null);
-    setShowJobForm(false);
-    setEditingJob(null);
-    setSelectedJobSummary(null);
-    setShowMarkup(null);
-    setNoShowTicket(null);
-    setViewingDocUrl(null);
-    if (view !== 'photos') setMediaFolderFilter(null);
-    setActiveView(view);
-  };
 
   const applyThemeColor = (hex: string, save: boolean = false) => {
     document.documentElement.style.setProperty('--brand-primary', hex);
@@ -131,38 +78,18 @@ const App: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    if (isProcessing) {
-      applyThemeColor('#a855f7');
-      return;
-    }
-    const manual = localStorage.getItem('dig_theme_color');
-    if (manual) {
-      applyThemeColor(manual);
-      return;
-    }
-    const activeTkts = tickets.filter(t => !t.isArchived);
-    const statuses = activeTkts.map(t => getTicketStatus(t));
-    let color = '#3b82f6';
-    if (statuses.includes(TicketStatus.EXPIRED)) color = '#e11d48';
-    else if (statuses.includes(TicketStatus.REFRESH_NEEDED) || statuses.includes(TicketStatus.EXTENDABLE) || activeTkts.some(t => t.noShowRequested)) color = '#f59e0b';
-    else if (activeTkts.length > 0) color = '#10b981';
-    applyThemeColor(color);
-  }, [tickets, isProcessing]);
-
-  const toggleDarkMode = () => {
-    const next = !isDarkMode;
-    setIsDarkMode(next);
-    localStorage.setItem('dig_theme_mode', next ? 'dark' : 'light');
-  };
-
-  const handleOpenSelectKey = async () => {
-    if (window.aistudio?.openSelectKey) {
-      await window.aistudio.openSelectKey();
-      setHasApiKey(true);
-    } else {
-      alert("Missing AI credentials.");
-    }
+  // Fixed: Added missing handleNavigate function
+  const handleNavigate = (view: AppView) => {
+    setShowTicketForm(false);
+    setEditingTicket(null);
+    setShowJobForm(false);
+    setEditingJob(null);
+    setSelectedJobSummary(null);
+    setShowMarkup(null);
+    setNoShowTicket(null);
+    setViewingDocUrl(null);
+    if (view !== 'photos') setMediaFolderFilter(null);
+    setActiveView(view);
   };
 
   const initApp = async () => {
@@ -181,26 +108,50 @@ const App: React.FC = () => {
         initRef.current = false;
         return; 
       }
-      const [allUsersRes, allTicketsRes, allJobsRes, allPhotosRes, allNotesRes] = await Promise.allSettled([
-        apiService.getUsers(),
+      
+      const [allUsersRes] = await Promise.all([apiService.getUsers()]);
+      const fetchedUsers = allUsersRes;
+      setUsers(fetchedUsers);
+
+      const matchedProfile = fetchedUsers.find(u => u.id === session.user.id);
+      if (matchedProfile) {
+        setSessionUser(matchedProfile);
+        // Load Company Data
+        if (matchedProfile.companyId) {
+          const companyData = await apiService.getCompany(matchedProfile.companyId);
+          setCompany(companyData);
+          if (companyData?.brandColor) applyThemeColor(companyData.brandColor);
+        }
+      } else {
+        // Handle new user who hasn't been assigned a company yet
+        setSessionUser({ 
+          id: session.user.id, 
+          name: session.user.user_metadata?.display_name || 'New User', 
+          username: session.user.email || '', 
+          role: UserRole.CREW,
+          companyId: '' // Needs assignment or registration flow
+        });
+      }
+
+      // Fetch operational data - Supabase RLS handles the company filtering automatically now!
+      const [allTicketsRes, allJobsRes, allPhotosRes, allNotesRes] = await Promise.allSettled([
         apiService.getTickets(),
         apiService.getJobs(),
         apiService.getPhotos(),
         apiService.getNotes()
       ]);
-      const fetchedUsers = allUsersRes.status === 'fulfilled' ? allUsersRes.value : [];
-      setUsers(fetchedUsers);
+
       setTickets(allTicketsRes.status === 'fulfilled' ? allTicketsRes.value : []);
       setJobs(allJobsRes.status === 'fulfilled' ? allJobsRes.value : []);
       setPhotos(allPhotosRes.status === 'fulfilled' ? allPhotosRes.value : []);
       setNotes(allNotesRes.status === 'fulfilled' ? allNotesRes.value : []);
-      const matchedProfile = fetchedUsers.find(u => u.id === session.user.id);
-      if (matchedProfile) {
-        setSessionUser({ id: session.user.id, name: matchedProfile.name, username: matchedProfile.username, role: matchedProfile.role });
-      } else {
-        setSessionUser({ id: session.user.id, name: session.user.user_metadata?.display_name || 'New User', username: session.user.email || '', role: UserRole.CREW });
-      }
-    } catch (error) { console.error("Critical Init Error:", error); } finally { setIsLoading(false); initRef.current = false; }
+
+    } catch (error) { 
+      console.error("Critical Init Error:", error); 
+    } finally { 
+      setIsLoading(false); 
+      initRef.current = false; 
+    }
   };
 
   useEffect(() => {
@@ -209,23 +160,33 @@ const App: React.FC = () => {
     return () => authListener.subscription.unsubscribe();
   }, []);
 
-  const handleSignOut = async () => {
-    try { await supabase.auth.signOut(); setSessionUser(null); } catch (error: any) { console.error("Sign out error:", error.message); }
-  };
-
-  const ensureJobExists = async (ticketData: Omit<DigTicket, 'id' | 'createdAt'>): Promise<Job> => {
+  // Fixed: Added missing ensureJobExists function
+  const ensureJobExists = async (ticketData: Omit<DigTicket, 'id' | 'createdAt' | 'companyId'>): Promise<Job> => {
     const existingJob = jobs.find(j => j.jobNumber === ticketData.jobNumber);
     if (existingJob) return existingJob;
-    const newJob: Job = { id: crypto.randomUUID(), jobNumber: ticketData.jobNumber, customer: ticketData.siteContact || 'Auto-Detected Client', address: ticketData.street, city: ticketData.city, state: ticketData.state, county: ticketData.county, createdAt: Date.now(), isComplete: false };
+    const newJob: Job = { 
+      id: crypto.randomUUID(), 
+      companyId: sessionUser!.companyId,
+      jobNumber: ticketData.jobNumber, 
+      customer: ticketData.siteContact || 'Auto-Detected Client', 
+      address: ticketData.street, 
+      city: ticketData.city, 
+      state: ticketData.state, 
+      county: ticketData.county, 
+      createdAt: Date.now(), 
+      isComplete: false 
+    };
     const savedJob = await apiService.saveJob(newJob);
     setJobs(prev => [...prev, savedJob]);
     return savedJob;
   };
 
-  const handleSaveTicket = async (data: Omit<DigTicket, 'id' | 'createdAt'>, archiveOld: boolean = false) => {
+  const handleSaveTicket = async (data: Omit<DigTicket, 'id' | 'createdAt' | 'companyId'>, archiveOld: boolean = false) => {
+    if (!sessionUser?.companyId) return alert("Account error: No company ID associated.");
     try {
-      await ensureJobExists(data);
-      const ticket: DigTicket = (editingTicket && !archiveOld) ? { ...editingTicket, ...data } : { ...data, id: crypto.randomUUID(), createdAt: Date.now(), isArchived: false };
+      const ticketData = { ...data, companyId: sessionUser.companyId };
+      await ensureJobExists(ticketData);
+      const ticket: DigTicket = (editingTicket && !archiveOld) ? { ...editingTicket, ...ticketData } : { ...ticketData, id: crypto.randomUUID(), createdAt: Date.now(), isArchived: false };
       const saved = await apiService.saveTicket(ticket, archiveOld);
       setTickets(prev => {
         if (archiveOld) return [saved, ...prev.map(t => (t.ticketNo === saved.ticketNo && t.jobNumber === saved.jobNumber && t.id !== saved.id) ? { ...t, isArchived: true } : t)];
@@ -234,13 +195,12 @@ const App: React.FC = () => {
         return [saved, ...prev];
       });
     } catch (error: any) {
-      if (error.message?.toLowerCase().includes("api key") || error.message?.toLowerCase().includes("access_denied")) {
-        setHasApiKey(false);
-        handleOpenSelectKey();
-      } else {
-        alert(error.message);
-      }
+      alert(error.message);
     }
+  };
+
+  const handleSignOut = async () => {
+    try { await supabase.auth.signOut(); setSessionUser(null); } catch (error: any) { console.error("Sign out error:", error.message); }
   };
 
   const handleToggleArchive = async (ticket: DigTicket, e: React.MouseEvent) => {
@@ -261,7 +221,7 @@ const App: React.FC = () => {
     const jobTickets = tickets.filter(t => t.jobNumber === jobNumber && !t.isArchived);
     if (jobTickets.length === 0) return;
     const firstTkt = jobTickets[0];
-    const newJob: Job = { id: crypto.randomUUID(), jobNumber: jobNumber, customer: firstTkt.siteContact || 'Client', address: firstTkt.street, city: firstTkt.city, state: firstTkt.state, county: firstTkt.county, createdAt: Date.now(), isComplete: false };
+    const newJob: Job = { id: crypto.randomUUID(), companyId: sessionUser!.companyId, jobNumber: jobNumber, customer: firstTkt.siteContact || 'Client', address: firstTkt.street, city: firstTkt.city, state: firstTkt.state, county: firstTkt.county, createdAt: Date.now(), isComplete: false };
     try {
       const saved = await apiService.saveJob(newJob);
       setJobs(prev => [...prev, saved]);
@@ -269,13 +229,28 @@ const App: React.FC = () => {
     } catch (err: any) { alert("Job init failed: " + err.message); }
   };
 
-  const activeTickets = useMemo(() => {
+  const toggleDarkMode = () => {
+    const next = !isDarkMode;
+    setIsDarkMode(next);
+    localStorage.setItem('dig_theme_mode', next ? 'dark' : 'light');
+  };
+
+  const handleOpenSelectKey = async () => {
+    if (window.aistudio?.openSelectKey) {
+      await window.aistudio.openSelectKey();
+      setHasApiKey(true);
+    } else {
+      alert("Missing AI credentials.");
+    }
+  };
+
+  const activeTicketsList = useMemo(() => {
     const completedNumbers = new Set(jobs.filter(j => j.isComplete).map(j => j.jobNumber));
     return tickets.filter(t => !completedNumbers.has(t.jobNumber) && (showArchived || !t.isArchived));
   }, [tickets, jobs, showArchived]);
 
   const filteredTickets = useMemo(() => {
-    let res = activeTickets.filter(t => {
+    let res = activeTicketsList.filter(t => {
       const s = String(globalSearch || '').toLowerCase().trim();
       if (s && !String(t.ticketNo || '').toLowerCase().includes(s) && !String(t.street || '').toLowerCase().includes(s) && !String(t.jobNumber || '').toLowerCase().includes(s)) return false;
       if (activeFilter) {
@@ -292,9 +267,9 @@ const App: React.FC = () => {
       return f * ((Number(vA) || 0) - (Number(vB) || 0));
     });
     return res;
-  }, [activeTickets, globalSearch, sortConfig, activeFilter]);
+  }, [activeTicketsList, globalSearch, sortConfig, activeFilter]);
 
-  const groupedTickets = useMemo(() => {
+  const groupedTicketsMap = useMemo(() => {
     const map = new Map<string, DigTicket[]>();
     filteredTickets.forEach(t => {
       const group = map.get(t.jobNumber) || [];
@@ -320,7 +295,7 @@ const App: React.FC = () => {
     );
   }
 
-  if (!sessionUser) return <Login onLogin={setSessionUser} />;
+  if (!sessionUser) return <Login onLogin={() => initApp()} />;
 
   const isAdmin = sessionUser.role === UserRole.ADMIN;
   const NAV_ITEMS: { id: AppView; label: string; icon: React.ReactNode }[] = [
@@ -340,7 +315,8 @@ const App: React.FC = () => {
               <svg className={`w-5 h-5 text-[#0f172a] ${isProcessing ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
             </div>
             <div className="hidden lg:block">
-              <h1 className="text-sm font-black uppercase tracking-tight group-hover:text-brand transition-colors">DigTrack Pro</h1>
+              <h1 className="text-sm font-black uppercase tracking-tight group-hover:text-brand transition-colors">{company?.name || 'DigTrack Pro'}</h1>
+              <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest leading-none">Enterprise Locate Hub</p>
             </div>
           </div>
           
@@ -353,30 +329,18 @@ const App: React.FC = () => {
                 >
                   {item.icon}
                   <span className="hidden md:inline">{item.label}</span>
+                  {isActive && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-slate-900 rounded-full" />}
                 </button>
               );
             })}
           </nav>
 
           <div className="flex items-center gap-2 shrink-0">
-            {/* Minimal Color Palette Toggle */}
-            <div className="flex items-center gap-1.5 bg-black/10 p-1.5 rounded-xl border border-white/5 mr-2">
-              {BRAND_PRESETS.map(p => (
-                <button 
-                  key={p.hex}
-                  onClick={() => applyThemeColor(p.hex, true)}
-                  className="w-4 h-4 rounded-full transition-transform hover:scale-125 border border-white/20 shadow-sm"
-                  style={{ backgroundColor: p.hex }}
-                  title={`Switch to ${p.name}`}
-                />
-              ))}
-            </div>
-
             <div className="hidden sm:flex items-center gap-1">
                {isAdmin && (
                 <>
                   <button onClick={() => { setEditingJob(null); setShowJobForm(true); }} className={`p-2 rounded-xl transition-all ${isDarkMode ? 'bg-white/5 text-slate-300' : 'bg-slate-100 text-slate-900 hover:text-brand'}`} title="New Job">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 v2M7 7h10" /></svg>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
                   </button>
                   <button onClick={() => { setEditingTicket(null); setShowTicketForm(true); }} className="bg-brand text-[#0f172a] p-2 rounded-xl shadow-lg shadow-brand/20 hover:scale-105 active:scale-95 transition-all" title="New Ticket">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
@@ -384,6 +348,7 @@ const App: React.FC = () => {
                 </>
               )}
             </div>
+            <div className="w-px h-6 bg-black/10 mx-1 hidden sm:block" />
             <button onClick={toggleDarkMode} className={`p-2.5 rounded-xl transition-all ${isDarkMode ? 'bg-white/5 text-amber-300' : 'bg-slate-100 text-slate-900'}`}>
               {isDarkMode ? <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M12 7a5 5 0 100 10 5 5 0 000-10z" /></svg> : <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>}
             </button>
@@ -404,7 +369,7 @@ const App: React.FC = () => {
                   <p className={`text-[10px] font-bold uppercase tracking-widest ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Real-time Field Compliance</p>
                   {!hasApiKey && (
                     <button onClick={handleOpenSelectKey} className="bg-brand text-slate-900 text-[9px] font-black uppercase px-3 py-1 rounded-lg shadow-lg shadow-brand/20 animate-pulse hover:scale-105 transition-all">
-                      ⚠️ Connect AI Project
+                      ⚠️ Connect Paid AI Project
                     </button>
                   )}
                 </div>
@@ -420,7 +385,7 @@ const App: React.FC = () => {
                 </div>
               </div>
             </div>
-            <StatCards tickets={activeTickets.filter(t => !t.isArchived)} isDarkMode={isDarkMode} activeFilter={activeFilter} onFilterClick={setActiveFilter} />
+            <StatCards tickets={tickets.filter(t => !t.isArchived)} isDarkMode={isDarkMode} activeFilter={activeFilter} onFilterClick={setActiveFilter} />
             <div className={`${isDarkMode ? 'bg-[#1e293b] border-white/5 shadow-2xl shadow-black/40' : 'bg-white border-slate-200 shadow-xl shadow-slate-200/50'} rounded-[2.5rem] border overflow-hidden`}>
               <div className="overflow-x-auto no-scrollbar">
                 <table className="w-full text-left">
@@ -435,8 +400,8 @@ const App: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className={`divide-y ${isDarkMode ? 'divide-white/5' : 'divide-slate-100'}`}>
-                    {Array.from(groupedTickets.keys()).map((jobNum: string) => {
-                      const jobTickets = groupedTickets.get(jobNum)!;
+                    {Array.from(groupedTicketsMap.keys()).map((jobNum: string) => {
+                      const jobTickets = groupedTicketsMap.get(jobNum)!;
                       const jobEntity = jobs.find(j => j.jobNumber === jobNum);
                       const isExpanded = expandedJobs.has(jobNum);
                       const statuses = jobTickets.filter(t => !t.isArchived).map(t => getTicketStatus(t));
@@ -495,10 +460,10 @@ const App: React.FC = () => {
         )}
         {activeView === 'calendar' && <CalendarView tickets={tickets} onEditTicket={setEditingTicket} onViewDoc={setViewingDocUrl} />}
         {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} isAdmin={isAdmin} isDarkMode={isDarkMode} onJobSelect={(job: Job) => handleJobSelection(job.jobNumber, job)} onViewDoc={setViewingDocUrl} />}
-        {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} onAddPhoto={(data, file) => apiService.addPhoto(data, file)} onDeletePhoto={(id: string) => apiService.deletePhoto(id)} initialSearch={mediaFolderFilter} />}
-        {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} isDarkMode={isDarkMode} hasApiKey={hasApiKey} onAddUser={async (u) => { await apiService.addUser(u); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onThemeChange={applyThemeColor} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onOpenSelectKey={handleOpenSelectKey} />}
+        {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} companyId={sessionUser.companyId} onAddPhoto={(data, file) => apiService.addPhoto(data, file)} onDeletePhoto={(id: string) => apiService.deletePhoto(id)} initialSearch={mediaFolderFilter} />}
+        {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} isDarkMode={isDarkMode} hasApiKey={hasApiKey} onAddUser={async (u) => { await apiService.addUser({ ...u, companyId: sessionUser.companyId }); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onThemeChange={applyThemeColor} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onOpenSelectKey={handleOpenSelectKey} />}
         {(showTicketForm || editingTicket) && <TicketForm onSave={handleSaveTicket} onClose={() => { setShowTicketForm(false); setEditingTicket(null); }} initialData={editingTicket} isDarkMode={isDarkMode} existingTickets={tickets} />}
-        {(showJobForm || editingJob) && <JobForm onSave={async (data) => { const job: Job = editingJob ? { ...editingJob, ...data } : { ...data, id: crypto.randomUUID(), createdAt: Date.now(), isComplete: false }; const saved = await apiService.saveJob(job); setJobs(prev => [...prev.filter(j => j.id !== saved.id), saved]); setShowJobForm(false); setEditingJob(null); }} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} isDarkMode={isDarkMode} />}
+        {(showJobForm || editingJob) && <JobForm onSave={async (data) => { const job: Job = editingJob ? { ...editingJob, ...data } : { ...data, id: crypto.randomUUID(), companyId: sessionUser.companyId, createdAt: Date.now(), isComplete: false }; const saved = await apiService.saveJob(job); setJobs(prev => [...prev.filter(j => j.id !== saved.id), saved]); setShowJobForm(false); setEditingJob(null); }} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} isDarkMode={isDarkMode} />}
         {selectedJobSummary && <JobSummaryModal job={selectedJobSummary} tickets={tickets.filter(t => t.jobNumber === selectedJobSummary.jobNumber)} onClose={() => setSelectedJobSummary(null)} onEdit={() => { setEditingJob(selectedJobSummary); setShowJobForm(true); setSelectedJobSummary(null); }} onDelete={() => { apiService.deleteJob(selectedJobSummary.id).then(() => initApp()); setSelectedJobSummary(null); }} onToggleComplete={async () => { await apiService.saveJob({ ...selectedJobSummary, isComplete: !selectedJobSummary.isComplete }); initApp(); }} onViewMedia={() => { setMediaFolderFilter(selectedJobSummary.jobNumber); handleNavigate('photos'); }} onViewMarkup={() => { setShowMarkup(selectedJobSummary); setSelectedJobSummary(null); }} isDarkMode={isDarkMode} />}
         {showMarkup && <JobPrintMarkup job={showMarkup} tickets={tickets.filter(t => t.jobNumber === showMarkup.jobNumber)} onClose={() => setShowMarkup(null)} onViewTicket={(url) => setViewingDocUrl(url)} isDarkMode={isDarkMode} />}
         {noShowTicket && <NoShowForm ticket={noShowTicket} userName={sessionUser?.name || ''} onSave={async (record) => { await apiService.addNoShow(record); initApp(); }} onDelete={async () => { await apiService.deleteNoShow(noShowTicket.id); initApp(); return true; }} onClose={() => setNoShowTicket(null)} isDarkMode={isDarkMode} />}

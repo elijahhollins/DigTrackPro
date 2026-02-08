@@ -13,11 +13,19 @@ export enum UserRole {
   CREW = 'CREW'
 }
 
+export interface Company {
+  id: string;
+  name: string;
+  brandColor?: string;
+  createdAt: number;
+}
+
 export interface User {
   id: string;
   name: string;
   role: UserRole;
   username: string;
+  companyId: string;
 }
 
 export interface UserRecord extends User {
@@ -26,6 +34,7 @@ export interface UserRecord extends User {
 
 export interface Job {
   id: string;
+  companyId: string;
   jobNumber: string;
   customer: string;
   address: string;
@@ -39,6 +48,7 @@ export interface Job {
 export interface JobPrint {
   id: string;
   jobNumber: string;
+  companyId: string;
   storagePath: string;
   fileName: string;
   isPinned: boolean;
@@ -58,6 +68,7 @@ export interface PrintMarker {
 
 export interface DigTicket {
   id: string;
+  companyId: string;
   jobNumber: string;
   ticketNo: string;
   street: string;
@@ -81,6 +92,7 @@ export interface DigTicket {
 export interface NoShowRecord {
   id: string;
   ticketId: string;
+  companyId: string;
   jobNumber: string;
   utilities: string[];
   companies: string;
@@ -90,6 +102,7 @@ export interface NoShowRecord {
 
 export interface JobPhoto {
   id: string;
+  companyId: string;
   jobNumber: string;
   dataUrl: string;
   timestamp: number;
@@ -98,6 +111,7 @@ export interface JobPhoto {
 
 export interface JobNote {
   id: string;
+  companyId: string;
   jobNumber: string;
   text: string;
   author: string;

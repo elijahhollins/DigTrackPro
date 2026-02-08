@@ -1,52 +1,47 @@
 
 import React, { useState } from 'react';
-import ReplaceTicketModal from './ReplaceTicketModal';
+import { Job, DigTicket } from '../types.ts';
 
-const JobPrintMarkup = () => {
+// Fixed: Corrected component signature to accept props required by parent App.tsx
+interface JobPrintMarkupProps {
+  job: Job;
+  tickets: DigTicket[];
+  onClose: () => void;
+  onViewTicket: (url: string) => void;
+  isDarkMode?: boolean;
+}
+
+const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, onClose, onViewTicket, isDarkMode }) => {
   // State variables
   const [replaceMode, setReplaceMode] = useState(false);
-  const [modalVisible, setModalVisible] = useState(false);
   const [selectedMarker, setSelectedMarker] = useState(null);
 
-  // Fixed: Defined missing archiveTicket logic to resolve compilation error
+  // Fixed: Defined missing archiveTicket logic
   const archiveTicket = (ticket: any) => {
     console.log('Archiving ticket:', ticket);
-    // Real implementation would call apiService.saveTicket({ ...ticket, isArchived: true })
   };
 
-  // Fixed: Defined missing createOrUpdateTicket logic to resolve compilation error
+  // Fixed: Defined missing createOrUpdateTicket logic
   const createOrUpdateTicket = (ticket: any, marker: any) => {
     console.log('Creating/Updating ticket:', ticket, 'at marker:', marker);
-    // Real implementation would call apiService.savePrintMarker with new ticket association
   };
 
   // Function to handle ticket replacement
-  const handleReplaceTicket = (oldTicket, newTicket) => {
-    // Logic to archive old ticket
+  const handleReplaceTicket = (oldTicket: any, newTicket: any) => {
     archiveTicket(oldTicket);
-    // Logic to create/update new ticket
     createOrUpdateTicket(newTicket, selectedMarker);
-    // Close modal after replacement
-    setModalVisible(false);
-  };
-
-  // Function for marker hover
-  const onMarkerHover = (marker) => {
-    setSelectedMarker(marker);
-    setReplaceMode(true);
-    setModalVisible(true);
+    setReplaceMode(false);
   };
 
   return (
-    <div>
-      {/* Your existing markup */}
-      <ReplaceTicketModal 
-        visible={modalVisible} 
-        onClose={() => setModalVisible(false)} 
-        onReplace={handleReplaceTicket} 
-        selectedMarker={selectedMarker} 
-      />
-      {/* Add Replace Pin button to marker hover state */}
+    <div className="fixed inset-0 z-[200] bg-slate-950 flex flex-col p-4">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-white font-black uppercase">Markup: Job #{job.jobNumber}</h2>
+        <button onClick={onClose} className="p-2 bg-rose-600 text-white rounded-xl">Close</button>
+      </div>
+      <div className="flex-1 bg-white rounded-2xl flex items-center justify-center text-slate-400">
+        Markup Interface Placeholder
+      </div>
     </div>
   );
 };

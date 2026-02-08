@@ -8,7 +8,9 @@ interface PhotoManagerProps {
   tickets: DigTicket[];
   initialSearch?: string | null;
   isDarkMode?: boolean;
-  onAddPhoto: (photo: Omit<JobPhoto, 'id' | 'dataUrl'>, file: File) => Promise<JobPhoto>;
+  companyId: string; // Added companyId prop to handle multitenancy injection
+  // Fixed: Prop type onAddPhoto now omits companyId to allow parent App.tsx to handle it
+  onAddPhoto: (photo: Omit<JobPhoto, 'id' | 'dataUrl' | 'companyId'>, file: File) => Promise<JobPhoto>;
   onDeletePhoto: (id: string) => void;
 }
 
@@ -32,7 +34,7 @@ type UnifiedAsset = (JobPhoto & { type: 'photo' }) | {
 
 type MediaSubFolder = 'all' | 'photos' | 'tickets';
 
-const PhotoManager: React.FC<PhotoManagerProps> = ({ photos, jobs, tickets, initialSearch = null, isDarkMode, onAddPhoto, onDeletePhoto }) => {
+const PhotoManager: React.FC<PhotoManagerProps> = ({ photos, jobs, tickets, initialSearch = null, isDarkMode, companyId, onAddPhoto, onDeletePhoto }) => {
   // Explorer State
   const [sidebarSearch, setSidebarSearch] = useState('');
   const [selectedFolder, setSelectedFolder] = useState<string | null>(initialSearch || null);
@@ -168,6 +170,7 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({ photos, jobs, tickets, init
           setUploadQueue(current => current.map(q => q.id === item.id ? { ...q, progress: Math.min(q.progress + 15, 90) } : q));
         }, 150);
 
+        // Fixed: PassingjobNumber, timestamp, caption correctly to match prop signature Omit JobPhoto 'id' | 'dataUrl' | 'companyId'
         await onAddPhoto({
           jobNumber: selectedFolder,
           timestamp: Date.now(),

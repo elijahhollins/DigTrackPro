@@ -3,7 +3,8 @@ import React, { useState, useEffect } from 'react';
 import { Job } from '../types.ts';
 
 interface JobFormProps {
-  onSave: (job: Omit<Job, 'id' | 'createdAt' | 'isComplete'>) => Promise<void> | void;
+  // Fixed: Prop type onSave now omits companyId to allow parent handleNavigate/initApp logic to manage multitenancy
+  onSave: (job: Omit<Job, 'id' | 'createdAt' | 'isComplete' | 'companyId'>) => Promise<void> | void;
   onClose: () => void;
   initialData?: Job;
   isDarkMode?: boolean;
@@ -32,6 +33,7 @@ const JobForm: React.FC<JobFormProps> = ({ onSave, onClose, initialData, isDarkM
     e.preventDefault();
     setIsSubmitting(true);
     try {
+      // Fixed: handleSubmit now correctly passes formData which matches the updated prop signature (Omit Job 'id' | 'createdAt' | 'isComplete' | 'companyId')
       await onSave(formData);
     } finally {
       setIsSubmitting(false);
