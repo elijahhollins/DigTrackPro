@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { DigTicket } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
 import { parseTicketData } from '../services/geminiService.ts';
+import { getEnv } from '../lib/supabaseClient.ts';
 
 interface IngestionItem {
   id: string;
@@ -57,8 +58,8 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
   // Sync API Key state from window
   useEffect(() => {
     const check = () => {
-      const key = (window as any).process?.env?.API_KEY || '';
-      setHasApiKey(key.length > 20 && !key.includes('API_KEY'));
+      const key = getEnv('API_KEY');
+      setHasApiKey(key.length > 20 && key !== 'undefined');
     };
     check();
     const interval = setInterval(check, 2000);

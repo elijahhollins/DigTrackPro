@@ -1,5 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
+import { getEnv } from "../lib/supabaseClient.ts";
 
 /**
  * Specialized service for parsing locate tickets using Gemini AI.
@@ -7,20 +8,32 @@ import { GoogleGenAI, Type } from "@google/genai";
  */
 export const parseTicketData = async (input: string | { data: string; mimeType: string }) => {
   // Initialization must happen inside the function to ensure current key is used.
-  // The SDK strictly requires process.env.API_KEY as the source.
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  // We use getEnv to robustly fetch the key from multiple possible sources.
+  const apiKey = getEnv('API_KEY');
+  
+  if (!apiKey || apiKey === 'undefined') {
+    throw new Error("API_KEY_MISSING: Please connect your Gemini API key using the button in the dashboard.");
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
   
   try {
     const isMedia = typeof input !== 'string';
     
     const promptText = `Extract structured locate ticket metadata from the provided ${isMedia ? 'document' : 'text'}.
     
-    RULES:
-    1. Identify 'TICKET #', 'JOB #', 'STREET', 'CROSS STREET', 'CITY', 'STATE', 'COUNTY', 'WORK START DATE', and 'EXPIRATION DATE'.
-    2. Convert all dates to YYYY-MM-DD format.
-    3. The 'Customer' name is usually found after labels like 'DONE FOR:', 'CONTRACTOR:', or 'CUSTOMER:'.
-    4. If 'Place' is found but 'City' is missing, use 'Place' as 'City'.
-    5. Return a clean JSON object according to the requested schema.`;
+    LOCATE TICKET ANALYSIS RULES:
+    1. TICKET NUMBER: Look for "Ticket:", "Ticket No:", "Tkt #", or similar.
+    2. JOB NUMBER: Look for "Job:", "Job #", "Project:", or "Reference".
+    3. ADDRESS: Extract the primary "Street" and "Cross Street" (Intersection).
+    4. LOCATION: Identify "City", "State", "County", and "Place/Township".
+    5. DATES: Extract "Work Start Date" (or "Legal Date") and "Expiration Date". 
+       - Convert all dates to YYYY-MM-DD format.
+    6. CUSTOMER: Identify the client or contractor (labels: "Done For", "Contractor", "Customer").
+    7. SITE CONTACT: Identify the person to contact on site.
+    
+    If a field is missing or illegible, return null for that field.
+    Return a clean JSON object according to the requested schema.`;
 
     const parts = isMedia 
       ? [
@@ -58,20 +71,29 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
             expires: { type: Type.STRING },
             siteContact: { type: Type.STRING },
           },
-          required: ["ticketNo", "street"],
         },
         temperature: 0,
       }
     });
 
-    const jsonStr = response.text?.trim() || "{}";
+    const text = response.text;
+    if (!text) {
+      throw new Error("The AI returned an empty response. Please try a clearer image or document.");
+    }
+
+    const jsonStr = text.trim();
     const cleanJson = jsonStr.replace(/^```json\n?/, '').replace(/\n?```$/, '');
     
     try {
-      return JSON.parse(cleanJson);
-    } catch (e) {
+      const parsed = JSON.parse(cleanJson);
+      // Basic validation: we at least need a ticket number or street to be useful
+      if (!parsed.ticketNo && !parsed.street) {
+        throw new Error("Could not identify key ticket information. Please ensure the ticket number and address are visible.");
+      }
+      return parsed;
+    } catch (e: any) {
       console.error("Gemini returned malformed response:", jsonStr);
-      throw new Error("Analysis failed: The AI response was malformed. Please ensure the image is clear.");
+      throw new Error(e.message.includes("Could not identify") ? e.message : "Analysis failed: The AI response was malformed. Please ensure the image is clear.");
     }
   } catch (error: any) {
     console.error("[Gemini] OCR Extraction Failure:", error);

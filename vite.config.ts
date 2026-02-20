@@ -10,7 +10,7 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     define: {
       // Literal string replacement for process.env.API_KEY
-      'process.env.API_KEY': JSON.stringify(env.VITE_API_KEY || env.API_KEY || 'undefined'),
+      ...(env.VITE_API_KEY || env.API_KEY ? { 'process.env.API_KEY': JSON.stringify(env.VITE_API_KEY || env.API_KEY) } : {}),
       'process.env.SUPABASE_URL': JSON.stringify(env.VITE_SUPABASE_URL || env.SUPABASE_URL),
       'process.env.SUPABASE_ANON_KEY': JSON.stringify(env.VITE_SUPABASE_ANON_KEY || env.SUPABASE_ANON_KEY),
     }

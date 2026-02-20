@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, User, UserRole, Job, JobNote, UserRecord, NoShowRecord, Company } from './types.ts';
+import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, User, UserRole, Job, UserRecord, Company } from './types.ts';
 import { getTicketStatus, getStatusColor } from './utils/dateUtils.ts';
 import { apiService } from './services/apiService.ts';
 import { supabase, isSupabaseConfigured, getEnv } from './lib/supabaseClient.ts';
@@ -35,13 +35,12 @@ const App: React.FC = () => {
   const [tickets, setTickets] = useState<DigTicket[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [photos, setPhotos] = useState<JobPhoto[]>([]);
-  const [notes, setNotes] = useState<JobNote[]>([]);
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [isProcessing] = useState(false);
   
   const [hasApiKey, setHasApiKey] = useState(() => {
-    const key = process.env.API_KEY || '';
+    const key = getEnv('API_KEY');
     return key.length > 20 && key !== 'undefined';
   });
   
@@ -58,7 +57,7 @@ const App: React.FC = () => {
   const [globalSearch, setGlobalSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<TicketStatus | 'NO_SHOW' | null>(null);
   const [showArchived, setShowArchived] = useState(false);
-  const [sortConfig, setSortConfig] = useState<{ field: SortField; order: SortOrder }>({
+  const [sortConfig] = useState<{ field: SortField; order: SortOrder }>({
     field: 'createdAt',
     order: 'desc'
   });
@@ -134,17 +133,15 @@ const App: React.FC = () => {
       }
 
       // Fetch operational data - Supabase RLS handles the company filtering automatically now!
-      const [allTicketsRes, allJobsRes, allPhotosRes, allNotesRes] = await Promise.allSettled([
+      const [allTicketsRes, allJobsRes, allPhotosRes] = await Promise.allSettled([
         apiService.getTickets(),
         apiService.getJobs(),
-        apiService.getPhotos(),
-        apiService.getNotes()
+        apiService.getPhotos()
       ]);
 
       setTickets(allTicketsRes.status === 'fulfilled' ? allTicketsRes.value : []);
       setJobs(allJobsRes.status === 'fulfilled' ? allJobsRes.value : []);
       setPhotos(allPhotosRes.status === 'fulfilled' ? allPhotosRes.value : []);
-      setNotes(allNotesRes.status === 'fulfilled' ? allNotesRes.value : []);
 
     } catch (error) { 
       console.error("Critical Init Error:", error); 
@@ -460,7 +457,7 @@ const App: React.FC = () => {
         )}
         {activeView === 'calendar' && <CalendarView tickets={tickets} onEditTicket={setEditingTicket} onViewDoc={setViewingDocUrl} />}
         {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} isAdmin={isAdmin} isDarkMode={isDarkMode} onJobSelect={(job: Job) => handleJobSelection(job.jobNumber, job)} onViewDoc={setViewingDocUrl} />}
-        {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} companyId={sessionUser.companyId} onAddPhoto={(data, file) => apiService.addPhoto(data, file)} onDeletePhoto={(id: string) => apiService.deletePhoto(id)} initialSearch={mediaFolderFilter} />}
+        {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} companyId={sessionUser.companyId} onAddPhoto={(data, file) => apiService.addPhoto({ ...data, companyId: sessionUser.companyId }, file)} onDeletePhoto={(id: string) => apiService.deletePhoto(id)} initialSearch={mediaFolderFilter} />}
         {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} isDarkMode={isDarkMode} hasApiKey={hasApiKey} onAddUser={async (u) => { await apiService.addUser({ ...u, companyId: sessionUser.companyId }); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onThemeChange={applyThemeColor} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onOpenSelectKey={handleOpenSelectKey} />}
         {(showTicketForm || editingTicket) && <TicketForm onSave={handleSaveTicket} onClose={() => { setShowTicketForm(false); setEditingTicket(null); }} initialData={editingTicket} isDarkMode={isDarkMode} existingTickets={tickets} />}
         {(showJobForm || editingJob) && <JobForm onSave={async (data) => { const job: Job = editingJob ? { ...editingJob, ...data } : { ...data, id: crypto.randomUUID(), companyId: sessionUser.companyId, createdAt: Date.now(), isComplete: false }; const saved = await apiService.saveJob(job); setJobs(prev => [...prev.filter(j => j.id !== saved.id), saved]); setShowJobForm(false); setEditingJob(null); }} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} isDarkMode={isDarkMode} />}
