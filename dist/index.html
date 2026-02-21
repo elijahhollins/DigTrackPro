@@ -1,0 +1,75 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DigTrack Pro - Locate Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script>
+      // Polyfill process.env for SDK compatibility
+      window.process = window.process || { env: {} };
+    </script>
+    <style>
+        :root {
+            --brand-primary: #3b82f6;
+            --brand-ring: rgba(59, 130, 246, 0.1);
+            --brand-shadow: rgba(59, 130, 246, 0.2);
+        }
+        body { 
+          font-family: 'Inter', sans-serif; 
+          -webkit-font-smoothing: antialiased; 
+          transition: background-color 0.5s ease;
+        }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        
+        .bg-brand { background-color: var(--brand-primary) !important; transition: background-color 0.5s ease; }
+        .text-brand { color: var(--brand-primary) !important; transition: color 0.5s ease; }
+        .border-brand { border-color: var(--brand-primary) !important; transition: border-color 0.5s ease; }
+        .ring-brand { --tw-ring-color: var(--brand-ring) !important; }
+        .shadow-brand { --tw-shadow-color: var(--brand-shadow) !important; }
+        .glow-brand { filter: drop-shadow(0 0 8px var(--brand-shadow)); transition: filter 0.5s ease; }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .animate-spin { animation: spin 1s linear infinite; }
+        
+        @keyframes viewEnter { 
+          from { opacity: 0; transform: translateY(10px); } 
+          to { opacity: 1; transform: translateY(0); } 
+        }
+        .view-transition { animation: viewEnter 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        
+        @keyframes navPop {
+          from { transform: scale(0.95); opacity: 0; }
+          to { transform: scale(1); opacity: 1; }
+        }
+        .nav-item-active { animation: navPop 0.2s ease-out forwards; }
+    </style>
+
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@19.0.0",
+    "react-dom": "https://esm.sh/react-dom@19.0.0",
+    "react-dom/client": "https://esm.sh/react-dom@19.0.0/client",
+    "react/jsx-runtime": "https://esm.sh/react@19.0.0/jsx-runtime",
+    "@google/genai": "https://esm.sh/@google/genai@1.34.0",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.47.10",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "vite": "https://esm.sh/vite@^7.3.1",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "pdfjs-dist": "https://esm.sh/pdfjs-dist@4.4.168",
+    "react-pdf": "https://esm.sh/react-pdf@^10.3.0"
+  }
+}
+</script>
+  <script type="module" crossorigin src="/assets/index-BHgCHW9Q.js"></script>
+</head>
+<body class="bg-[#0f172a] text-slate-100 selection:bg-brand selection:text-white overflow-x-hidden">
+    <div id="root"></div>
+</body>
+</html>

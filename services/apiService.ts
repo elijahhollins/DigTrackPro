@@ -433,5 +433,31 @@ export const apiService = {
   async deletePrintMarker(id: string): Promise<void> {
     const { error } = await supabase.from('print_markers').delete().eq('id', id);
     if (error) throw error;
+  },
+
+  async createCompany(company: Company): Promise<Company> {
+    const { data, error } = await supabase.from('companies').insert([{
+      id: company.id,
+      name: company.name,
+      brand_color: company.brandColor,
+      created_at: new Date().toISOString()
+    }]).select().single();
+
+    if (error) throw error;
+    return {
+      id: data.id,
+      name: data.name,
+      brandColor: data.brand_color,
+      createdAt: new Date(data.created_at).getTime()
+    };
+  },
+
+  async updateUserCompany(userId: string, companyId: string): Promise<void> {
+    const { error } = await supabase
+      .from('profiles')
+      .update({ company_id: companyId })
+      .eq('id', userId);
+
+    if (error) throw error;
   }
 };

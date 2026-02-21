@@ -15,6 +15,7 @@ import CalendarView from './components/CalendarView.tsx';
 import TeamManagement from './components/TeamManagement.tsx';
 import NoShowForm from './components/NoShowForm.tsx';
 import Login from './components/Login.tsx';
+import CompanyRegistration from './components/CompanyRegistration.tsx';
 
 declare global {
   interface AIStudio {
@@ -29,6 +30,7 @@ declare global {
 
 const App: React.FC = () => {
   const [sessionUser, setSessionUser] = useState<User | null>(null);
+  const [showCompanyRegistration, setShowCompanyRegistration] = useState(false);
   const [company, setCompany] = useState<Company | null>(null);
   const [activeView, setActiveView] = useState<AppView>('dashboard');
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('dig_theme_mode') !== 'light');
@@ -128,8 +130,9 @@ const App: React.FC = () => {
           name: session.user.user_metadata?.display_name || 'New User', 
           username: session.user.email || '', 
           role: UserRole.CREW,
-          companyId: '' // Needs assignment or registration flow
+          companyId: ''
         });
+        setShowCompanyRegistration(true);
       }
 
       // Fetch operational data - Supabase RLS handles the company filtering automatically now!
@@ -179,7 +182,7 @@ const App: React.FC = () => {
   };
 
   const handleSaveTicket = async (data: Omit<DigTicket, 'id' | 'createdAt' | 'companyId'>, archiveOld: boolean = false) => {
-    if (!sessionUser?.companyId) return alert("Account error: No company ID associated.");
+    if (!sessionUser?.companyId) { setShowCompanyRegistration(true); return; }
     try {
       const ticketData = { ...data, companyId: sessionUser.companyId };
       await ensureJobExists(ticketData);
@@ -198,6 +201,25 @@ const App: React.FC = () => {
 
   const handleSignOut = async () => {
     try { await supabase.auth.signOut(); setSessionUser(null); } catch (error: any) { console.error("Sign out error:", error.message); }
+  };
+
+  const handleCompanyCreation = async (companyName: string, brandColor: string) => {
+    if (!sessionUser) return;
+    const newCompany: Company = {
+      id: crypto.randomUUID(),
+      name: companyName,
+      brandColor,
+      createdAt: Date.now()
+    };
+    const createdCompany = await apiService.createCompany(newCompany);
+    await apiService.updateUserCompany(sessionUser.id, createdCompany.id);
+    setCompany(createdCompany);
+    setSessionUser(prev => prev ? { ...prev, companyId: createdCompany.id } : prev);
+    if (createdCompany.brandColor) applyThemeColor(createdCompany.brandColor);
+    setShowCompanyRegistration(false);
+    // Reset the guard so initApp can run again to load the new company's data
+    initRef.current = false;
+    await initApp();
   };
 
   const handleToggleArchive = async (ticket: DigTicket, e: React.MouseEvent) => {
@@ -293,6 +315,7 @@ const App: React.FC = () => {
   }
 
   if (!sessionUser) return <Login />;
+  if (showCompanyRegistration) return <CompanyRegistration onComplete={handleCompanyCreation} isDarkMode={isDarkMode} />;
 
   const isAdmin = sessionUser.role === UserRole.ADMIN;
   const NAV_ITEMS: { id: AppView; label: string; icon: React.ReactNode }[] = [
