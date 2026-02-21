@@ -2,6 +2,13 @@
 import { supabase } from '../lib/supabaseClient.ts';
 import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job, NoShowRecord, JobPrint, PrintMarker, Company } from '../types.ts';
 
+const mapRole = (role: string | undefined): UserRole => {
+  const r = role?.toUpperCase();
+  if (r === 'SUPER_ADMIN') return UserRole.SUPER_ADMIN;
+  if (r === 'ADMIN') return UserRole.ADMIN;
+  return UserRole.CREW;
+};
+
 export const SQL_SCHEMA = `-- 1. RESET SCHEMATIC
 DO $$ 
 DECLARE 
@@ -156,6 +163,54 @@ using (id = (select company_id from profiles where id = auth.uid()));
 create policy "allow_company_insert" on companies for insert to authenticated
 with check (true);
 
+-- 5. COMPANY INVITES TABLE
+create table if not exists company_invites (
+    id uuid primary key default gen_random_uuid(),
+    company_id uuid references companies(id) on delete cascade not null,
+    token uuid unique default gen_random_uuid() not null,
+    used_at timestamp with time zone,
+    created_at timestamp with time zone default now()
+);
+alter table company_invites enable row level security;
+
+-- 6. SECURITY-DEFINER FUNCTIONS (avoid recursive RLS checks)
+create or replace function is_super_admin() returns boolean
+  language sql security definer stable as $$
+  select exists (select 1 from public.profiles where id = auth.uid() and role = 'SUPER_ADMIN')
+$$;
+
+create or replace function validate_invite_token(p_token uuid)
+  returns table(company_id uuid, company_name text)
+  language sql security definer stable as $$
+  select ci.company_id, c.name as company_name
+  from public.company_invites ci
+  join public.companies c on c.id = ci.company_id
+  where ci.token = p_token and ci.used_at is null
+$$;
+
+create or replace function get_company_by_name(p_name text)
+  returns table(company_id uuid, company_name text, brand_color text)
+  language sql security definer stable as $$
+  select id, name, brand_color from public.companies where lower(name) = lower(p_name) limit 1
+$$;
+
+grant execute on function is_super_admin to authenticated;
+grant execute on function validate_invite_token to anon, authenticated;
+grant execute on function get_company_by_name to anon, authenticated;
+
+-- 7. SUPER-ADMIN & INVITE POLICIES
+create policy "super_admin_read_all_profiles" on profiles
+  for select to authenticated using (is_super_admin());
+
+create policy "super_admin_read_all_companies" on companies
+  for select to authenticated using (is_super_admin());
+
+create policy "super_admin_manage_invites" on company_invites
+  for all to authenticated using (is_super_admin()) with check (is_super_admin());
+
+create policy "mark_invite_used" on company_invites
+  for update to authenticated using (used_at is null) with check (true);
+
 grant all on all tables in schema public to authenticated;`;
 
 const generateUUID = () => crypto.randomUUID();
@@ -191,7 +246,7 @@ export const apiService = {
     return (data || []).map(u => ({ 
       ...u, 
       companyId: u.company_id,
-      role: u.role?.toUpperCase() === 'ADMIN' ? UserRole.ADMIN : UserRole.CREW 
+      role: mapRole(u.role)
     }));
   },
 
@@ -202,14 +257,14 @@ export const apiService = {
       name: user.name, 
       username: user.username, 
       role: user.role || UserRole.CREW,
-      company_id: user.companyId
+      company_id: user.companyId || null
     };
     const { data, error } = await supabase.from('profiles').upsert([newUserRecord]).select().single();
     if (error) throw error;
     return { 
       ...data, 
       companyId: data.company_id,
-      role: data.role?.toUpperCase() === 'ADMIN' ? UserRole.ADMIN : UserRole.CREW 
+      role: mapRole(data.role)
     };
   },
 
@@ -467,5 +522,45 @@ export const apiService = {
       .upsert({ id: userId, company_id: companyId });
 
     if (error) throw error;
+  },
+
+  async getAllCompanies(): Promise<Company[]> {
+    const { data, error } = await supabase.from('companies').select('*');
+    if (error) return [];
+    return (data || []).map(d => ({
+      id: d.id,
+      name: d.name,
+      brandColor: d.brand_color,
+      createdAt: new Date(d.created_at).getTime()
+    }));
+  },
+
+  async createCompanyAndInvite(name: string, brandColor: string): Promise<{ company: Company; inviteToken: string }> {
+    const company = await this.createCompany({ id: crypto.randomUUID(), name, brandColor, createdAt: Date.now() });
+    const { data, error } = await supabase.from('company_invites').insert([{ company_id: company.id }]).select().single();
+    if (error) throw error;
+    return { company, inviteToken: data.token as string };
+  },
+
+  async createInviteForCompany(companyId: string): Promise<string> {
+    const { data, error } = await supabase.from('company_invites').insert([{ company_id: companyId }]).select().single();
+    if (error) throw error;
+    return data.token as string;
+  },
+
+  async validateInviteToken(token: string): Promise<{ companyId: string; companyName: string } | null> {
+    const { data, error } = await supabase.rpc('validate_invite_token', { p_token: token });
+    if (error || !data?.length) return null;
+    return { companyId: data[0].company_id, companyName: data[0].company_name };
+  },
+
+  async markInviteUsed(token: string): Promise<void> {
+    await supabase.from('company_invites').update({ used_at: new Date().toISOString() }).eq('token', token);
+  },
+
+  async getCompanyByName(name: string): Promise<Company | null> {
+    const { data, error } = await supabase.rpc('get_company_by_name', { p_name: name });
+    if (error || !data?.length) return null;
+    return { id: data[0].company_id, name: data[0].company_name, brandColor: data[0].brand_color, createdAt: 0 };
   }
 };
