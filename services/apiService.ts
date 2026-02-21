@@ -133,6 +133,11 @@ alter table print_markers enable row level security;
 create policy "tenant_isolation_profiles" on profiles for all to authenticated 
 using (company_id = (select company_id from profiles where id = auth.uid()));
 
+-- Allow users to always read and manage their own profile (needed during registration when company_id is NULL)
+create policy "allow_own_profile" on profiles for all to authenticated
+using (id = auth.uid())
+with check (id = auth.uid());
+
 create policy "tenant_isolation_jobs" on jobs for all to authenticated 
 using (company_id = (select company_id from profiles where id = auth.uid()))
 with check (company_id = (select company_id from profiles where id = auth.uid()));
@@ -146,6 +151,10 @@ using (company_id = (select company_id from profiles where id = auth.uid()));
 
 create policy "tenant_isolation_companies" on companies for select to authenticated 
 using (id = (select company_id from profiles where id = auth.uid()));
+
+-- Allow any authenticated user to create a new company (needed during onboarding when no company exists yet)
+create policy "allow_company_insert" on companies for insert to authenticated
+with check (true);
 
 grant all on all tables in schema public to authenticated;`;
 
@@ -455,8 +464,7 @@ export const apiService = {
   async updateUserCompany(userId: string, companyId: string): Promise<void> {
     const { error } = await supabase
       .from('profiles')
-      .update({ company_id: companyId })
-      .eq('id', userId);
+      .upsert({ id: userId, company_id: companyId });
 
     if (error) throw error;
   }
