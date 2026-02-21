@@ -10,7 +10,16 @@ export enum TicketStatus {
 
 export enum UserRole {
   ADMIN = 'ADMIN',
-  CREW = 'CREW'
+  CREW = 'CREW',
+  SUPER_ADMIN = 'SUPER_ADMIN'
+}
+
+export interface CompanyInvite {
+  id: string;
+  companyId: string;
+  token: string;
+  usedAt?: number;
+  createdAt: number;
 }
 
 export interface Company {

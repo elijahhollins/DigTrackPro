@@ -1,16 +1,42 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient.ts';
+import { apiService } from '../services/apiService.ts';
 
 const Login: React.FC = () => {
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  const [inviteToken, setInviteToken] = useState<string | null>(null);
+  const [inviteCompanyId, setInviteCompanyId] = useState<string | null>(null);
+  const [isValidatingInvite, setIsValidatingInvite] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showResend, setShowResend] = useState(false);
+
+  // Parse ?invite=<token> from URL and validate it before auth
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('invite');
+    if (token) {
+      setInviteToken(token);
+      setIsSignUp(true);
+      setIsValidatingInvite(true);
+      apiService.validateInviteToken(token).then(info => {
+        if (info) {
+          setInviteCompanyId(info.companyId);
+          setCompanyName(info.companyName);
+        } else {
+          setError('This invite link is invalid or has already been used.');
+        }
+      }).catch(() => {
+        setError('Could not validate invite link. Please try again.');
+      }).finally(() => setIsValidatingInvite(false));
+    }
+  }, []);
 
   const handleResendEmail = async () => {
     setIsSubmitting(true);
@@ -40,13 +66,27 @@ const Login: React.FC = () => {
     setShowResend(false);
     setIsSubmitting(true);
 
+    // Require company name on signup unless it's pre-filled from an invite
+    if (isSignUp && !inviteCompanyId && !companyName.trim()) {
+      setError('Please enter your company name.');
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
       if (isSignUp) {
         const { data, error: signUpError } = await supabase.auth.signUp({
           email,
           password,
-          options: { 
-            data: { display_name: name },
+          options: {
+            data: {
+              display_name: name,
+              // Invite-based signup: store company_id + token so initApp can auto-create the profile
+              ...(inviteCompanyId
+                ? { company_id: inviteCompanyId, invite_token: inviteToken }
+                : { company_name: companyName.trim() }
+              )
+            },
             emailRedirectTo: window.location.origin
           }
         });
@@ -89,7 +129,7 @@ const Login: React.FC = () => {
             </div>
             <h1 className="text-xl font-black text-slate-900 tracking-tight uppercase">DigTrack Pro</h1>
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">
-              {isSignUp ? 'New User Registration' : 'Site Portal Login'}
+              {isSignUp ? (inviteCompanyId ? 'Admin Invite Registration' : 'New User Registration') : 'Site Portal Login'}
             </p>
           </div>
 
@@ -126,6 +166,27 @@ const Login: React.FC = () => {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                 />
+              </div>
+            )}
+
+            {isSignUp && (
+              <div className="space-y-1">
+                <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1 flex items-center gap-1">
+                  Company Name
+                  {inviteCompanyId && <span className="text-brand">· Admin Invite ✓</span>}
+                </label>
+                <input
+                  required={!inviteCompanyId}
+                  type="text"
+                  placeholder={isValidatingInvite ? 'Validating invite...' : 'e.g. Acme Utilities Inc.'}
+                  className={`w-full px-4 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 outline-none focus:ring-4 focus:ring-brand/10 transition-all ${inviteCompanyId ? 'bg-brand/5 border-brand/20 cursor-not-allowed' : 'bg-slate-50'}`}
+                  value={isValidatingInvite ? '' : companyName}
+                  onChange={(e) => !inviteCompanyId && setCompanyName(e.target.value)}
+                  readOnly={!!inviteCompanyId || isValidatingInvite}
+                />
+                {inviteCompanyId && (
+                  <p className="text-[9px] text-brand font-bold ml-1">You will be set as Admin of this company.</p>
+                )}
               </div>
             )}
 
