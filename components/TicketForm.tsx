@@ -91,7 +91,9 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
   useEffect(() => {
     if (isBatchMode) {
       const activeItem = queue[activeIndex];
-      if (activeItem?.status === 'ready' && activeItem.extractedData) {
+      const isPopulatedStatus = activeItem?.status === 'ready' || activeItem?.status === 'duplicate';
+      
+      if (isPopulatedStatus && activeItem.extractedData) {
         setFormData({
           jobNumber: activeItem.extractedData.jobNumber || '',
           ticketNo: activeItem.extractedData.ticketNo || '',
@@ -307,8 +309,10 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
                     ? 'bg-brand text-slate-900 ring-2 ring-brand/50 scale-110' 
                     : item.status === 'saved'
                       ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 opacity-60'
-                      : item.status === 'error'
-                        ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20'
+                    : item.status === 'duplicate'
+                      ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
+                    : item.status === 'error'
+                      ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20'
                         : isDarkMode ? 'bg-white/5 text-slate-500' : 'bg-slate-100 text-slate-400'
                 }`}
               >
@@ -316,6 +320,8 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
                   <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
                 ) : item.status === 'saved' ? (
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
+                ) : item.status === 'duplicate' ? (
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
                 ) : item.status === 'error' ? (
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
                 ) : (
@@ -434,6 +440,11 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
                   <label className="text-[10px] font-black uppercase tracking-widest ml-1 text-slate-500">Expires Date</label>
                   <input type="date" required className={`w-full px-5 py-4 border rounded-2xl text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-300 text-black'}`} value={formData.expires} onChange={e => setFormData({...formData, expires: e.target.value})} />
                 </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase tracking-widest ml-1 text-slate-500">Site Contact / Client</label>
+                <input className={`w-full px-5 py-4 border rounded-2xl text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-300 text-black'}`} value={formData.siteContact} onChange={e => setFormData({...formData, siteContact: e.target.value})} placeholder="e.g. John Doe (555-0123)" />
               </div>
 
               <div className="pt-6">

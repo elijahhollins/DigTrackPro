@@ -1,7 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
 import { DigTicket } from '../types.ts';
-import { getTicketStatus } from '../utils/dateUtils.ts';
 
 interface CalendarViewProps {
   tickets: DigTicket[];

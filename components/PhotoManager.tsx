@@ -34,7 +34,7 @@ type UnifiedAsset = (JobPhoto & { type: 'photo' }) | {
 
 type MediaSubFolder = 'all' | 'photos' | 'tickets';
 
-const PhotoManager: React.FC<PhotoManagerProps> = ({ photos, jobs, tickets, initialSearch = null, isDarkMode, companyId, onAddPhoto, onDeletePhoto }) => {
+const PhotoManager: React.FC<PhotoManagerProps> = ({ photos, jobs, tickets, initialSearch = null, isDarkMode, onAddPhoto, onDeletePhoto }) => {
   // Explorer State
   const [sidebarSearch, setSidebarSearch] = useState('');
   const [selectedFolder, setSelectedFolder] = useState<string | null>(initialSearch || null);

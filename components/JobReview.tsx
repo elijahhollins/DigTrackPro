@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { Job, DigTicket, TicketStatus } from '../types.ts';
+import { Job, DigTicket } from '../types.ts';
 import { getTicketStatus, getStatusColor } from '../utils/dateUtils.ts';
 
 interface JobReviewProps {
@@ -18,7 +18,7 @@ interface JobReviewProps {
  * Supports switching between grid and list views.
  * Default view is 'list' with expandable job rows.
  */
-export const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, isAdmin, isDarkMode, onJobSelect, onViewDoc }) => {
+export const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, isDarkMode, onJobSelect, onViewDoc }) => {
   const [viewMode, setViewMode] = useState<'thumbnail' | 'list'>('list');
   const [hideCompleted, setHideCompleted] = useState(false);
   const [showHistoryFor, setShowHistoryFor] = useState<string | null>(null);

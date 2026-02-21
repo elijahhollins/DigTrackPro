@@ -1,13 +1,8 @@
 
 import React, { useState } from 'react';
-import { User } from '../types.ts';
 import { supabase } from '../lib/supabaseClient.ts';
 
-interface LoginProps {
-  onLogin: (user: User) => void;
-}
-
-const Login: React.FC<LoginProps> = ({ onLogin }) => {
+const Login: React.FC = () => {
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

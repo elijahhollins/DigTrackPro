@@ -16,12 +16,12 @@ interface JobPrintMarkupProps {
   isDarkMode?: boolean;
 }
 
-export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, onClose, onViewTicket, isDarkMode }) => {
+export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, onClose, onViewTicket }) => {
   const [print, setPrint] = useState<JobPrint | null>(null);
   const [markers, setMarkers] = useState<PrintMarker[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [, setIsLoading] = useState(true);
   const [isRenderingPage, setIsRenderingPage] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
+  const [, setIsUploading] = useState(false);
   const [isMapReady, setIsMapReady] = useState(false);
   
   // Document Dimensions

@@ -1,5 +1,4 @@
 
-import React from 'react';
 import { DigTicket, TicketStatus } from '../types.ts';
 import { getTicketStatus } from '../utils/dateUtils.ts';
 

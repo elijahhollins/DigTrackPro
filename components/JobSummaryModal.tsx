@@ -1,12 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
-import { Job, DigTicket, TicketStatus, JobPrint } from '../types.ts';
-import { getTicketStatus } from '../utils/dateUtils.ts';
+import { Job, JobPrint } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
 
 interface JobSummaryModalProps {
   job: Job;
-  tickets: DigTicket[];
   onClose: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -18,7 +16,6 @@ interface JobSummaryModalProps {
 
 export const JobSummaryModal: React.FC<JobSummaryModalProps> = ({
   job,
-  tickets,
   onClose,
   onEdit,
   onDelete,
@@ -28,10 +25,6 @@ export const JobSummaryModal: React.FC<JobSummaryModalProps> = ({
   isDarkMode
 }) => {
   const [pinnedPrint, setPinnedPrint] = useState<JobPrint | null>(null);
-  
-  const activeTickets = tickets.filter(t => !t.isArchived);
-  const expiredCount = activeTickets.filter(t => getTicketStatus(t) === TicketStatus.EXPIRED).length;
-  const validCount = activeTickets.length - expiredCount;
 
   const isPdf = (url?: string) => url?.toLowerCase().split('?')[0].endsWith('.pdf');
 
