@@ -2,6 +2,18 @@
 
 This directory contains SQL scripts for setting up and managing the DigTrack Pro database on Supabase with Row Level Security (RLS) policies.
 
+---
+
+## ⚠️ IMPORTANT: Manual Execution Required
+
+**These SQL files do NOT run automatically!** 
+
+You must **manually copy and paste** them into the Supabase Dashboard SQL Editor and click "Run".
+
+📖 **See [FAQ.md](FAQ.md) for detailed explanation** of why and how to automate if desired.
+
+---
+
 ## 📁 Files Overview
 
 ### 1. `complete_rls_setup.sql` ⭐ **RECOMMENDED**

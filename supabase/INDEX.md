@@ -2,7 +2,24 @@
 
 Welcome to the DigTrack Pro Supabase RLS documentation! This index will help you find exactly what you need.
 
+---
+
+## 🔴 IMPORTANT: Read This First!
+
+**❓ "Does Supabase automatically run these SQL files?"**
+
+**NO!** You must manually execute them in the Supabase Dashboard.
+
+📖 **→ [Read FAQ.md](FAQ.md) for full explanation and automation options**
+
+---
+
 ## 🎯 I Want To...
+
+### ❓ Understand How to Run SQL Files
+→ **[FAQ.md](FAQ.md)** 🔴 **MUST READ** - Does Supabase auto-run SQL?  
+→ Explains manual vs automatic execution  
+→ Shows automation options if desired
 
 ### Get Started Quickly
 → **[SUMMARY.md](SUMMARY.md)** - 5-minute overview of what's included  
@@ -24,6 +41,7 @@ Welcome to the DigTrack Pro Supabase RLS documentation! This index will help you
 → **[README.md](README.md)** - Migration notes section
 
 ### Troubleshoot Issues
+→ **[FAQ.md](FAQ.md)** - Common questions  
 → **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** - Troubleshooting section  
 → **[README.md](README.md)** - Troubleshooting section  
 → **[MIGRATION_GUIDE.md](MIGRATION_GUIDE.md)** - FAQ section
@@ -38,12 +56,14 @@ Welcome to the DigTrack Pro Supabase RLS documentation! This index will help you
 | File | Purpose | When to Use |
 |------|---------|-------------|
 | **[complete_rls_setup.sql](complete_rls_setup.sql)** ⭐ | Main setup script | New projects or updates |
+| **[FAQ.md](FAQ.md)** 🔴 | Execution explained | **READ THIS FIRST** |
 | [add_company_id_columns.sql](add_company_id_columns.sql) | Add company_id columns | Migrating old database |
 | [fix_company_registration_rls.sql](fix_company_registration_rls.sql) | Legacy policies | Reference only |
 
 ### Documentation
 | File | Purpose | Read Time |
 |------|---------|-----------|
+| **[FAQ.md](FAQ.md)** 🔴 | **How to run SQL** | **5 minutes** |
 | **[SUMMARY.md](SUMMARY.md)** | Quick overview | 5 minutes |
 | **[README.md](README.md)** | Main guide | 15 minutes |
 | [QUICK_REFERENCE.md](QUICK_REFERENCE.md) | SQL commands | Reference |

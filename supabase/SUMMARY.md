@@ -1,5 +1,19 @@
 # 🎯 Summary: RLS Policy Update Complete
 
+## ⚠️ CRITICAL: These SQL Files Must Be Manually Executed!
+
+**Supabase does NOT automatically run SQL files from your repository.**
+
+You need to:
+1. Open Supabase Dashboard → SQL Editor
+2. Copy the contents of `complete_rls_setup.sql`
+3. Paste into SQL Editor
+4. Click "Run" button
+
+📖 **See [FAQ.md](FAQ.md)** for full explanation and automation options.
+
+---
+
 ## What Was Delivered
 
 I've created a **comprehensive SQL setup and documentation suite** for your DigTrack Pro Supabase database with proper Row Level Security (RLS) policies.
