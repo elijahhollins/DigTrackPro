@@ -4,6 +4,18 @@ Welcome to the DigTrack Pro Supabase RLS documentation! This index will help you
 
 ---
 
+## 📍 CAN'T FIND THE FILES?
+
+**→ Read [../WHERE_ARE_THE_FILES.md](../WHERE_ARE_THE_FILES.md)** 🔴
+
+This guide shows you:
+- ✅ Exact file locations in the repository
+- ✅ How to access via GitHub website
+- ✅ How to clone the repository
+- ✅ Direct links to all files
+
+---
+
 ## 🔴 IMPORTANT: Read This First!
 
 **❓ "Does Supabase automatically run these SQL files?"**

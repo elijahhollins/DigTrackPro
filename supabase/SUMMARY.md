@@ -1,5 +1,14 @@
 # 🎯 Summary: RLS Policy Update Complete
 
+## 📍 CAN'T FIND THESE FILES?
+
+**→ See [../WHERE_ARE_THE_FILES.md](../WHERE_ARE_THE_FILES.md)** for complete guide on accessing all files!
+
+- GitHub URL: https://github.com/elijahhollins/DigTrackPro/tree/main/supabase
+- Direct to this file: https://github.com/elijahhollins/DigTrackPro/blob/main/supabase/complete_rls_setup.sql
+
+---
+
 ## ⚠️ CRITICAL: These SQL Files Must Be Manually Executed!
 
 **Supabase does NOT automatically run SQL files from your repository.**
