@@ -15,6 +15,7 @@ import CalendarView from './components/CalendarView.tsx';
 import TeamManagement from './components/TeamManagement.tsx';
 import NoShowForm from './components/NoShowForm.tsx';
 import Login from './components/Login.tsx';
+import CompanyRegistration from './components/CompanyRegistration.tsx';
 
 declare global {
   interface AIStudio {
@@ -29,7 +30,9 @@ declare global {
 
 const App: React.FC = () => {
   const [sessionUser, setSessionUser] = useState<User | null>(null);
+  const [showCompanyRegistration, setShowCompanyRegistration] = useState(false);
   const [company, setCompany] = useState<Company | null>(null);
+  const [allCompanies, setAllCompanies] = useState<Company[]>([]);
   const [activeView, setActiveView] = useState<AppView>('dashboard');
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('dig_theme_mode') !== 'light');
   const [tickets, setTickets] = useState<DigTicket[]>([]);
@@ -121,15 +124,39 @@ const App: React.FC = () => {
           setCompany(companyData);
           if (companyData?.brandColor) applyThemeColor(companyData.brandColor);
         }
+        // Super-admin needs the full company list for the platform admin panel
+        if (matchedProfile.role === UserRole.SUPER_ADMIN) {
+          const allCos = await apiService.getAllCompanies();
+          setAllCompanies(allCos);
+        }
       } else {
-        // Handle new user who hasn't been assigned a company yet
-        setSessionUser({ 
-          id: session.user.id, 
-          name: session.user.user_metadata?.display_name || 'New User', 
-          username: session.user.email || '', 
-          role: UserRole.CREW,
-          companyId: '' // Needs assignment or registration flow
-        });
+        // New user — auto-create profile using metadata stored during signup
+        const meta = (session.user.user_metadata as Record<string, string>) || {};
+        const inviteCompanyId = meta.company_id;
+        const inviteToken = meta.invite_token;
+        const companyNameMeta = meta.company_name;
+        const displayName = meta.display_name || 'New User';
+
+        if (inviteCompanyId) {
+          // Invited admin: create profile as ADMIN of the specified company
+          await apiService.addUser({ id: session.user.id, name: displayName, username: session.user.email || '', role: UserRole.ADMIN, companyId: inviteCompanyId });
+          if (inviteToken) { try { await apiService.markInviteUsed(inviteToken); } catch (e) { console.warn('markInviteUsed failed:', e); } }
+          initRef.current = false;
+          await initApp();
+          return;
+        } else if (companyNameMeta) {
+          // Crew signup: look up company by name and join as CREW
+          const found = await apiService.getCompanyByName(companyNameMeta);
+          if (found) {
+            await apiService.addUser({ id: session.user.id, name: displayName, username: session.user.email || '', role: UserRole.CREW, companyId: found.id });
+            initRef.current = false;
+            await initApp();
+            return;
+          }
+        }
+        // Fallback: show company registration (bootstrap / first super-admin setup)
+        setSessionUser({ id: session.user.id, name: displayName, username: session.user.email || '', role: UserRole.CREW, companyId: '' });
+        setShowCompanyRegistration(true);
       }
 
       // Fetch operational data - Supabase RLS handles the company filtering automatically now!
@@ -179,7 +206,7 @@ const App: React.FC = () => {
   };
 
   const handleSaveTicket = async (data: Omit<DigTicket, 'id' | 'createdAt' | 'companyId'>, archiveOld: boolean = false) => {
-    if (!sessionUser?.companyId) return alert("Account error: No company ID associated.");
+    if (!sessionUser?.companyId) { setShowCompanyRegistration(true); return; }
     try {
       const ticketData = { ...data, companyId: sessionUser.companyId };
       await ensureJobExists(ticketData);
@@ -198,6 +225,25 @@ const App: React.FC = () => {
 
   const handleSignOut = async () => {
     try { await supabase.auth.signOut(); setSessionUser(null); } catch (error: any) { console.error("Sign out error:", error.message); }
+  };
+
+  const handleCompanyCreation = async (companyName: string, brandColor: string) => {
+    if (!sessionUser) return;
+    const newCompany: Company = {
+      id: crypto.randomUUID(),
+      name: companyName,
+      brandColor,
+      createdAt: Date.now()
+    };
+    const createdCompany = await apiService.createCompany(newCompany);
+    await apiService.updateUserCompany(sessionUser.id, createdCompany.id);
+    setCompany(createdCompany);
+    setSessionUser(prev => prev ? { ...prev, companyId: createdCompany.id } : prev);
+    if (createdCompany.brandColor) applyThemeColor(createdCompany.brandColor);
+    setShowCompanyRegistration(false);
+    // Reset the guard so initApp can run again to load the new company's data
+    initRef.current = false;
+    await initApp();
   };
 
   const handleToggleArchive = async (ticket: DigTicket, e: React.MouseEvent) => {
@@ -293,8 +339,10 @@ const App: React.FC = () => {
   }
 
   if (!sessionUser) return <Login />;
+  if (showCompanyRegistration) return <CompanyRegistration onComplete={handleCompanyCreation} isDarkMode={isDarkMode} />;
 
-  const isAdmin = sessionUser.role === UserRole.ADMIN;
+  const isSuperAdmin = sessionUser.role === UserRole.SUPER_ADMIN;
+  const isAdmin = sessionUser.role === UserRole.ADMIN || isSuperAdmin;
   const NAV_ITEMS: { id: AppView; label: string; icon: React.ReactNode }[] = [
     { id: 'dashboard', label: 'Vault', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg> },
     { id: 'jobs', label: 'Projects', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2-2v10a2 2 0 002 2z" /></svg> },
@@ -458,7 +506,7 @@ const App: React.FC = () => {
         {activeView === 'calendar' && <CalendarView tickets={tickets} onEditTicket={setEditingTicket} onViewDoc={setViewingDocUrl} />}
         {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} isAdmin={isAdmin} isDarkMode={isDarkMode} onJobSelect={(job: Job) => handleJobSelection(job.jobNumber, job)} onViewDoc={setViewingDocUrl} />}
         {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} companyId={sessionUser.companyId} onAddPhoto={(data, file) => apiService.addPhoto({ ...data, companyId: sessionUser.companyId }, file)} onDeletePhoto={(id: string) => apiService.deletePhoto(id)} initialSearch={mediaFolderFilter} />}
-        {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} isDarkMode={isDarkMode} hasApiKey={hasApiKey} onAddUser={async (u) => { await apiService.addUser({ ...u, companyId: sessionUser.companyId }); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onThemeChange={applyThemeColor} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onOpenSelectKey={handleOpenSelectKey} />}
+        {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} isDarkMode={isDarkMode} hasApiKey={hasApiKey} isSuperAdmin={isSuperAdmin} allCompanies={allCompanies} onCompanyCreated={(co) => setAllCompanies(prev => [...prev, co])} onAddUser={async (u) => { await apiService.addUser({ ...u, companyId: sessionUser.companyId }); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onThemeChange={applyThemeColor} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onOpenSelectKey={handleOpenSelectKey} />}
         {(showTicketForm || editingTicket) && <TicketForm onSave={handleSaveTicket} onClose={() => { setShowTicketForm(false); setEditingTicket(null); }} initialData={editingTicket} isDarkMode={isDarkMode} existingTickets={tickets} />}
         {(showJobForm || editingJob) && <JobForm onSave={async (data) => { const job: Job = editingJob ? { ...editingJob, ...data } : { ...data, id: crypto.randomUUID(), companyId: sessionUser.companyId, createdAt: Date.now(), isComplete: false }; const saved = await apiService.saveJob(job); setJobs(prev => [...prev.filter(j => j.id !== saved.id), saved]); setShowJobForm(false); setEditingJob(null); }} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} isDarkMode={isDarkMode} />}
         {selectedJobSummary && <JobSummaryModal job={selectedJobSummary} onClose={() => setSelectedJobSummary(null)} onEdit={() => { setEditingJob(selectedJobSummary); setShowJobForm(true); setSelectedJobSummary(null); }} onDelete={() => { apiService.deleteJob(selectedJobSummary.id).then(() => initApp()); setSelectedJobSummary(null); }} onToggleComplete={async () => { await apiService.saveJob({ ...selectedJobSummary, isComplete: !selectedJobSummary.isComplete }); initApp(); }} onViewMedia={() => { setMediaFolderFilter(selectedJobSummary.jobNumber); handleNavigate('photos'); }} onViewMarkup={() => { setShowMarkup(selectedJobSummary); setSelectedJobSummary(null); }} isDarkMode={isDarkMode} />}
