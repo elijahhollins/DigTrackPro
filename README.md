@@ -4,6 +4,13 @@
 
 # Run and deploy your AI Studio app
 
+> **📍 Looking for SQL files and database setup?**  
+> → See [WHERE_ARE_THE_FILES.md](WHERE_ARE_THE_FILES.md) for complete guide  
+> → All files are in [supabase/](supabase/) folder  
+> → Main SQL: [supabase/complete_rls_setup.sql](supabase/complete_rls_setup.sql)
+
+---
+
 This contains everything you need to run your app locally.
 
 View your app in AI Studio: https://ai.studio/apps/b0005de5-2d0a-4b12-a837-7deb892aa7f2
