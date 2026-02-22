@@ -519,7 +519,8 @@ export const apiService = {
   async updateUserCompany(userId: string, companyId: string): Promise<void> {
     const { error } = await supabase
       .from('profiles')
-      .upsert({ id: userId, company_id: companyId });
+      .upsert({ id: userId, company_id: companyId })
+      .select();
 
     if (error) throw error;
   },
