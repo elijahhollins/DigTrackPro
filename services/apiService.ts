@@ -508,6 +508,7 @@ export const apiService = {
     }]).select().single();
 
     if (error) throw error;
+    if (!data) throw new Error('Failed to create company: No data returned');
     return {
       id: data.id,
       name: data.name,

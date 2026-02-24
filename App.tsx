@@ -229,26 +229,21 @@ const App: React.FC = () => {
 
   const handleCompanyCreation = async (companyName: string, brandColor: string) => {
     if (!sessionUser) return;
-    try {
-      const newCompany: Company = {
-        id: crypto.randomUUID(),
-        name: companyName,
-        brandColor,
-        createdAt: Date.now()
-      };
-      const createdCompany = await apiService.createCompany(newCompany);
-      await apiService.updateUserCompany(sessionUser.id, createdCompany.id);
-      setCompany(createdCompany);
-      setSessionUser(prev => prev ? { ...prev, companyId: createdCompany.id } : prev);
-      if (createdCompany.brandColor) applyThemeColor(createdCompany.brandColor);
-      setShowCompanyRegistration(false);
-      // Reset the guard so initApp can run again to load the new company's data
-      initRef.current = false;
-      await initApp();
-    } catch (error) {
-      // Re-throw error to be handled by CompanyRegistration component
-      throw error;
-    }
+    const newCompany: Company = {
+      id: crypto.randomUUID(),
+      name: companyName,
+      brandColor,
+      createdAt: Date.now()
+    };
+    const createdCompany = await apiService.createCompany(newCompany);
+    await apiService.updateUserCompany(sessionUser.id, createdCompany.id);
+    setCompany(createdCompany);
+    setSessionUser(prev => prev ? { ...prev, companyId: createdCompany.id } : prev);
+    if (createdCompany.brandColor) applyThemeColor(createdCompany.brandColor);
+    setShowCompanyRegistration(false);
+    // Reset the guard so initApp can run again to load the new company's data
+    initRef.current = false;
+    await initApp();
   };
 
   const handleToggleArchive = async (ticket: DigTicket, e: React.MouseEvent) => {
