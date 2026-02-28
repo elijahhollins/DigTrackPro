@@ -528,13 +528,24 @@ export const apiService = {
 
   async updateUserCompany(userId: string, companyId: string, role?: UserRole): Promise<void> {
     // Fetch existing profile to preserve fields if not provided
-    const { data: existing } = await supabase
+    const { data: existing, error: fetchError } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', userId)
       .single();
     
-    const updateData: any = { 
+    if (fetchError && fetchError.code !== 'PGRST116') {
+      // PGRST116 is "not found" error, which is okay for new profiles
+      throw fetchError;
+    }
+    
+    const updateData: {
+      id: string;
+      company_id: string;
+      role?: string;
+      name?: string;
+      username?: string;
+    } = { 
       id: userId, 
       company_id: companyId
     };
