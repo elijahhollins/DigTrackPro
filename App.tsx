@@ -41,6 +41,7 @@ const App: React.FC = () => {
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
   
   const [hasApiKey, setHasApiKey] = useState(() => {
     const key = getEnv('API_KEY');
@@ -230,7 +231,16 @@ const App: React.FC = () => {
   };
 
   const handleSignOut = async () => {
-    try { await supabase.auth.signOut(); setSessionUser(null); } catch (error: any) { console.error("Sign out error:", error.message); }
+    if (isSigningOut) return;
+    setIsSigningOut(true);
+    try { 
+      await supabase.auth.signOut(); 
+      setSessionUser(null); 
+    } catch (error: any) { 
+      console.error("Sign out error:", error.message);
+      alert("Sign out failed. Please try again.");
+      setIsSigningOut(false);
+    }
   };
 
   const handleCompanyCreation = async (companyName: string, brandColor: string) => {
@@ -403,14 +413,15 @@ const App: React.FC = () => {
             <button onClick={toggleDarkMode} className={`p-2.5 rounded-xl transition-all ${isDarkMode ? 'bg-white/5 text-amber-300' : 'bg-slate-100 text-slate-900'}`}>
               {isDarkMode ? <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M12 7a5 5 0 100 10 5 5 0 000-10z" /></svg> : <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>}
             </button>
-            <button onClick={handleSignOut} className="p-2.5 text-slate-500 hover:text-rose-500 transition-colors">
+            <button onClick={handleSignOut} disabled={isSigningOut} className={`p-2.5 transition-colors ${isSigningOut ? 'text-slate-300 cursor-not-allowed' : 'text-slate-500 hover:text-rose-500'}`}>
                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
             </button>
           </div>
         </div>
       </header>
 
-      <main key={activeView} className="max-w-[1400px] mx-auto px-4 py-8 view-transition">
+      <main key={activeView} className="max-w-[1400px] mx-auto px-4 py-8 view-transition overflow-y-auto"
+            style={{ maxHeight: 'calc(100vh - 4rem - 5rem)' }}>
         {activeView === 'dashboard' && (
           <div className="space-y-8">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
