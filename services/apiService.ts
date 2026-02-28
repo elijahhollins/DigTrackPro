@@ -526,13 +526,49 @@ export const apiService = {
     };
   },
 
-  async updateUserCompany(userId: string, companyId: string): Promise<void> {
+  async updateUserCompany(userId: string, companyId: string, role?: UserRole): Promise<void> {
+    // Fetch existing profile to preserve fields if not provided
+    const { data: existing, error: fetchError } = await supabase
+      .from('profiles')
+      .select('role, name, username')
+      .eq('id', userId)
+      .single();
+    
+    if (fetchError && fetchError.code !== 'PGRST116') {
+      // PGRST116 is "not found" error, which is okay for new profiles
+      throw new Error(`Failed to fetch existing profile for user ${userId}: ${fetchError.message}`);
+    }
+    
+    const updateData: {
+      id: string;
+      company_id: string;
+      role?: string;
+      name?: string;
+      username?: string;
+    } = { 
+      id: userId, 
+      company_id: companyId
+    };
+    
+    // Preserve existing role if not explicitly provided
+    if (role) {
+      updateData.role = role;
+    } else if (existing?.role) {
+      updateData.role = existing.role;
+    }
+    
+    // Preserve other fields from existing profile
+    if (existing) {
+      if (existing.name) updateData.name = existing.name;
+      if (existing.username) updateData.username = existing.username;
+    }
+
     const { error } = await supabase
       .from('profiles')
-      .upsert({ id: userId, company_id: companyId })
+      .upsert(updateData)
       .select();
 
-    if (error) throw error;
+    if (error) throw new Error(`Failed to update user company assignment: ${error.message}`);
   },
 
   async getAllCompanies(): Promise<Company[]> {
