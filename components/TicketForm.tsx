@@ -252,12 +252,12 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
   const processingCount = queue.filter(i => i.status === 'analyzing' || i.status === 'uploading' || i.status === 'pending').length;
 
   return (
-    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[160] flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[160] flex items-start justify-center p-4 overflow-y-auto">
       <div 
         onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
         onDragLeave={() => setIsDragging(false)}
         onDrop={(e) => { e.preventDefault(); setIsDragging(false); handleFileUpload(e as any); }}
-        className={`w-full max-w-2xl rounded-[2.5rem] shadow-2xl overflow-hidden border transition-all duration-300 ${isDragging ? 'scale-105 ring-4 ring-brand/50' : ''} ${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white border-slate-200'}`}
+        className={`w-full max-w-2xl rounded-[2.5rem] shadow-2xl overflow-hidden border transition-all duration-300 my-4 ${isDragging ? 'scale-105 ring-4 ring-brand/50' : ''} ${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white border-slate-200'}`}
       >
         <div className="px-10 py-6 border-b flex justify-between items-center bg-black/5">
           <div className="flex-1">
@@ -344,7 +344,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
           </div>
         )}
 
-        <div className="max-h-[70vh] overflow-y-auto no-scrollbar">
+        <div className="max-h-[70vh] overflow-y-auto">
           {isBatchMode && queue.length === 0 ? (
             <div 
               onClick={() => fileInputRef.current?.click()}
