@@ -149,7 +149,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
   };
 
   return (
-    <div className="space-y-8 animate-in">
+    <div className="space-y-8 animate-in pb-4">
       {/* Platform Admin Section — visible to SUPER_ADMIN only */}
       {isSuperAdmin && (
         <section className={`rounded-2xl border overflow-hidden ${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-100 shadow-sm'}`}>
