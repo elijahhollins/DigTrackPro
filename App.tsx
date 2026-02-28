@@ -134,15 +134,15 @@ const App: React.FC = () => {
       } else {
         // New user — auto-create profile using metadata stored during signup
         const meta = (session.user.user_metadata as Record<string, string>) || {};
-        const inviteCompanyId = meta.company_id?.trim();
+        const inviteCompanyId = typeof meta.company_id === 'string' ? meta.company_id.trim() : undefined;
         const inviteToken = meta.invite_token;
         const companyNameMeta = meta.company_name;
-        const displayName = meta.display_name?.trim();
+        const displayName = typeof meta.display_name === 'string' ? meta.display_name.trim() : undefined;
 
         if (inviteCompanyId) {
           // Invited admin: create profile as ADMIN of the specified company
           if (!displayName) {
-            console.error('User name is missing from signup metadata during invite signup');
+            console.error('Required signup metadata validation failed');
             throw new Error('User name is missing from signup metadata. Please sign up again with your full name.');
           }
           await apiService.addUser({ id: session.user.id, name: displayName, username: session.user.email || '', role: UserRole.ADMIN, companyId: inviteCompanyId });
