@@ -255,10 +255,10 @@ export const apiService = {
     
     // Validate required fields for new user creation
     if (!user.name || user.name.trim() === '') {
-      throw new Error('User name is required');
+      throw new Error('Name is required for user creation');
     }
     if (!user.username || user.username.trim() === '') {
-      throw new Error('User username/email is required');
+      throw new Error('Username is required for user creation');
     }
     
     const newUserRecord = { 
