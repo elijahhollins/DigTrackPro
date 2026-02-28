@@ -94,6 +94,8 @@ const App: React.FC = () => {
     setActiveView(view);
   };
 
+  const DEFAULT_NEW_USER_NAME = 'New User';
+
   const initApp = async () => {
     if (initRef.current) return;
     initRef.current = true;
@@ -132,19 +134,19 @@ const App: React.FC = () => {
       } else {
         // New user — auto-create profile using metadata stored during signup
         const meta = (session.user.user_metadata as Record<string, string>) || {};
-        const inviteCompanyId = meta.company_id;
+        const inviteCompanyId = meta.company_id?.trim();
         const inviteToken = meta.invite_token;
         const companyNameMeta = meta.company_name;
-        const displayName = meta.display_name || 'New User';
+        const displayName = meta.display_name?.trim() || DEFAULT_NEW_USER_NAME;
 
         if (inviteCompanyId) {
           // Invited admin: create profile as ADMIN of the specified company
           console.log('Creating invited admin profile:', { userId: session.user.id, displayName, email: session.user.email, companyId: inviteCompanyId });
-          if (!displayName || displayName.trim() === '' || displayName === 'New User') {
+          if (!displayName || displayName === DEFAULT_NEW_USER_NAME) {
             console.error('Invalid displayName during invite signup:', displayName);
             throw new Error('User name is missing from signup metadata. Please sign up again with your full name.');
           }
-          if (!inviteCompanyId || inviteCompanyId.trim() === '') {
+          if (!inviteCompanyId) {
             console.error('Invalid inviteCompanyId during invite signup:', inviteCompanyId);
             throw new Error('Company ID is missing from invite metadata. Please use a valid invite link.');
           }
