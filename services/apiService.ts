@@ -530,13 +530,13 @@ export const apiService = {
     // Fetch existing profile to preserve fields if not provided
     const { data: existing, error: fetchError } = await supabase
       .from('profiles')
-      .select('*')
+      .select('role, name, username')
       .eq('id', userId)
       .single();
     
     if (fetchError && fetchError.code !== 'PGRST116') {
       // PGRST116 is "not found" error, which is okay for new profiles
-      throw fetchError;
+      throw new Error(`Failed to fetch existing profile for user ${userId}: ${fetchError.message}`);
     }
     
     const updateData: {
@@ -568,7 +568,7 @@ export const apiService = {
       .upsert(updateData)
       .select();
 
-    if (error) throw error;
+    if (error) throw new Error(`Failed to update user company assignment: ${error.message}`);
   },
 
   async getAllCompanies(): Promise<Company[]> {
