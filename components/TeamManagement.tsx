@@ -53,6 +53,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
   const [newCoName, setNewCoName] = useState('');
   const [newCoColor, setNewCoColor] = useState('#3b82f6');
   const [isCreatingCo, setIsCreatingCo] = useState(false);
+  const [loadingCompanyIds, setLoadingCompanyIds] = useState<Set<string>>(new Set());
   const [latestInviteUrl, setLatestInviteUrl] = useState('');
   const [copied, setCopied] = useState(false);
 
@@ -123,11 +124,21 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
   };
 
   const handleGetInvite = async (companyId: string) => {
+    setLoadingCompanyIds(prev => new Set(prev).add(companyId));
     try {
       const token = await apiService.createInviteForCompany(companyId);
-      setLatestInviteUrl(`${window.location.origin}?invite=${token}`);
+      const url = `${window.location.origin}?invite=${token}`;
+      setLatestInviteUrl(url);
+      console.log('Invite link generated successfully:', url);
     } catch (err: any) {
+      console.error('Failed to generate invite:', err);
       alert('Failed to generate invite: ' + err.message);
+    } finally {
+      setLoadingCompanyIds(prev => {
+        const next = new Set(prev);
+        next.delete(companyId);
+        return next;
+      });
     }
   };
 
@@ -226,9 +237,14 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                     <td className="px-6 py-4 text-right">
                       <button
                         onClick={() => handleGetInvite(co.id)}
-                        className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all hover:scale-105 active:scale-95 ${isDarkMode ? 'bg-white/10 text-slate-300 hover:bg-brand hover:text-slate-900' : 'bg-slate-100 text-slate-700 hover:bg-brand hover:text-slate-900'}`}
+                        disabled={loadingCompanyIds.has(co.id)}
+                        className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                          loadingCompanyIds.has(co.id)
+                            ? 'opacity-50 cursor-not-allowed'
+                            : 'hover:scale-105 active:scale-95 hover:bg-brand hover:text-slate-900'
+                        } ${isDarkMode ? 'bg-white/10 text-slate-300' : 'bg-slate-100 text-slate-700'}`}
                       >
-                        Get Link
+                        {loadingCompanyIds.has(co.id) ? 'Generating...' : 'Get Link'}
                       </button>
                     </td>
                   </tr>
