@@ -94,6 +94,8 @@ const App: React.FC = () => {
     setActiveView(view);
   };
 
+  const DEFAULT_NEW_USER_NAME = 'New User';
+
   const initApp = async () => {
     if (initRef.current) return;
     initRef.current = true;
@@ -132,13 +134,17 @@ const App: React.FC = () => {
       } else {
         // New user — auto-create profile using metadata stored during signup
         const meta = (session.user.user_metadata as Record<string, string>) || {};
-        const inviteCompanyId = meta.company_id;
+        const inviteCompanyId = typeof meta.company_id === 'string' && meta.company_id.trim() !== '' ? meta.company_id.trim() : undefined;
         const inviteToken = meta.invite_token;
         const companyNameMeta = meta.company_name;
-        const displayName = meta.display_name || 'New User';
+        const displayName = typeof meta.display_name === 'string' && meta.display_name.trim() !== '' ? meta.display_name.trim() : undefined;
 
         if (inviteCompanyId) {
           // Invited admin: create profile as ADMIN of the specified company
+          if (!displayName) {
+            console.error('Invite signup failed: display_name missing from user metadata');
+            throw new Error('User name is missing from signup metadata. Please sign up again with your full name.');
+          }
           await apiService.addUser({ id: session.user.id, name: displayName, username: session.user.email || '', role: UserRole.ADMIN, companyId: inviteCompanyId });
           if (inviteToken) { try { await apiService.markInviteUsed(inviteToken); } catch (e) { console.warn('markInviteUsed failed:', e); } }
           initRef.current = false;
@@ -148,14 +154,14 @@ const App: React.FC = () => {
           // Crew signup: look up company by name and join as CREW
           const found = await apiService.getCompanyByName(companyNameMeta);
           if (found) {
-            await apiService.addUser({ id: session.user.id, name: displayName, username: session.user.email || '', role: UserRole.CREW, companyId: found.id });
+            await apiService.addUser({ id: session.user.id, name: displayName || DEFAULT_NEW_USER_NAME, username: session.user.email || '', role: UserRole.CREW, companyId: found.id });
             initRef.current = false;
             await initApp();
             return;
           }
         }
         // Fallback: show company registration (bootstrap / first super-admin setup)
-        setSessionUser({ id: session.user.id, name: displayName, username: session.user.email || '', role: UserRole.CREW, companyId: '' });
+        setSessionUser({ id: session.user.id, name: displayName || DEFAULT_NEW_USER_NAME, username: session.user.email || '', role: UserRole.CREW, companyId: '' });
         setShowCompanyRegistration(true);
       }
 

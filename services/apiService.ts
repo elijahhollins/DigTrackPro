@@ -252,10 +252,19 @@ export const apiService = {
 
   async addUser(user: Partial<UserRecord>): Promise<UserRecord> {
     const id = user.id || generateUUID();
+    
+    // Validate required fields for new user creation
+    if (!user.name || user.name.trim() === '') {
+      throw new Error('Name is required for user creation');
+    }
+    if (!user.username || user.username.trim() === '') {
+      throw new Error('Username is required for user creation');
+    }
+    
     const newUserRecord = { 
       id, 
-      name: user.name, 
-      username: user.username, 
+      name: user.name.trim(), 
+      username: user.username.trim(), 
       role: user.role || UserRole.CREW,
       company_id: user.companyId || null
     };
