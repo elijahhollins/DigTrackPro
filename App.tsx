@@ -134,10 +134,10 @@ const App: React.FC = () => {
       } else {
         // New user — auto-create profile using metadata stored during signup
         const meta = (session.user.user_metadata as Record<string, string>) || {};
-        const inviteCompanyId = typeof meta.company_id === 'string' ? meta.company_id.trim() : undefined;
+        const inviteCompanyId = typeof meta.company_id === 'string' && meta.company_id.trim() !== '' ? meta.company_id.trim() : undefined;
         const inviteToken = meta.invite_token;
         const companyNameMeta = meta.company_name;
-        const displayName = typeof meta.display_name === 'string' ? meta.display_name.trim() : undefined;
+        const displayName = typeof meta.display_name === 'string' && meta.display_name.trim() !== '' ? meta.display_name.trim() : undefined;
 
         if (inviteCompanyId) {
           // Invited admin: create profile as ADMIN of the specified company
