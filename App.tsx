@@ -252,9 +252,16 @@ const App: React.FC = () => {
       createdAt: Date.now()
     };
     const createdCompany = await apiService.createCompany(newCompany);
-    await apiService.updateUserCompany(sessionUser.id, createdCompany.id);
+    // Set user as ADMIN when they create a new company
+    await apiService.addUser({
+      id: sessionUser.id,
+      name: sessionUser.name,
+      username: sessionUser.username,
+      role: UserRole.ADMIN,
+      companyId: createdCompany.id
+    });
     setCompany(createdCompany);
-    setSessionUser(prev => prev ? { ...prev, companyId: createdCompany.id } : prev);
+    setSessionUser(prev => prev ? { ...prev, companyId: createdCompany.id, role: UserRole.ADMIN } : prev);
     if (createdCompany.brandColor) applyThemeColor(createdCompany.brandColor);
     setShowCompanyRegistration(false);
     // Reset the guard so initApp can run again to load the new company's data

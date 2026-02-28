@@ -526,10 +526,35 @@ export const apiService = {
     };
   },
 
-  async updateUserCompany(userId: string, companyId: string): Promise<void> {
+  async updateUserCompany(userId: string, companyId: string, role?: UserRole): Promise<void> {
+    // Fetch existing profile to preserve fields if not provided
+    const { data: existing } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
+    
+    const updateData: any = { 
+      id: userId, 
+      company_id: companyId
+    };
+    
+    // Preserve existing role if not explicitly provided
+    if (role) {
+      updateData.role = role;
+    } else if (existing?.role) {
+      updateData.role = existing.role;
+    }
+    
+    // Preserve other fields from existing profile
+    if (existing) {
+      if (existing.name) updateData.name = existing.name;
+      if (existing.username) updateData.username = existing.username;
+    }
+
     const { error } = await supabase
       .from('profiles')
-      .upsert({ id: userId, company_id: companyId })
+      .upsert(updateData)
       .select();
 
     if (error) throw error;
