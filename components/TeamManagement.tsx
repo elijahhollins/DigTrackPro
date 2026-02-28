@@ -56,6 +56,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
   const [loadingCompanyIds, setLoadingCompanyIds] = useState<Set<string>>(new Set());
   const [latestInviteUrl, setLatestInviteUrl] = useState('');
   const [copied, setCopied] = useState(false);
+  const [expandedCompanyIds, setExpandedCompanyIds] = useState<Set<string>>(new Set());
 
   const isAdmin = sessionUser?.role === UserRole.ADMIN || isSuperAdmin;
 
@@ -148,6 +149,18 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const toggleCompanyExpansion = (companyId: string) => {
+    setExpandedCompanyIds(prev => {
+      const next = new Set(prev);
+      if (next.has(companyId)) {
+        next.delete(companyId);
+      } else {
+        next.add(companyId);
+      }
+      return next;
+    });
+  };
+
   return (
     <div className="space-y-8 animate-in pb-4">
       {/* Platform Admin Section — visible to SUPER_ADMIN only */}
@@ -222,33 +235,104 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                 </tr>
               </thead>
               <tbody className={`divide-y ${isDarkMode ? 'divide-white/5' : 'divide-slate-100'}`}>
-                {allCompanies.map(co => (
-                  <tr key={co.id} className="text-xs font-bold transition-colors hover:bg-black/5">
-                    <td className="px-6 py-4">{co.name}</td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <div className="w-5 h-5 rounded-full border border-black/10 shadow-sm" style={{ backgroundColor: co.brandColor || '#3b82f6' }} />
-                        <span className="font-mono text-[10px] opacity-50">{co.brandColor}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-[10px] opacity-60">
-                      {users.filter(u => u.companyId === co.id).length} member{users.filter(u => u.companyId === co.id).length !== 1 ? 's' : ''}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <button
-                        onClick={() => handleGetInvite(co.id)}
-                        disabled={loadingCompanyIds.has(co.id)}
-                        className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
-                          loadingCompanyIds.has(co.id)
-                            ? 'opacity-50 cursor-not-allowed'
-                            : 'hover:scale-105 active:scale-95 hover:bg-brand hover:text-slate-900'
-                        } ${isDarkMode ? 'bg-white/10 text-slate-300' : 'bg-slate-100 text-slate-700'}`}
-                      >
-                        {loadingCompanyIds.has(co.id) ? 'Generating...' : 'Get Link'}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {allCompanies.map(co => {
+                  const companyUsers = users.filter(u => u.companyId === co.id);
+                  const isExpanded = expandedCompanyIds.has(co.id);
+                  
+                  return (
+                    <React.Fragment key={co.id}>
+                      <tr className="text-xs font-bold transition-colors hover:bg-black/5">
+                        <td className="px-6 py-4">
+                          <button
+                            onClick={() => toggleCompanyExpansion(co.id)}
+                            className="flex items-center gap-2 hover:text-brand transition-colors"
+                          >
+                            <svg 
+                              className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                              fill="none" 
+                              stroke="currentColor" 
+                              viewBox="0 0 24 24"
+                            >
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" />
+                            </svg>
+                            {co.name}
+                          </button>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-2">
+                            <div className="w-5 h-5 rounded-full border border-black/10 shadow-sm" style={{ backgroundColor: co.brandColor || '#3b82f6' }} />
+                            <span className="font-mono text-[10px] opacity-50">{co.brandColor}</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-[10px] opacity-60">
+                          {companyUsers.length} member{companyUsers.length !== 1 ? 's' : ''}
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <button
+                            onClick={() => handleGetInvite(co.id)}
+                            disabled={loadingCompanyIds.has(co.id)}
+                            className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                              loadingCompanyIds.has(co.id)
+                                ? 'opacity-50 cursor-not-allowed'
+                                : 'hover:scale-105 active:scale-95 hover:bg-brand hover:text-slate-900'
+                            } ${isDarkMode ? 'bg-white/10 text-slate-300' : 'bg-slate-100 text-slate-700'}`}
+                          >
+                            {loadingCompanyIds.has(co.id) ? 'Generating...' : 'Get Link'}
+                          </button>
+                        </td>
+                      </tr>
+                      
+                      {/* Expanded user list */}
+                      {isExpanded && companyUsers.length > 0 && (
+                        <tr>
+                          <td colSpan={4} className={`px-6 py-4 ${isDarkMode ? 'bg-black/20' : 'bg-slate-50'}`}>
+                            <div className="space-y-2">
+                              <div className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-3 flex items-center gap-2">
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                                </svg>
+                                Company Members ({companyUsers.length})
+                              </div>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                {companyUsers.map(user => (
+                                  <div 
+                                    key={user.id}
+                                    className={`flex items-center justify-between p-3 rounded-xl border ${
+                                      isDarkMode ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200'
+                                    }`}
+                                  >
+                                    <div className="flex-1 min-w-0">
+                                      <div className="text-xs font-bold truncate">{user.name}</div>
+                                      <div className="text-[10px] font-mono opacity-40 truncate">{user.username}</div>
+                                    </div>
+                                    <div className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${
+                                      user.role === UserRole.ADMIN || user.role === UserRole.SUPER_ADMIN
+                                        ? 'bg-brand/10 border-brand/20 text-brand' 
+                                        : 'bg-slate-100 border-slate-200 text-slate-500'
+                                    }`}>
+                                      {user.role}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      
+                      {/* Empty state when expanded but no users */}
+                      {isExpanded && companyUsers.length === 0 && (
+                        <tr>
+                          <td colSpan={4} className={`px-6 py-4 ${isDarkMode ? 'bg-black/20' : 'bg-slate-50'}`}>
+                            <div className="text-center text-[10px] font-black uppercase text-slate-400 py-2">
+                              No members in this company yet
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
                 {allCompanies.length === 0 && (
                   <tr>
                     <td colSpan={4} className="px-6 py-8 text-center text-[10px] font-black uppercase text-slate-400">
