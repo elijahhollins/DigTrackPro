@@ -139,6 +139,15 @@ const App: React.FC = () => {
 
         if (inviteCompanyId) {
           // Invited admin: create profile as ADMIN of the specified company
+          console.log('Creating invited admin profile:', { userId: session.user.id, displayName, email: session.user.email, companyId: inviteCompanyId });
+          if (!displayName || displayName.trim() === '' || displayName === 'New User') {
+            console.error('Invalid displayName during invite signup:', displayName);
+            throw new Error('User name is missing from signup metadata. Please sign up again with your full name.');
+          }
+          if (!inviteCompanyId || inviteCompanyId.trim() === '') {
+            console.error('Invalid inviteCompanyId during invite signup:', inviteCompanyId);
+            throw new Error('Company ID is missing from invite metadata. Please use a valid invite link.');
+          }
           await apiService.addUser({ id: session.user.id, name: displayName, username: session.user.email || '', role: UserRole.ADMIN, companyId: inviteCompanyId });
           if (inviteToken) { try { await apiService.markInviteUsed(inviteToken); } catch (e) { console.warn('markInviteUsed failed:', e); } }
           initRef.current = false;

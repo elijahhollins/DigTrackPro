@@ -66,6 +66,13 @@ const Login: React.FC = () => {
     setShowResend(false);
     setIsSubmitting(true);
 
+    // Validate name is provided during signup
+    if (isSignUp && (!name || name.trim() === '')) {
+      setError('Please enter your full name.');
+      setIsSubmitting(false);
+      return;
+    }
+
     // Require company name on signup unless it's pre-filled from an invite
     if (isSignUp && !inviteCompanyId && !companyName.trim()) {
       setError('Please enter your company name.');
@@ -80,7 +87,7 @@ const Login: React.FC = () => {
           password,
           options: {
             data: {
-              display_name: name,
+              display_name: name.trim(),
               // Invite-based signup: store company_id + token so initApp can auto-create the profile
               ...(inviteCompanyId
                 ? { company_id: inviteCompanyId, invite_token: inviteToken }
