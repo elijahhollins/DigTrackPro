@@ -141,9 +141,8 @@ const App: React.FC = () => {
 
         if (inviteCompanyId) {
           // Invited admin: create profile as ADMIN of the specified company
-          console.log('Creating invited admin profile:', { userId: session.user.id, displayName, email: session.user.email, companyId: inviteCompanyId });
           if (!displayName) {
-            console.error('Invalid displayName during invite signup:', displayName);
+            console.error('User name is missing from signup metadata during invite signup');
             throw new Error('User name is missing from signup metadata. Please sign up again with your full name.');
           }
           await apiService.addUser({ id: session.user.id, name: displayName, username: session.user.email || '', role: UserRole.ADMIN, companyId: inviteCompanyId });
