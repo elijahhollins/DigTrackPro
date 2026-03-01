@@ -150,7 +150,8 @@ const App: React.FC = () => {
         }
         
         setSessionUser(matchedProfile);
-        // Load Company Data
+        // Load Company Data - fetches the company associated with this user
+        // The company name will be displayed in the top-left header (line 389)
         if (matchedProfile.companyId) {
           const companyData = await apiService.getCompany(matchedProfile.companyId);
           setCompany(companyData);
@@ -414,6 +415,9 @@ const App: React.FC = () => {
               <svg className={`w-5 h-5 text-[#0f172a] ${isProcessing ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
             </div>
             <div className="hidden lg:block">
+              {/* Display the company name associated with the logged-in user. 
+                  Company is loaded from database based on user's companyId (see lines 125-128).
+                  Falls back to 'DigTrack Pro' if company data is unavailable. */}
               <h1 className="text-sm font-black uppercase tracking-tight group-hover:text-brand transition-colors">{company?.name || 'DigTrack Pro'}</h1>
               <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest leading-none">Enterprise Locate Hub</p>
             </div>
