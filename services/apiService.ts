@@ -485,14 +485,14 @@ export const apiService = {
     });
   },
 
-  async uploadJobPrint(jobNumber: string, file: File): Promise<JobPrint> {
+  async uploadJobPrint(jobNumber: string, file: File, companyId: string): Promise<JobPrint> {
     const id = generateUUID();
     const fileExt = file.name.split('.').pop();
     const filePath = `${jobNumber}/${id}.${fileExt}`;
     const { error: uploadError } = await supabase.storage.from('job-prints').upload(filePath, file);
     if (uploadError) throw uploadError;
     const { data: { publicUrl } } = supabase.storage.from('job-prints').getPublicUrl(filePath);
-    const { data, error } = await supabase.from('job_prints').insert([{ id, job_number: jobNumber, storage_path: filePath, file_name: file.name, is_pinned: true }]).select().single();
+    const { data, error } = await supabase.from('job_prints').insert([{ id, company_id: companyId, job_number: jobNumber, storage_path: filePath, file_name: file.name, is_pinned: true }]).select().single();
     if (error) throw error;
     return { ...data, companyId: data.company_id, url: publicUrl, createdAt: new Date(data.created_at).getTime() };
   },
