@@ -136,7 +136,7 @@ const App: React.FC = () => {
             id: session.user.id, 
             name: displayName || matchedProfile.name, 
             username: session.user.email || matchedProfile.username, 
-            role: UserRole.ADMIN, 
+            role: UserRole.CREW, 
             companyId: inviteCompanyId 
           });
           if (inviteToken) { 
@@ -174,13 +174,13 @@ const App: React.FC = () => {
         const displayName = typeof meta.display_name === 'string' && meta.display_name.trim() !== '' ? meta.display_name.trim() : undefined;
 
         if (inviteCompanyId) {
-          // Invited admin: create profile as ADMIN of the specified company
-          console.log('Creating new admin profile for invite company ID:', inviteCompanyId);
+          // Invited user: create profile as CREW of the specified company
+          console.log('Creating new crew profile for invite company ID:', inviteCompanyId);
           if (!displayName) {
             console.error('Invite signup failed: display_name missing from user metadata');
             throw new Error('User name is missing from signup metadata. Please sign up again with your full name.');
           }
-          await apiService.addUser({ id: session.user.id, name: displayName, username: session.user.email || '', role: UserRole.ADMIN, companyId: inviteCompanyId });
+          await apiService.addUser({ id: session.user.id, name: displayName, username: session.user.email || '', role: UserRole.CREW, companyId: inviteCompanyId });
           if (inviteToken) { try { await apiService.markInviteUsed(inviteToken); } catch (e) { console.warn('markInviteUsed failed:', e); } }
           initRef.current = false;
           await initApp();
