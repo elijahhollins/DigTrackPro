@@ -11,6 +11,7 @@ interface TeamManagementProps {
   isSuperAdmin?: boolean;
   allCompanies?: Company[];
   onCompanyCreated?: (company: Company) => void;
+  onCompanyUpdated?: (id: string, updates: { name?: string; city?: string; state?: string; phone?: string }) => Promise<void>;
   onAddUser: (user: Partial<UserRecord>) => Promise<void>;
   onDeleteUser: (id: string) => void;
   onThemeChange?: (color: string) => void;
@@ -39,6 +40,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
   isSuperAdmin = false,
   allCompanies = [],
   onCompanyCreated,
+  onCompanyUpdated,
   onDeleteUser, 
   onThemeChange, 
   onToggleRole,
@@ -52,11 +54,22 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
   const [showNewCompanyForm, setShowNewCompanyForm] = useState(false);
   const [newCoName, setNewCoName] = useState('');
   const [newCoColor, setNewCoColor] = useState('#3b82f6');
+  const [newCoCity, setNewCoCity] = useState('');
+  const [newCoState, setNewCoState] = useState('');
+  const [newCoPhone, setNewCoPhone] = useState('');
   const [isCreatingCo, setIsCreatingCo] = useState(false);
   const [loadingCompanyIds, setLoadingCompanyIds] = useState<Set<string>>(new Set());
   const [latestInviteUrl, setLatestInviteUrl] = useState('');
   const [copied, setCopied] = useState(false);
   const [expandedCompanyIds, setExpandedCompanyIds] = useState<Set<string>>(new Set());
+
+  // Edit company state (super-admin only)
+  const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null);
+  const [editCoName, setEditCoName] = useState('');
+  const [editCoCity, setEditCoCity] = useState('');
+  const [editCoState, setEditCoState] = useState('');
+  const [editCoPhone, setEditCoPhone] = useState('');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   const isAdmin = sessionUser?.role === UserRole.ADMIN || isSuperAdmin;
 
@@ -111,16 +124,50 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
     if (!newCoName.trim()) return;
     setIsCreatingCo(true);
     try {
-      const { company, inviteToken } = await apiService.createCompanyAndInvite(newCoName.trim(), newCoColor);
+      const { company, inviteToken } = await apiService.createCompanyAndInvite(newCoName.trim(), newCoColor, newCoCity.trim(), newCoState.trim(), newCoPhone.trim());
       onCompanyCreated?.(company);
       const url = `${window.location.origin}?invite=${inviteToken}`;
       setLatestInviteUrl(url);
       setNewCoName('');
+      setNewCoCity('');
+      setNewCoState('');
+      setNewCoPhone('');
       setShowNewCompanyForm(false);
     } catch (err: any) {
       alert('Failed to create company: ' + err.message);
     } finally {
       setIsCreatingCo(false);
+    }
+  };
+
+  const startEditCompany = (co: Company) => {
+    setEditingCompanyId(co.id);
+    setEditCoName(co.name);
+    setEditCoCity(co.city || '');
+    setEditCoState(co.state || '');
+    setEditCoPhone(co.phone || '');
+  };
+
+  const cancelEditCompany = () => {
+    setEditingCompanyId(null);
+  };
+
+  const handleSaveEditCompany = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCompanyId || !editCoName.trim()) return;
+    setIsSavingEdit(true);
+    try {
+      await onCompanyUpdated?.(editingCompanyId, {
+        name: editCoName.trim(),
+        city: editCoCity.trim(),
+        state: editCoState.trim(),
+        phone: editCoPhone.trim()
+      });
+      setEditingCompanyId(null);
+    } catch (err: any) {
+      alert('Failed to update company: ' + err.message);
+    } finally {
+      setIsSavingEdit(false);
     }
   };
 
@@ -183,8 +230,8 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
           {/* New Company Form */}
           {showNewCompanyForm && (
             <form onSubmit={handleCreateCompany} className={`px-6 py-5 border-b border-black/5 ${isDarkMode ? 'bg-black/10' : 'bg-slate-50'}`}>
-              <div className="flex flex-col sm:flex-row gap-3 items-end">
-                <div className="flex-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                <div>
                   <label className={`block text-[9px] font-black uppercase tracking-widest mb-1.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Company Name</label>
                   <input
                     type="text"
@@ -195,6 +242,39 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                     className={`w-full px-4 py-2.5 border rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder-slate-600' : 'bg-white border-slate-200 text-slate-900'}`}
                   />
                 </div>
+                <div>
+                  <label className={`block text-[9px] font-black uppercase tracking-widest mb-1.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Phone Number</label>
+                  <input
+                    type="tel"
+                    value={newCoPhone}
+                    onChange={e => setNewCoPhone(e.target.value)}
+                    placeholder="(555) 123-4567"
+                    className={`w-full px-4 py-2.5 border rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder-slate-600' : 'bg-white border-slate-200 text-slate-900'}`}
+                  />
+                </div>
+                <div>
+                  <label className={`block text-[9px] font-black uppercase tracking-widest mb-1.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>City</label>
+                  <input
+                    type="text"
+                    value={newCoCity}
+                    onChange={e => setNewCoCity(e.target.value)}
+                    placeholder="Springfield"
+                    className={`w-full px-4 py-2.5 border rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder-slate-600' : 'bg-white border-slate-200 text-slate-900'}`}
+                  />
+                </div>
+                <div>
+                  <label className={`block text-[9px] font-black uppercase tracking-widest mb-1.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>State</label>
+                  <input
+                    type="text"
+                    value={newCoState}
+                    onChange={e => setNewCoState(e.target.value)}
+                    placeholder="IL"
+                    maxLength={2}
+                    className={`w-full px-4 py-2.5 border rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder-slate-600' : 'bg-white border-slate-200 text-slate-900'}`}
+                  />
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-3 items-end">
                 <div>
                   <label className={`block text-[9px] font-black uppercase tracking-widest mb-1.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Brand Color</label>
                   <input type="color" value={newCoColor} onChange={e => setNewCoColor(e.target.value)} className="w-10 h-10 rounded-xl cursor-pointer border-2 border-slate-200" title="Brand color" />
@@ -209,7 +289,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
 
           {/* Invite URL result */}
           {latestInviteUrl && (
-            <div className={`mx-6 my-4 p-4 rounded-2xl border-2 border-brand/30 ${isDarkMode ? 'bg-brand/5' : 'bg-brand/5'}`}>
+            <div className={`mx-6 my-4 p-4 rounded-2xl border-2 border-brand/30 bg-brand/5`}>
               <p className="text-[10px] font-black uppercase tracking-widest text-brand mb-2 flex items-center gap-1.5">
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
                 Invite Link Ready — Share with New Company Admin:
@@ -231,59 +311,134 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                   <th className="px-6 py-3 text-slate-500">Company</th>
                   <th className="px-6 py-3 text-slate-500">Brand</th>
                   <th className="px-6 py-3 text-slate-500">Users</th>
-                  <th className="px-6 py-3 text-right text-slate-500">Invite New Admin</th>
+                  <th className="px-6 py-3 text-right text-slate-500">Actions</th>
                 </tr>
               </thead>
               <tbody className={`divide-y ${isDarkMode ? 'divide-white/5' : 'divide-slate-100'}`}>
                 {allCompanies.map(co => {
                   const companyUsers = users.filter(u => u.companyId === co.id);
                   const isExpanded = expandedCompanyIds.has(co.id);
+                  const isEditing = editingCompanyId === co.id;
                   
                   return (
                     <React.Fragment key={co.id}>
-                      <tr className="text-xs font-bold transition-colors hover:bg-black/5">
-                        <td className="px-6 py-4">
-                          <button
-                            onClick={() => toggleCompanyExpansion(co.id)}
-                            className="flex items-center gap-2 hover:text-brand transition-colors"
-                          >
-                            <svg 
-                              className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-                              fill="none" 
-                              stroke="currentColor" 
-                              viewBox="0 0 24 24"
+                      {isEditing ? (
+                        <tr>
+                          <td colSpan={4} className={`px-6 py-4 bg-brand/5`}>
+                            <form onSubmit={handleSaveEditCompany} className="space-y-3">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                  <label className={`block text-[9px] font-black uppercase tracking-widest mb-1 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Company Name</label>
+                                  <input
+                                    type="text"
+                                    value={editCoName}
+                                    onChange={e => setEditCoName(e.target.value)}
+                                    required
+                                    className={`w-full px-3 py-2 border rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'}`}
+                                  />
+                                </div>
+                                <div>
+                                  <label className={`block text-[9px] font-black uppercase tracking-widest mb-1 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Phone Number</label>
+                                  <input
+                                    type="tel"
+                                    value={editCoPhone}
+                                    onChange={e => setEditCoPhone(e.target.value)}
+                                    placeholder="(555) 123-4567"
+                                    className={`w-full px-3 py-2 border rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder-slate-600' : 'bg-white border-slate-200 text-slate-900'}`}
+                                  />
+                                </div>
+                                <div>
+                                  <label className={`block text-[9px] font-black uppercase tracking-widest mb-1 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>City</label>
+                                  <input
+                                    type="text"
+                                    value={editCoCity}
+                                    onChange={e => setEditCoCity(e.target.value)}
+                                    placeholder="Springfield"
+                                    className={`w-full px-3 py-2 border rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder-slate-600' : 'bg-white border-slate-200 text-slate-900'}`}
+                                  />
+                                </div>
+                                <div>
+                                  <label className={`block text-[9px] font-black uppercase tracking-widest mb-1 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>State</label>
+                                  <input
+                                    type="text"
+                                    value={editCoState}
+                                    onChange={e => setEditCoState(e.target.value)}
+                                    placeholder="IL"
+                                    maxLength={2}
+                                    className={`w-full px-3 py-2 border rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder-slate-600' : 'bg-white border-slate-200 text-slate-900'}`}
+                                  />
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button type="submit" disabled={isSavingEdit} className="bg-brand text-[#0f172a] px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-60 hover:scale-105 active:scale-95 transition-all">
+                                  {isSavingEdit ? 'Saving...' : 'Save Changes'}
+                                </button>
+                                <button type="button" onClick={cancelEditCompany} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase border transition-all ${isDarkMode ? 'border-white/10 text-slate-400 hover:bg-white/5' : 'border-slate-200 text-slate-500 hover:bg-slate-100'}`}>Cancel</button>
+                              </div>
+                            </form>
+                          </td>
+                        </tr>
+                      ) : (
+                        <tr className="text-xs font-bold transition-colors hover:bg-black/5">
+                          <td className="px-6 py-4">
+                            <button
+                              onClick={() => toggleCompanyExpansion(co.id)}
+                              className="flex items-center gap-2 hover:text-brand transition-colors"
                             >
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" />
-                            </svg>
-                            {co.name}
-                          </button>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-2">
-                            <div className="w-5 h-5 rounded-full border border-black/10 shadow-sm" style={{ backgroundColor: co.brandColor || '#3b82f6' }} />
-                            <span className="font-mono text-[10px] opacity-50">{co.brandColor}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-[10px] opacity-60">
-                          {companyUsers.length} member{companyUsers.length !== 1 ? 's' : ''}
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <button
-                            onClick={() => handleGetInvite(co.id)}
-                            disabled={loadingCompanyIds.has(co.id)}
-                            className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
-                              loadingCompanyIds.has(co.id)
-                                ? 'opacity-50 cursor-not-allowed'
-                                : 'hover:scale-105 active:scale-95 hover:bg-brand hover:text-slate-900'
-                            } ${isDarkMode ? 'bg-white/10 text-slate-300' : 'bg-slate-100 text-slate-700'}`}
-                          >
-                            {loadingCompanyIds.has(co.id) ? 'Generating...' : 'Get Link'}
-                          </button>
-                        </td>
-                      </tr>
+                              <svg 
+                                className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                                fill="none" 
+                                stroke="currentColor" 
+                                viewBox="0 0 24 24"
+                              >
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" />
+                              </svg>
+                              <div>
+                                <div>{co.name}</div>
+                                {(co.city || co.state || co.phone) && (
+                                  <div className="text-[9px] font-bold opacity-40 mt-0.5">
+                                    {[co.city, co.state].filter(Boolean).join(', ')}{co.phone ? ` · ${co.phone}` : ''}
+                                  </div>
+                                )}
+                              </div>
+                            </button>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-2">
+                              <div className="w-5 h-5 rounded-full border border-black/10 shadow-sm" style={{ backgroundColor: co.brandColor || '#3b82f6' }} />
+                              <span className="font-mono text-[10px] opacity-50">{co.brandColor}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-[10px] opacity-60">
+                            {companyUsers.length} member{companyUsers.length !== 1 ? 's' : ''}
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                onClick={() => startEditCompany(co)}
+                                className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all hover:scale-105 active:scale-95 ${isDarkMode ? 'bg-white/10 text-slate-300 hover:bg-brand hover:text-slate-900' : 'bg-slate-100 text-slate-700 hover:bg-brand hover:text-slate-900'}`}
+                                title="Edit company details"
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                              </button>
+                              <button
+                                onClick={() => handleGetInvite(co.id)}
+                                disabled={loadingCompanyIds.has(co.id)}
+                                className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                                  loadingCompanyIds.has(co.id)
+                                    ? 'opacity-50 cursor-not-allowed'
+                                    : 'hover:scale-105 active:scale-95 hover:bg-brand hover:text-slate-900'
+                                } ${isDarkMode ? 'bg-white/10 text-slate-300' : 'bg-slate-100 text-slate-700'}`}
+                              >
+                                {loadingCompanyIds.has(co.id) ? 'Generating...' : 'Get Link'}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
                       
                       {/* Expanded user list */}
-                      {isExpanded && companyUsers.length > 0 && (
+                      {isExpanded && !isEditing && companyUsers.length > 0 && (
                         <tr>
                           <td colSpan={4} className={`px-6 py-4 ${isDarkMode ? 'bg-black/20' : 'bg-slate-50'}`}>
                             <div className="space-y-2">
@@ -321,7 +476,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                       )}
                       
                       {/* Empty state when expanded but no users */}
-                      {isExpanded && companyUsers.length === 0 && (
+                      {isExpanded && !isEditing && companyUsers.length === 0 && (
                         <tr>
                           <td colSpan={4} className={`px-6 py-4 ${isDarkMode ? 'bg-black/20' : 'bg-slate-50'}`}>
                             <div className="text-center text-[10px] font-black uppercase text-slate-400 py-2">

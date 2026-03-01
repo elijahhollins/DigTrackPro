@@ -26,6 +26,9 @@ export interface Company {
   id: string;
   name: string;
   brandColor?: string;
+  city?: string;
+  state?: string;
+  phone?: string;
   createdAt: number;
 }
 

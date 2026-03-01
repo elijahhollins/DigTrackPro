@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 
 interface CompanyRegistrationProps {
-  onComplete: (companyName: string, brandColor: string) => Promise<void>;
+  onComplete: (companyName: string, brandColor: string, city: string, state: string, phone: string) => Promise<void>;
   isDarkMode?: boolean;
 }
 
@@ -14,6 +14,9 @@ const PRESET_COLORS = [
 const CompanyRegistration: React.FC<CompanyRegistrationProps> = ({ onComplete, isDarkMode = true }) => {
   const [companyName, setCompanyName] = useState('');
   const [brandColor, setBrandColor] = useState('#3b82f6');
+  const [city, setCity] = useState('');
+  const [state, setState] = useState('');
+  const [phone, setPhone] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -26,7 +29,7 @@ const CompanyRegistration: React.FC<CompanyRegistrationProps> = ({ onComplete, i
     }
     setIsSubmitting(true);
     try {
-      await onComplete(companyName.trim(), brandColor);
+      await onComplete(companyName.trim(), brandColor, city.trim(), state.trim(), phone.trim());
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to create company. Please try again.');
     } finally {
@@ -67,6 +70,47 @@ const CompanyRegistration: React.FC<CompanyRegistrationProps> = ({ onComplete, i
                 onChange={e => setCompanyName(e.target.value)}
                 placeholder="Acme Utilities Inc."
                 required
+                className={`w-full px-4 py-3 border rounded-xl text-sm font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder-slate-600' : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'}`}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={`block text-[10px] font-black uppercase tracking-widest mb-2 ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                  City
+                </label>
+                <input
+                  type="text"
+                  value={city}
+                  onChange={e => setCity(e.target.value)}
+                  placeholder="Springfield"
+                  className={`w-full px-4 py-3 border rounded-xl text-sm font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder-slate-600' : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'}`}
+                />
+              </div>
+              <div>
+                <label className={`block text-[10px] font-black uppercase tracking-widest mb-2 ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                  State
+                </label>
+                <input
+                  type="text"
+                  value={state}
+                  onChange={e => setState(e.target.value)}
+                  placeholder="IL"
+                  maxLength={2}
+                  className={`w-full px-4 py-3 border rounded-xl text-sm font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder-slate-600' : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'}`}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className={`block text-[10px] font-black uppercase tracking-widest mb-2 ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                Phone Number
+              </label>
+              <input
+                type="tel"
+                value={phone}
+                onChange={e => setPhone(e.target.value)}
+                placeholder="(555) 123-4567"
                 className={`w-full px-4 py-3 border rounded-xl text-sm font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder-slate-600' : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'}`}
               />
             </div>
