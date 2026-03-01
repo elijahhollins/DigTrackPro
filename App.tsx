@@ -120,6 +120,35 @@ const App: React.FC = () => {
 
       const matchedProfile = fetchedUsers.find(u => u.id === session.user.id);
       if (matchedProfile) {
+        // Check if profile exists but is missing companyId when user has invite metadata
+        const meta = (session.user.user_metadata as Record<string, string>) || {};
+        const inviteCompanyId = typeof meta.company_id === 'string' && meta.company_id.trim() !== '' ? meta.company_id.trim() : undefined;
+        const inviteToken = meta.invite_token;
+        const displayName = typeof meta.display_name === 'string' && meta.display_name.trim() !== '' ? meta.display_name.trim() : undefined;
+        
+        // If user has invite metadata but profile doesn't have companyId, update the profile
+        if (inviteCompanyId && !matchedProfile.companyId) {
+          console.log('Updating profile with invite company ID:', inviteCompanyId);
+          await apiService.addUser({ 
+            id: session.user.id, 
+            name: displayName || matchedProfile.name, 
+            username: session.user.email || matchedProfile.username, 
+            role: UserRole.ADMIN, 
+            companyId: inviteCompanyId 
+          });
+          if (inviteToken) { 
+            try { 
+              await apiService.markInviteUsed(inviteToken); 
+            } catch (e) { 
+              console.warn('markInviteUsed failed:', e); 
+            } 
+          }
+          // Re-initialize to load the updated profile
+          initRef.current = false;
+          await initApp();
+          return;
+        }
+        
         setSessionUser(matchedProfile);
         // Load Company Data
         if (matchedProfile.companyId) {
@@ -142,6 +171,7 @@ const App: React.FC = () => {
 
         if (inviteCompanyId) {
           // Invited admin: create profile as ADMIN of the specified company
+          console.log('Creating new admin profile for invite company ID:', inviteCompanyId);
           if (!displayName) {
             console.error('Invite signup failed: display_name missing from user metadata');
             throw new Error('User name is missing from signup metadata. Please sign up again with your full name.');
@@ -162,6 +192,7 @@ const App: React.FC = () => {
           }
         }
         // Fallback: show company registration (bootstrap / first super-admin setup)
+        console.log('No company association found, showing company registration modal. User metadata:', meta);
         setSessionUser({ id: session.user.id, name: displayName || DEFAULT_NEW_USER_NAME, username: session.user.email || '', role: UserRole.CREW, companyId: '' });
         setShowCompanyRegistration(true);
       }
