@@ -3,7 +3,11 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient.ts';
 import { apiService } from '../services/apiService.ts';
 
-const Login: React.FC = () => {
+interface LoginProps {
+  authError?: string;
+}
+
+const Login: React.FC<LoginProps> = ({ authError = '' }) => {
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -103,11 +107,10 @@ const Login: React.FC = () => {
         if (data.user && !data.session) {
           setInfo("Success! Check your email for a confirmation link.");
           setIsSignUp(false);
-        } else if (data.session) {
-          window.location.reload();
         }
+        // If data.session exists, onAuthStateChange in App.tsx fires SIGNED_IN and handles the transition
       } else {
-        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
         
         if (signInError) {
           if (signInError.message.toLowerCase().includes("confirm") || signInError.message.toLowerCase().includes("verified")) {
@@ -115,7 +118,10 @@ const Login: React.FC = () => {
           }
           throw signInError;
         }
-        window.location.reload();
+        if (!signInData?.session) {
+          throw new Error('Sign in failed: no session returned. Please try again.');
+        }
+        // onAuthStateChange in App.tsx fires SIGNED_IN and handles the transition
       }
     } catch (err: any) {
       setError(err.message || 'Authentication failed.');
@@ -141,9 +147,9 @@ const Login: React.FC = () => {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {error && (
+            {(error || authError) && (
               <div className="p-3 bg-rose-50 text-rose-600 text-[10px] font-black uppercase text-center rounded-xl border border-rose-100 flex flex-col gap-2">
-                <span>{error}</span>
+                <span>{error || authError}</span>
                 {showResend && (
                   <button 
                     type="button"
