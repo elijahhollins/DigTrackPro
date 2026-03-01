@@ -4,6 +4,7 @@ import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, User,
 import { getTicketStatus, getStatusColor } from './utils/dateUtils.ts';
 import { apiService } from './services/apiService.ts';
 import { supabase, isSupabaseConfigured, getEnv } from './lib/supabaseClient.ts';
+import type { AuthChangeEvent } from '@supabase/supabase-js';
 import TicketForm from './components/TicketForm.tsx';
 import JobForm from './components/JobForm.tsx';
 import { JobSummaryModal } from './components/JobSummaryModal.tsx';
@@ -40,6 +41,7 @@ const App: React.FC = () => {
   const [photos, setPhotos] = useState<JobPhoto[]>([]);
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [authError, setAuthError] = useState<string>('');
   const [isProcessing] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   
@@ -105,6 +107,7 @@ const App: React.FC = () => {
       initRef.current = false;
       return; 
     }
+    setAuthError('');
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { 
@@ -210,7 +213,8 @@ const App: React.FC = () => {
       setPhotos(allPhotosRes.status === 'fulfilled' ? allPhotosRes.value : []);
 
     } catch (error) { 
-      console.error("Critical Init Error:", error); 
+      console.error("Critical Init Error:", error);
+      setAuthError((error as any)?.message || 'Failed to load your profile. Please try logging in again.');
     } finally { 
       setIsLoading(false); 
       initRef.current = false; 
@@ -219,7 +223,10 @@ const App: React.FC = () => {
 
   useEffect(() => {
     initApp();
-    const { data: authListener } = supabase.auth.onAuthStateChange(() => initApp());
+    const { data: authListener } = supabase.auth.onAuthStateChange((event: AuthChangeEvent) => {
+      if (event === 'SIGNED_IN') setIsLoading(true);
+      initApp();
+    });
     return () => authListener.subscription.unsubscribe();
   }, []);
 
@@ -393,7 +400,7 @@ const App: React.FC = () => {
     );
   }
 
-  if (!sessionUser) return <Login />;
+  if (!sessionUser) return <Login authError={authError} />;
   if (showCompanyRegistration) return <CompanyRegistration onComplete={handleCompanyCreation} isDarkMode={isDarkMode} />;
 
   const isSuperAdmin = sessionUser.role === UserRole.SUPER_ADMIN;
