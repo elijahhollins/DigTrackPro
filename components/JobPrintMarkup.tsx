@@ -295,7 +295,7 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
     setIsUploading(true);
     setIsMapReady(false);
     try {
-      const newPrint = await apiService.uploadJobPrint(job.jobNumber, file);
+      const newPrint = await apiService.uploadJobPrint(job.jobNumber, file, job.companyId);
       setPrint(newPrint);
       setMarkers([]);
       setNewMarkerPos(null);
