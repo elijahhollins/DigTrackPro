@@ -35,7 +35,7 @@ const App: React.FC = () => {
   const [company, setCompany] = useState<Company | null>(null);
   const [allCompanies, setAllCompanies] = useState<Company[]>([]);
   const [activeView, setActiveView] = useState<AppView>('dashboard');
-  const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('dig_theme_mode') !== 'light');
+  const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('dig_theme_mode') === 'dark');
   const [tickets, setTickets] = useState<DigTicket[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [photos, setPhotos] = useState<JobPhoto[]>([]);
