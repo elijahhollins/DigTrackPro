@@ -584,14 +584,16 @@ export const apiService = {
 
   async createCompanyAndInvite(name: string, brandColor: string): Promise<{ company: Company; inviteToken: string }> {
     const company = await this.createCompany({ id: crypto.randomUUID(), name, brandColor, createdAt: Date.now() });
-    const { data, error } = await supabase.from('company_invites').insert([{ company_id: company.id }]).select().single();
+    const { data, error } = await supabase.from('company_invites').insert([{ company_id: company.id }]).select('token').single();
     if (error) throw error;
+    if (!data?.token) throw new Error('Failed to generate invite token');
     return { company, inviteToken: data.token as string };
   },
 
   async createInviteForCompany(companyId: string): Promise<string> {
-    const { data, error } = await supabase.from('company_invites').insert([{ company_id: companyId }]).select().single();
+    const { data, error } = await supabase.from('company_invites').insert([{ company_id: companyId }]).select('token').single();
     if (error) throw error;
+    if (!data?.token) throw new Error('Failed to generate invite token');
     return data.token as string;
   },
 
