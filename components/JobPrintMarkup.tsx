@@ -11,12 +11,13 @@ pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@4.4.168/buil
 interface JobPrintMarkupProps {
   job: Job;
   tickets: DigTicket[];
+  isAdmin: boolean;
   onClose: () => void;
   onViewTicket: (url: string) => void;
   isDarkMode?: boolean;
 }
 
-export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, onClose, onViewTicket }) => {
+export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, isAdmin, onClose, onViewTicket }) => {
   const [print, setPrint] = useState<JobPrint | null>(null);
   const [markers, setMarkers] = useState<PrintMarker[]>([]);
   const [, setIsLoading] = useState(true);
@@ -364,20 +365,24 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
         </div>
 
         <div className="flex items-center gap-2 pointer-events-auto">
-          <button 
-            onClick={() => setIsPinMode(!isPinMode)}
-            className={`p-3 rounded-2xl border transition-all ${isPinMode ? `${brandColor} text-slate-900 border-white/20 shadow-lg` : 'bg-slate-900/80 text-white border-white/10 backdrop-blur-md'}`}
-            title="Toggle Pin Mode"
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-          </button>
-          <button 
-            onClick={() => fileInputRef.current?.click()}
-            className="p-3 bg-slate-900/80 text-white border border-white/10 backdrop-blur-md rounded-2xl shadow-2xl transition-all active:scale-95"
-            title="Upload New Version"
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-          </button>
+          {isAdmin && (
+            <button 
+              onClick={() => setIsPinMode(!isPinMode)}
+              className={`p-3 rounded-2xl border transition-all ${isPinMode ? `${brandColor} text-slate-900 border-white/20 shadow-lg` : 'bg-slate-900/80 text-white border-white/10 backdrop-blur-md'}`}
+              title="Toggle Pin Mode"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+            </button>
+          )}
+          {isAdmin && (
+            <button 
+              onClick={() => fileInputRef.current?.click()}
+              className="p-3 bg-slate-900/80 text-white border border-white/10 backdrop-blur-md rounded-2xl shadow-2xl transition-all active:scale-95"
+              title="Upload New Version"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+            </button>
+          )}
           <button 
             onClick={onClose}
             className="p-3 bg-rose-600 text-white rounded-2xl shadow-2xl transition-all active:scale-95"
@@ -470,12 +475,14 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
                            >
                              View Doc
                            </button>
-                           <button 
-                             onClick={(e) => deleteMarker(m.id, e)}
-                             className="p-2 bg-rose-500/10 text-rose-500 rounded-lg hover:bg-rose-500 hover:text-white transition-all"
-                           >
-                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                           </button>
+                           {isAdmin && (
+                             <button 
+                               onClick={(e) => deleteMarker(m.id, e)}
+                               className="p-2 bg-rose-500/10 text-rose-500 rounded-lg hover:bg-rose-500 hover:text-white transition-all"
+                             >
+                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                             </button>
+                           )}
                         </div>
                         <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-[8px] border-l-transparent border-r-[8px] border-r-transparent border-t-[8px] border-t-slate-900" />
                      </div>
