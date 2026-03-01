@@ -28,6 +28,9 @@ create table if not exists companies (
     id uuid primary key default gen_random_uuid(),
     name text not null,
     brand_color text default '#3b82f6',
+    city text,
+    state text,
+    phone text,
     created_at timestamp with time zone default now()
 );
 
@@ -236,6 +239,9 @@ export const apiService = {
       id: data.id,
       name: data.name,
       brandColor: data.brand_color,
+      city: data.city || '',
+      state: data.state || '',
+      phone: data.phone || '',
       createdAt: new Date(data.created_at).getTime()
     };
   },
@@ -513,6 +519,9 @@ export const apiService = {
       id: company.id,
       name: company.name,
       brand_color: company.brandColor,
+      city: company.city || null,
+      state: company.state || null,
+      phone: company.phone || null,
       created_at: new Date().toISOString()
     }]).select().single();
 
@@ -522,6 +531,9 @@ export const apiService = {
       id: data.id,
       name: data.name,
       brandColor: data.brand_color,
+      city: data.city || '',
+      state: data.state || '',
+      phone: data.phone || '',
       createdAt: new Date(data.created_at).getTime()
     };
   },
@@ -578,16 +590,38 @@ export const apiService = {
       id: d.id,
       name: d.name,
       brandColor: d.brand_color,
+      city: d.city || '',
+      state: d.state || '',
+      phone: d.phone || '',
       createdAt: new Date(d.created_at).getTime()
     }));
   },
 
-  async createCompanyAndInvite(name: string, brandColor: string): Promise<{ company: Company; inviteToken: string }> {
-    const company = await this.createCompany({ id: crypto.randomUUID(), name, brandColor, createdAt: Date.now() });
+  async createCompanyAndInvite(name: string, brandColor: string, city?: string, state?: string, phone?: string): Promise<{ company: Company; inviteToken: string }> {
+    const company = await this.createCompany({ id: crypto.randomUUID(), name, brandColor, city, state, phone, createdAt: Date.now() });
     const { data, error } = await supabase.from('company_invites').insert([{ company_id: company.id }]).select('token').single();
     if (error) throw error;
     if (!data?.token) throw new Error('Failed to generate invite token');
     return { company, inviteToken: data.token as string };
+  },
+
+  async updateCompany(id: string, updates: { name?: string; city?: string; state?: string; phone?: string }): Promise<Company> {
+    const updateData: Record<string, string | null> = {};
+    if (updates.name !== undefined) updateData.name = updates.name;
+    if (updates.city !== undefined) updateData.city = updates.city;
+    if (updates.state !== undefined) updateData.state = updates.state;
+    if (updates.phone !== undefined) updateData.phone = updates.phone;
+    const { data, error } = await supabase.from('companies').update(updateData).eq('id', id).select().single();
+    if (error) throw error;
+    return {
+      id: data.id,
+      name: data.name,
+      brandColor: data.brand_color,
+      city: data.city || '',
+      state: data.state || '',
+      phone: data.phone || '',
+      createdAt: new Date(data.created_at).getTime()
+    };
   },
 
   async createInviteForCompany(companyId: string): Promise<string> {
