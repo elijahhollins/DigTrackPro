@@ -89,9 +89,12 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
         if (activePrint) {
           const m = await apiService.getPrintMarkers(activePrint.id);
           setMarkers(m);
+        } else {
+          setIsMapReady(true);
         }
       } catch (err) {
         console.error("Failed to load blueprint data", err);
+        setIsMapReady(true);
       } finally {
         setIsLoading(false);
       }
