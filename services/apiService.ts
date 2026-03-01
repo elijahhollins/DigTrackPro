@@ -645,5 +645,22 @@ export const apiService = {
     const { data, error } = await supabase.rpc('get_company_by_name', { p_name: name });
     if (error || !data?.length) return null;
     return { id: data[0].company_id, name: data[0].company_name, brandColor: data[0].brand_color, createdAt: 0 };
+  },
+
+  async updateUserName(id: string, name: string): Promise<void> {
+    const { error } = await supabase.from('profiles').update({ name }).eq('id', id);
+    if (error) throw error;
+  },
+
+  async sendPasswordReset(email: string): Promise<void> {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin
+    });
+    if (error) throw error;
+  },
+
+  async updateCurrentUserPassword(password: string): Promise<void> {
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) throw error;
   }
 };
