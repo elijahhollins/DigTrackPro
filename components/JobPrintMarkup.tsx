@@ -513,7 +513,7 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
                    </div>
                    
                    {(isHovered || isMobile && hoveredMarkerId === m.id) && (
-                     <div className="absolute bottom-full mb-3 bg-slate-900 border border-white/20 p-4 rounded-2xl shadow-2xl min-w-[220px] animate-in zoom-in-95 duration-200 z-50">
+                     <div className="absolute bottom-full mb-3 bg-slate-900 border border-white/20 p-4 rounded-2xl shadow-2xl min-w-[300px] animate-in zoom-in-95 duration-200 z-50">
                         <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-1">Asset Node</p>
                         <p className="text-sm font-black text-white mb-2">TKT: {m.label}</p>
                         <div className="flex flex-wrap gap-2 mb-4">
