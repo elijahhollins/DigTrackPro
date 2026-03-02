@@ -42,6 +42,8 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
   const pointerDownPos = useRef({ x: 0, y: 0 });
   const lastPointerPos = useRef({ x: 0, y: 0 });
   const dragThresholdMet = useRef(false);
+  const activePointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const lastPinchDistanceRef = useRef<number | null>(null);
   
   // Tooltip/Marker State
   const [hoveredMarkerId, setHoveredMarkerId] = useState<string | null>(null);
@@ -222,39 +224,84 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
   }, [docDims, performAutoFit]);
 
   const handlePointerDown = (e: React.PointerEvent) => {
-    if (isPinMode) return;
-    if ((e.target as HTMLElement).closest('.ui-isolation')) {
-      return;
-    }
+    if ((e.target as HTMLElement).closest('.ui-isolation')) return;
 
-    pointerDownPos.current = { x: e.clientX, y: e.clientY };
-    lastPointerPos.current = { x: e.clientX, y: e.clientY };
-    dragThresholdMet.current = false;
-    setIsDragging(true);
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    viewportRef.current?.setPointerCapture(e.pointerId);
+
+    if (activePointersRef.current.size === 2) {
+      // Second finger arrived: start pinch-to-zoom
+      const [p1, p2] = Array.from<{ x: number; y: number }>(activePointersRef.current.values());
+      lastPinchDistanceRef.current = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      dragThresholdMet.current = true; // cancel pending click
+      setIsDragging(false);
+    } else if (activePointersRef.current.size === 1 && !isPinMode) {
+      // Single finger: start pan
+      pointerDownPos.current = { x: e.clientX, y: e.clientY };
+      lastPointerPos.current = { x: e.clientX, y: e.clientY };
+      dragThresholdMet.current = false;
+      setIsDragging(true);
+    } else {
+      // Pin mode single touch: track for click detection only
+      pointerDownPos.current = { x: e.clientX, y: e.clientY };
+      dragThresholdMet.current = false;
+    }
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isDragging) return;
+    if (!activePointersRef.current.has(e.pointerId)) return;
+    activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-    const dxTotal = Math.abs(e.clientX - pointerDownPos.current.x);
-    const dyTotal = Math.abs(e.clientY - pointerDownPos.current.y);
-    
-    if (!dragThresholdMet.current && (dxTotal > 5 || dyTotal > 5)) {
+    if (activePointersRef.current.size === 2) {
+      // Pinch-to-zoom toward the midpoint between the two fingers
+      if (!viewportRef.current || lastPinchDistanceRef.current === null) return;
+      const [p1, p2] = Array.from<{ x: number; y: number }>(activePointersRef.current.values());
+      const newDist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      const scaleFactor = newDist / lastPinchDistanceRef.current;
+      const vRect = viewportRef.current.getBoundingClientRect();
+      const midX = (p1.x + p2.x) / 2 - vRect.left;
+      const midY = (p1.y + p2.y) / 2 - vRect.top;
+      setTransform(prev => {
+        const newScale = Math.min(Math.max(prev.scale * scaleFactor, 0.005), 40);
+        const contentX = (midX - prev.x) / prev.scale;
+        const contentY = (midY - prev.y) / prev.scale;
+        return { scale: newScale, x: midX - contentX * newScale, y: midY - contentY * newScale };
+      });
+      lastPinchDistanceRef.current = newDist;
       dragThresholdMet.current = true;
-    }
-
-    if (dragThresholdMet.current) {
-      const dx = e.clientX - lastPointerPos.current.x;
-      const dy = e.clientY - lastPointerPos.current.y;
-      setTransform(prev => ({ ...prev, x: prev.x + dx, y: prev.y + dy }));
+    } else if (activePointersRef.current.size === 1 && isDragging) {
+      // Single-finger pan
+      const dxTotal = Math.abs(e.clientX - pointerDownPos.current.x);
+      const dyTotal = Math.abs(e.clientY - pointerDownPos.current.y);
+      if (!dragThresholdMet.current && (dxTotal > 5 || dyTotal > 5)) {
+        dragThresholdMet.current = true;
+      }
+      if (dragThresholdMet.current) {
+        const dx = e.clientX - lastPointerPos.current.x;
+        const dy = e.clientY - lastPointerPos.current.y;
+        setTransform(prev => ({ ...prev, x: prev.x + dx, y: prev.y + dy }));
+      }
       lastPointerPos.current = { x: e.clientX, y: e.clientY };
     }
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
-    setIsDragging(false);
-    (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+    activePointersRef.current.delete(e.pointerId);
+    viewportRef.current?.releasePointerCapture(e.pointerId);
+
+    if (activePointersRef.current.size < 2) {
+      lastPinchDistanceRef.current = null;
+    }
+    if (activePointersRef.current.size === 0) {
+      setIsDragging(false);
+    } else if (activePointersRef.current.size === 1 && !isPinMode) {
+      // One finger remains after pinch: resume pan from current position
+      const [remaining] = Array.from<{ x: number; y: number }>(activePointersRef.current.values());
+      lastPointerPos.current = remaining;
+      pointerDownPos.current = remaining;
+      dragThresholdMet.current = true;
+      setIsDragging(true);
+    }
   };
 
   const handleWheel = (e: React.WheelEvent) => {
@@ -262,8 +309,16 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
     if (!viewportRef.current) return;
     const vRect = viewportRef.current.getBoundingClientRect();
 
-    const zoomSpeed = 0.0012;
-    const scaleFactor = Math.exp(-e.deltaY * zoomSpeed);
+    // Normalize deltaY across deltaMode values so scroll wheel and trackpad
+    // feel consistent on all browsers (Firefox uses LINE mode, others use PIXEL).
+    const DELTA_LINE_TO_PIXELS = 16;  // Standard browser line height approximation
+    const DELTA_PAGE_TO_PIXELS = 600; // Approximate viewport height in pixels
+    let delta = e.deltaY;
+    if (e.deltaMode === 1) delta *= DELTA_LINE_TO_PIXELS;
+    if (e.deltaMode === 2) delta *= DELTA_PAGE_TO_PIXELS;
+
+    const zoomSpeed = 0.001;
+    const scaleFactor = Math.exp(-delta * zoomSpeed);
     const newScale = Math.min(Math.max(transform.scale * scaleFactor, 0.005), 40);
 
     const mouseX = e.clientX - vRect.left;
@@ -394,6 +449,7 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, on
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
         onWheel={handleWheel}
         onClick={handleViewportClick}
       >
