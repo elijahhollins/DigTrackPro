@@ -354,9 +354,11 @@ const App: React.FC = () => {
 
   const handleRefreshRequest = async (ticket: DigTicket, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (ticket.refreshRequested) return;
+    if (ticket.refreshRequested) {
+      if (!confirm(`Clear the Refresh Request for Ticket #${ticket.ticketNo}?`)) return;
+    }
     try {
-      const updated = { ...ticket, refreshRequested: true };
+      const updated = { ...ticket, refreshRequested: !ticket.refreshRequested };
       const saved = await apiService.saveTicket(updated);
       setTickets(prev => prev.map(t => t.id === saved.id ? saved : t));
     } catch (error: any) {
@@ -604,7 +606,7 @@ const App: React.FC = () => {
                                 <td className={`px-8 py-4 text-[11px] font-bold text-right ${isDarkMode ? 'opacity-60 text-slate-300' : 'opacity-100 text-slate-900'}`}>{new Date(ticket.expires).toLocaleDateString()}</td>
                                 <td className="px-8 py-4 text-right flex items-center justify-end gap-2">
                                   <button onClick={(e) => { e.stopPropagation(); setNoShowTicket(ticket); }} className="p-2 rounded-xl transition-all border bg-rose-500/5 text-rose-500 border-rose-500/10 hover:bg-rose-500 hover:text-white"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg></button>
-                                  <button onClick={(e) => handleRefreshRequest(ticket, e)} title="Request Refresh" disabled={!!ticket.refreshRequested} className={`p-2 rounded-xl transition-all border ${ticket.refreshRequested ? 'bg-amber-500 text-white border-amber-500 cursor-default' : 'bg-amber-500/5 text-amber-500 border-amber-500/10 hover:bg-amber-500 hover:text-white'}`}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg></button>
+                                  <button onClick={(e) => handleRefreshRequest(ticket, e)} title={ticket.refreshRequested ? "Clear Refresh Request" : "Request Refresh"} className={`p-2 rounded-xl transition-all border ${ticket.refreshRequested ? 'bg-amber-500 text-white border-amber-500 hover:bg-red-500 hover:border-red-500' : 'bg-amber-500/5 text-amber-500 border-amber-500/10 hover:bg-amber-500 hover:text-white'}`}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg></button>
                                   <button onClick={(e) => { e.stopPropagation(); handleToggleArchive(ticket, e); }} className="p-2 rounded-xl transition-all border bg-slate-100 text-slate-500 hover:text-brand"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg></button>
                                 </td>
                               </tr>
