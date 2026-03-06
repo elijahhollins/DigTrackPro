@@ -547,7 +547,7 @@ const App: React.FC = () => {
                 </div>
               </div>
             </div>
-            <StatCards tickets={tickets.filter(t => !t.isArchived)} isDarkMode={isDarkMode} activeFilter={activeFilter} onFilterClick={setActiveFilter} />
+            <StatCards tickets={activeTicketsList.filter(t => !t.isArchived)} isDarkMode={isDarkMode} activeFilter={activeFilter} onFilterClick={setActiveFilter} />
             <div className={`${isDarkMode ? 'bg-[#1e293b] border-white/5 shadow-2xl shadow-black/40' : 'bg-white border-slate-200 shadow-xl shadow-slate-200/50'} rounded-[2.5rem] border overflow-hidden`}>
               <div className="overflow-x-auto no-scrollbar">
                 <table className="w-full text-left">
