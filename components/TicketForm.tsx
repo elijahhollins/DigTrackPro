@@ -44,10 +44,11 @@ const getSafeMimeType = (file: File): string => {
 export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initialData, isDarkMode, existingTickets }) => {
   const [isBatchMode, setIsBatchMode] = useState(false);
   const [isSubmittingManual, setIsSubmittingManual] = useState(false);
+  const [isSavingAll, setIsSavingAll] = useState(false);
   const [hasApiKey, setHasApiKey] = useState(false);
   
   const [formData, setFormData] = useState({
-    jobNumber: '', ticketNo: '', street: '', crossStreet: '', place: '', extent: '', county: '', city: '', state: '', callInDate: '', workDate: '', expires: '', siteContact: '', documentUrl: '',
+    jobNumber: '', ticketNo: '', street: '', crossStreet: '', place: '', extent: '', county: '', city: '', state: '', callInDate: '', workDate: '', expires: '', siteContact: '', documentUrl: '', lat: '' as string, lng: '' as string,
   });
   
   const [queue, setQueue] = useState<IngestionItem[]>([]);
@@ -83,6 +84,8 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
         expires: initialData.expires,
         siteContact: initialData.siteContact,
         documentUrl: initialData.documentUrl || '',
+        lat: initialData.lat != null ? String(initialData.lat) : '',
+        lng: initialData.lng != null ? String(initialData.lng) : '',
       });
       setIsBatchMode(false);
     }
@@ -109,6 +112,8 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
           expires: activeItem.extractedData.expires || '',
           siteContact: activeItem.extractedData.siteContact || '',
           documentUrl: activeItem.documentUrl || '',
+          lat: activeItem.extractedData.lat != null ? String(activeItem.extractedData.lat) : '',
+          lng: activeItem.extractedData.lng != null ? String(activeItem.extractedData.lng) : '',
         });
       }
     }
@@ -214,10 +219,16 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    const submitData = {
+      ...formData,
+      lat: formData.lat !== '' && !isNaN(parseFloat(formData.lat)) ? parseFloat(formData.lat) : undefined,
+      lng: formData.lng !== '' && !isNaN(parseFloat(formData.lng)) ? parseFloat(formData.lng) : undefined,
+    };
+
     // Fixed: Passing formData which now matches the prop signature (Omit DigTicket 'id' | 'createdAt' | 'companyId')
     if (isBatchMode) {
       const currentId = queue[activeIndex]?.id;
-      await onSave(formData);
+      await onSave(submitData);
       if (currentId) {
         setQueue(prev => prev.map(item => item.id === currentId ? { ...item, status: 'saved' } : item));
       }
@@ -225,7 +236,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
     } else {
       setIsSubmittingManual(true);
       try {
-        await onSave(formData);
+        await onSave(submitData);
         onClose();
       } catch (err: any) {
         alert(err.message);
@@ -250,6 +261,56 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
 
   const currentItem = queue[activeIndex];
   const processingCount = queue.filter(i => i.status === 'analyzing' || i.status === 'uploading' || i.status === 'pending').length;
+  const readyCount = queue.filter(i => i.status === 'ready').length;
+
+  const handleSaveAll = async () => {
+    setIsSavingAll(true);
+    const readyItems = queue.filter(i => i.status === 'ready');
+    const outcomes = new Map<string, 'saved' | 'error'>();
+
+    for (const item of readyItems) {
+      const extracted = item.extractedData || {};
+      const submitData = {
+        jobNumber: extracted.jobNumber || '',
+        ticketNo: extracted.ticketNo || '',
+        street: extracted.street || '',
+        crossStreet: extracted.crossStreet || '',
+        place: extracted.place || '',
+        extent: extracted.extent || '',
+        county: extracted.county || '',
+        city: extracted.city || '',
+        state: extracted.state || '',
+        callInDate: extracted.callInDate || '',
+        workDate: extracted.workDate || '',
+        expires: extracted.expires || '',
+        siteContact: extracted.siteContact || '',
+        documentUrl: item.documentUrl || '',
+        lat: extracted.lat != null && !isNaN(Number(extracted.lat)) ? Number(extracted.lat) : undefined,
+        lng: extracted.lng != null && !isNaN(Number(extracted.lng)) ? Number(extracted.lng) : undefined,
+        isArchived: false,
+        refreshRequested: false,
+        noShowRequested: false,
+      };
+      try {
+        await onSave(submitData);
+        outcomes.set(item.id, 'saved');
+        setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'saved' } : q));
+      } catch (err: any) {
+        console.error('Failed to save batch item:', item.id, err);
+        outcomes.set(item.id, 'error');
+        setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'error', error: err.message } : q));
+      }
+    }
+
+    setIsSavingAll(false);
+
+    // Close if every item in the queue is now saved or errored.
+    // Apply the known outcomes to the current queue snapshot to decide.
+    const finalQueue = queue.map(i => outcomes.has(i.id) ? { ...i, status: outcomes.get(i.id)! as IngestionItem['status'] } : i);
+    if (finalQueue.every(i => i.status === 'saved' || i.status === 'error')) {
+      onClose();
+    }
+  };
 
   return (
     <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[160] flex items-center justify-center p-4 overflow-y-auto">
@@ -447,11 +508,42 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
                 <input className={`w-full px-5 py-4 border rounded-2xl text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-300 text-black'}`} value={formData.siteContact} onChange={e => setFormData({...formData, siteContact: e.target.value})} placeholder="e.g. John Doe (555-0123)" />
               </div>
 
+              <div className="grid grid-cols-2 gap-5">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase tracking-widest ml-1 text-slate-500">Latitude</label>
+                  <input type="number" step="any" className={`w-full px-5 py-4 border rounded-2xl text-xs font-bold font-mono outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-300 text-black'}`} value={formData.lat} onChange={e => setFormData({...formData, lat: e.target.value})} placeholder="e.g. 41.8781" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase tracking-widest ml-1 text-slate-500">Longitude</label>
+                  <input type="number" step="any" className={`w-full px-5 py-4 border rounded-2xl text-xs font-bold font-mono outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-300 text-black'}`} value={formData.lng} onChange={e => setFormData({...formData, lng: e.target.value})} placeholder="e.g. -87.6298" />
+                </div>
+              </div>
+
               <div className="pt-6">
+                {isBatchMode && readyCount >= 2 && (
+                  <button
+                    type="button"
+                    onClick={handleSaveAll}
+                    disabled={isSavingAll}
+                    className="w-full mb-3 bg-emerald-500 text-white py-5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-lg shadow-emerald-500/20 transition-all hover:scale-[1.01] active:scale-95 flex items-center justify-center gap-3 disabled:opacity-60 disabled:cursor-not-allowed disabled:scale-100"
+                  >
+                    {isSavingAll ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        Saving All...
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
+                        Save All Ready ({readyCount})
+                      </>
+                    )}
+                  </button>
+                )}
                 <button 
                   type="submit" 
-                  disabled={isSubmittingManual}
-                  className="w-full bg-brand text-slate-900 py-6 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-2xl shadow-brand/20 transition-all hover:scale-[1.01] active:scale-95 flex items-center justify-center gap-3"
+                  disabled={isSubmittingManual || isSavingAll}
+                  className="w-full bg-brand text-slate-900 py-6 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-2xl shadow-brand/20 transition-all hover:scale-[1.01] active:scale-95 flex items-center justify-center gap-3 disabled:opacity-60 disabled:cursor-not-allowed disabled:scale-100"
                 >
                   {isSubmittingManual ? (
                     <div className="w-5 h-5 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />

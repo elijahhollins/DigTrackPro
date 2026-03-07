@@ -75,6 +75,8 @@ create table if not exists tickets (
     no_show_requested boolean default false, 
     is_archived boolean default false, 
     document_url text,
+    geotag_lat double precision,
+    geotag_lng double precision,
     created_at timestamp with time zone default now()
 );
 
@@ -338,11 +340,13 @@ export const apiService = {
         callInDate: t.call_in_date,
         workDate: t.work_date,
         expires: t.expires,
-        site_contact: t.site_contact,
+        siteContact: t.site_contact,
         refreshRequested: t.refresh_requested ?? false,
         noShowRequested: t.no_show_requested ?? false,
         isArchived: t.is_archived ?? false,
         documentUrl: t.document_url || '',
+        lat: t.geotag_lat ?? undefined,
+        lng: t.geotag_lng ?? undefined,
         createdAt: new Date(t.created_at).getTime()
     } as any));
   },
@@ -370,7 +374,9 @@ export const apiService = {
       refresh_requested: ticket.refreshRequested ?? false,
       no_show_requested: ticket.noShowRequested ?? false,
       is_archived: ticket.isArchived ?? false,
-      document_url: ticket.documentUrl
+      document_url: ticket.documentUrl,
+      geotag_lat: ticket.lat ?? null,
+      geotag_lng: ticket.lng ?? null,
     }).select().single();
     if (error) throw error;
     return {
@@ -393,8 +399,26 @@ export const apiService = {
         noShowRequested: data.no_show_requested ?? false,
         isArchived: data.is_archived ?? false,
         documentUrl: data.document_url || '',
+        lat: data.geotag_lat ?? undefined,
+        lng: data.geotag_lng ?? undefined,
         createdAt: new Date(data.created_at).getTime()
     };
+  },
+
+  async updateTicketCoords(id: string, lat: number, lng: number): Promise<void> {
+    const { error } = await supabase.from('tickets').update({ geotag_lat: lat, geotag_lng: lng }).eq('id', id);
+    if (error) throw error;
+  },
+
+  async batchUpdateTicketCoords(items: Array<{ id: string; companyId: string; lat: number; lng: number }>): Promise<void> {
+    if (items.length === 0) return;
+    const { error } = await supabase
+      .from('tickets')
+      .upsert(
+        items.map(({ id, companyId, lat, lng }) => ({ id, company_id: companyId, geotag_lat: lat, geotag_lng: lng })),
+        { onConflict: 'id' }
+      );
+    if (error) throw error;
   },
 
   async getPhotos(): Promise<JobPhoto[]> {
