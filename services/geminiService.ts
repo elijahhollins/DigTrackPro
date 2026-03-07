@@ -31,6 +31,7 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
        - Convert all dates to YYYY-MM-DD format.
     6. CUSTOMER: Identify the client or contractor (labels: "Done For", "Contractor", "Customer").
     7. SITE CONTACT: Identify the person to contact on site.
+    8. GPS COORDINATES: Look for latitude/longitude coordinates anywhere on the ticket (often near "Best Fit", "GPS", "Lat/Long", or listed as decimal degree pairs like 41.123456, -87.654321). Extract as separate numeric values.
     
     If a field is missing or illegible, return null for that field.
     Return a clean JSON object according to the requested schema.`;
@@ -70,6 +71,8 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
             workDate: { type: Type.STRING },
             expires: { type: Type.STRING },
             siteContact: { type: Type.STRING },
+            lat: { type: Type.NUMBER },
+            lng: { type: Type.NUMBER },
           },
         },
         temperature: 0,

@@ -75,6 +75,8 @@ create table if not exists tickets (
     no_show_requested boolean default false, 
     is_archived boolean default false, 
     document_url text,
+    lat float8,
+    lng float8,
     created_at timestamp with time zone default now()
 );
 
@@ -343,6 +345,8 @@ export const apiService = {
         noShowRequested: t.no_show_requested ?? false,
         isArchived: t.is_archived ?? false,
         documentUrl: t.document_url || '',
+        lat: t.lat ?? undefined,
+        lng: t.lng ?? undefined,
         createdAt: new Date(t.created_at).getTime()
     } as any));
   },
@@ -370,7 +374,9 @@ export const apiService = {
       refresh_requested: ticket.refreshRequested ?? false,
       no_show_requested: ticket.noShowRequested ?? false,
       is_archived: ticket.isArchived ?? false,
-      document_url: ticket.documentUrl
+      document_url: ticket.documentUrl,
+      lat: ticket.lat ?? null,
+      lng: ticket.lng ?? null,
     }).select().single();
     if (error) throw error;
     return {
@@ -393,6 +399,8 @@ export const apiService = {
         noShowRequested: data.no_show_requested ?? false,
         isArchived: data.is_archived ?? false,
         documentUrl: data.document_url || '',
+        lat: data.lat ?? undefined,
+        lng: data.lng ?? undefined,
         createdAt: new Date(data.created_at).getTime()
     };
   },

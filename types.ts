@@ -99,6 +99,8 @@ export interface DigTicket {
   noShowRequested?: boolean;
   isArchived?: boolean;
   documentUrl?: string;
+  lat?: number;
+  lng?: number;
 }
 
 export interface NoShowRecord {
@@ -132,4 +134,4 @@ export interface JobNote {
 
 export type SortField = keyof DigTicket | 'status';
 export type SortOrder = 'asc' | 'desc';
-export type AppView = 'dashboard' | 'calendar' | 'jobs' | 'photos' | 'team';
+export type AppView = 'dashboard' | 'calendar' | 'jobs' | 'photos' | 'team' | 'map';

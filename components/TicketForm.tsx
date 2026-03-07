@@ -47,7 +47,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
   const [hasApiKey, setHasApiKey] = useState(false);
   
   const [formData, setFormData] = useState({
-    jobNumber: '', ticketNo: '', street: '', crossStreet: '', place: '', extent: '', county: '', city: '', state: '', callInDate: '', workDate: '', expires: '', siteContact: '', documentUrl: '',
+    jobNumber: '', ticketNo: '', street: '', crossStreet: '', place: '', extent: '', county: '', city: '', state: '', callInDate: '', workDate: '', expires: '', siteContact: '', documentUrl: '', lat: '' as string, lng: '' as string,
   });
   
   const [queue, setQueue] = useState<IngestionItem[]>([]);
@@ -83,6 +83,8 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
         expires: initialData.expires,
         siteContact: initialData.siteContact,
         documentUrl: initialData.documentUrl || '',
+        lat: initialData.lat != null ? String(initialData.lat) : '',
+        lng: initialData.lng != null ? String(initialData.lng) : '',
       });
       setIsBatchMode(false);
     }
@@ -109,6 +111,8 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
           expires: activeItem.extractedData.expires || '',
           siteContact: activeItem.extractedData.siteContact || '',
           documentUrl: activeItem.documentUrl || '',
+          lat: activeItem.extractedData.lat != null ? String(activeItem.extractedData.lat) : '',
+          lng: activeItem.extractedData.lng != null ? String(activeItem.extractedData.lng) : '',
         });
       }
     }
@@ -214,10 +218,16 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    const submitData = {
+      ...formData,
+      lat: formData.lat !== '' && !isNaN(parseFloat(formData.lat)) ? parseFloat(formData.lat) : undefined,
+      lng: formData.lng !== '' && !isNaN(parseFloat(formData.lng)) ? parseFloat(formData.lng) : undefined,
+    };
+
     // Fixed: Passing formData which now matches the prop signature (Omit DigTicket 'id' | 'createdAt' | 'companyId')
     if (isBatchMode) {
       const currentId = queue[activeIndex]?.id;
-      await onSave(formData);
+      await onSave(submitData);
       if (currentId) {
         setQueue(prev => prev.map(item => item.id === currentId ? { ...item, status: 'saved' } : item));
       }
@@ -225,7 +235,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
     } else {
       setIsSubmittingManual(true);
       try {
-        await onSave(formData);
+        await onSave(submitData);
         onClose();
       } catch (err: any) {
         alert(err.message);
@@ -445,6 +455,17 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
               <div className="space-y-1">
                 <label className="text-[10px] font-black uppercase tracking-widest ml-1 text-slate-500">Site Contact / Client</label>
                 <input className={`w-full px-5 py-4 border rounded-2xl text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-300 text-black'}`} value={formData.siteContact} onChange={e => setFormData({...formData, siteContact: e.target.value})} placeholder="e.g. John Doe (555-0123)" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-5">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase tracking-widest ml-1 text-slate-500">Latitude</label>
+                  <input type="number" step="any" className={`w-full px-5 py-4 border rounded-2xl text-xs font-bold font-mono outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-300 text-black'}`} value={formData.lat} onChange={e => setFormData({...formData, lat: e.target.value})} placeholder="e.g. 41.8781" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase tracking-widest ml-1 text-slate-500">Longitude</label>
+                  <input type="number" step="any" className={`w-full px-5 py-4 border rounded-2xl text-xs font-bold font-mono outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-300 text-black'}`} value={formData.lng} onChange={e => setFormData({...formData, lng: e.target.value})} placeholder="e.g. -87.6298" />
+                </div>
               </div>
 
               <div className="pt-6">
