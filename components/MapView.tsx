@@ -20,6 +20,8 @@ interface MapViewProps {
   tickets: DigTicket[];
   isDarkMode: boolean;
   onEditTicket?: (ticket: DigTicket) => void;
+  onViewTicket?: (url: string) => void;
+  onTicketGeocoded?: (ticketId: string, lat: number, lng: number) => void;
 }
 
 interface PinnedTicket {
@@ -64,7 +66,7 @@ const geocodeAddress = async (ticket: DigTicket): Promise<{ lat: number; lng: nu
   return null;
 };
 
-export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTicket }) => {
+export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTicket, onViewTicket, onTicketGeocoded }) => {
   const mapRef = useRef<L.Map | null>(null);
   const mapDivRef = useRef<HTMLDivElement>(null);
   const markersRef = useRef<L.Marker[]>([]);
@@ -72,6 +74,12 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
   const [isGeocoding, setIsGeocoding] = useState(false);
   const [geocodedCount, setGeocodedCount] = useState(0);
   const [totalToGeocode, setTotalToGeocode] = useState(0);
+
+  // Keep a ref to the latest callback so the async geocoding loop always calls the
+  // current version without needing it in the effect's dependency array (which would
+  // restart geocoding on every parent render).
+  const onTicketGeocodedRef = useRef(onTicketGeocoded);
+  useEffect(() => { onTicketGeocodedRef.current = onTicketGeocoded; });
 
   const activeTickets = tickets.filter(t => !t.isArchived);
 
@@ -122,6 +130,8 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
             ...prev,
             { ticket, lat: coords.lat, lng: coords.lng, isEstimated: true },
           ]);
+          // Persist the resolved coordinates so this ticket won't be geocoded again
+          onTicketGeocodedRef.current?.(ticket.id, coords.lat, coords.lng);
         }
         setGeocodedCount(prev => prev + 1);
         // Rate-limit Nominatim requests per their usage policy
@@ -154,6 +164,13 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
       const icon = createMarkerIcon(statusColorClass);
       const marker = L.marker([lat, lng], { icon }).addTo(mapRef.current!);
 
+      const hasDoc = Boolean(ticket.documentUrl);
+      const viewBtnId = `map-view-${ticket.id}`;
+      const editBtnId = `map-edit-${ticket.id}`;
+
+      // Leaflet popups are rendered as raw HTML strings (not React JSX), so
+      // inline styles are required here — Tailwind utility classes are not available
+      // in this context as they are not part of the popup's DOM scope.
       const popupHtml = `
         <div style="min-width:180px;font-family:system-ui,sans-serif">
           <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.1em;color:#64748b;margin-bottom:4px">
@@ -165,11 +182,31 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
           <div style="margin-top:6px;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.1em;color:#64748b">
             Ticket #${ticket.ticketNo} · Expires ${new Date(ticket.expires).toLocaleDateString()}
           </div>
+          <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
+            ${hasDoc ? `<button id="${viewBtnId}" style="padding:4px 10px;background:#3b82f6;color:white;border:none;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer">View PDF</button>` : ''}
+            ${onEditTicket ? `<button id="${editBtnId}" style="padding:4px 10px;background:#475569;color:white;border:none;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer">Edit</button>` : ''}
+          </div>
         </div>
       `;
       marker.bindPopup(popupHtml);
 
-      if (onEditTicket) {
+      marker.on('popupopen', () => {
+        if (hasDoc && onViewTicket) {
+          document.getElementById(viewBtnId)?.addEventListener('click', () => {
+            onViewTicket(ticket.documentUrl!);
+          });
+        }
+        if (onEditTicket) {
+          document.getElementById(editBtnId)?.addEventListener('click', () => {
+            onEditTicket(ticket);
+          });
+        }
+      });
+
+      // Double-click opens the PDF viewer directly
+      if (onViewTicket && hasDoc) {
+        marker.on('dblclick', () => onViewTicket(ticket.documentUrl!));
+      } else if (onEditTicket) {
         marker.on('dblclick', () => onEditTicket(ticket));
       }
 
@@ -180,7 +217,7 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
     if (bounds.length > 0) {
       mapRef.current.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
     }
-  }, [pinnedTickets, onEditTicket]);
+  }, [pinnedTickets, onEditTicket, onViewTicket]);
 
   const withCoords = activeTickets.filter(t => t.lat != null && t.lng != null).length;
   const withoutCoords = activeTickets.length - withCoords;
@@ -232,7 +269,7 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
       )}
 
       <p className={`text-[9px] font-bold uppercase tracking-widest text-center ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>
-        Tickets with stored GPS coordinates are shown immediately. Others are geocoded via OpenStreetMap Nominatim (1 req/sec). Double-click a marker to edit the ticket.
+        Tickets with stored GPS coordinates are shown immediately. Others are geocoded via OpenStreetMap Nominatim (1 req/sec) and saved for future sessions. Click a marker to view ticket details.
       </p>
     </div>
   );

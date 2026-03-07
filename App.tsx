@@ -624,7 +624,16 @@ const App: React.FC = () => {
           </div>
         )}
         {activeView === 'calendar' && <CalendarView tickets={tickets} onEditTicket={setEditingTicket} onViewDoc={setViewingDocUrl} />}
-        {activeView === 'map' && <MapView tickets={activeTicketsList} isDarkMode={isDarkMode} onEditTicket={isAdmin ? setEditingTicket : undefined} />}
+        {activeView === 'map' && <MapView
+          tickets={activeTicketsList}
+          isDarkMode={isDarkMode}
+          onEditTicket={isAdmin ? setEditingTicket : undefined}
+          onViewTicket={setViewingDocUrl}
+          onTicketGeocoded={(id, lat, lng) => {
+            setTickets(prev => prev.map(t => t.id === id ? { ...t, lat, lng } : t));
+            apiService.updateTicketCoords(id, lat, lng).catch((err) => console.error('Failed to persist geocoded coordinates for ticket', id, err));
+          }}
+        />}
         {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} isAdmin={isAdmin} isDarkMode={isDarkMode} onJobSelect={(job: Job) => handleJobSelection(job.jobNumber, job)} onViewDoc={setViewingDocUrl} />}
         {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} companyId={sessionUser.companyId} onAddPhoto={(data, file) => apiService.addPhoto({ ...data, companyId: sessionUser.companyId }, file)} onDeletePhoto={(id: string) => apiService.deletePhoto(id)} initialSearch={mediaFolderFilter} />}
         {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} company={company || undefined} isDarkMode={isDarkMode} hasApiKey={hasApiKey} isSuperAdmin={isSuperAdmin} allCompanies={allCompanies} onCompanyCreated={(co) => setAllCompanies(prev => [...prev, co])} onCompanyUpdated={handleUpdateCompany} onAddUser={async (u) => { await apiService.addUser({ ...u, companyId: sessionUser.companyId }); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onThemeChange={applyThemeColor} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onOpenSelectKey={handleOpenSelectKey} onUpdateUserName={async (id, name) => { await apiService.updateUserName(id, name); initApp(); }} onSendPasswordReset={async (email) => { await apiService.sendPasswordReset(email); }} onUpdateCurrentUserPassword={async (password) => { await apiService.updateCurrentUserPassword(password); }} />}

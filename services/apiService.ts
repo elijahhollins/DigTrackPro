@@ -405,6 +405,11 @@ export const apiService = {
     };
   },
 
+  async updateTicketCoords(id: string, lat: number, lng: number): Promise<void> {
+    const { error } = await supabase.from('tickets').update({ lat, lng }).eq('id', id);
+    if (error) throw error;
+  },
+
   async getPhotos(): Promise<JobPhoto[]> {
     const { data, error } = await supabase.from('photos').select('*');
     if (error) return [];
