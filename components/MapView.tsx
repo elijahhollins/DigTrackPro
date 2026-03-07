@@ -7,6 +7,8 @@ import { getTicketStatus, getStatusColor } from '../utils/dateUtils.ts';
 
 // Rate limit for Nominatim geocoding API (max 1 request/second per usage policy)
 const NOMINATIM_RATE_LIMIT_MS = 1100;
+
+// Fix leaflet's default icon path issue with bundlers
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
@@ -73,55 +75,72 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
 
   const activeTickets = tickets.filter(t => !t.isArchived);
 
+  // Initialize map once on mount
+  useEffect(() => {
+    if (!mapDivRef.current || mapRef.current) return;
+
+    mapRef.current = L.map(mapDivRef.current, { zoomControl: true }).setView([39.5, -98.35], 4);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 19,
+    }).addTo(mapRef.current);
+
+    // Force Leaflet to recalculate container size after CSS layout settles
+    setTimeout(() => mapRef.current?.invalidateSize(), 100);
+
+    return () => {
+      mapRef.current?.remove();
+      mapRef.current = null;
+    };
+  }, []);
+
+  // Resolve coordinates: show GPS tickets immediately, geocode the rest progressively
   useEffect(() => {
     let cancelled = false;
 
     const resolveCoordinates = async () => {
-      setIsGeocoding(true);
-      const result: PinnedTicket[] = [];
-
+      // Immediately show tickets that already have GPS coordinates stored
       const withCoords = activeTickets.filter(t => t.lat != null && t.lng != null);
-      withCoords.forEach(t => {
-        result.push({ ticket: t, lat: t.lat!, lng: t.lng!, isEstimated: false });
-      });
+      const initialPinned: PinnedTicket[] = withCoords.map(t => ({
+        ticket: t, lat: t.lat!, lng: t.lng!, isEstimated: false,
+      }));
+      setPinnedTickets(initialPinned);
 
+      // Then geocode remaining tickets one by one, adding each to the map as it resolves
       const needGeocode = activeTickets.filter(t => t.lat == null || t.lng == null);
+      if (needGeocode.length === 0) return;
+
+      setIsGeocoding(true);
       setTotalToGeocode(needGeocode.length);
       setGeocodedCount(0);
 
       for (const ticket of needGeocode) {
         if (cancelled) break;
         const coords = await geocodeAddress(ticket);
-        if (coords) {
-          result.push({ ticket, lat: coords.lat, lng: coords.lng, isEstimated: true });
+        if (!cancelled && coords) {
+          setPinnedTickets(prev => [
+            ...prev,
+            { ticket, lat: coords.lat, lng: coords.lng, isEstimated: true },
+          ]);
         }
         setGeocodedCount(prev => prev + 1);
         // Rate-limit Nominatim requests per their usage policy
         await new Promise(r => setTimeout(r, NOMINATIM_RATE_LIMIT_MS));
       }
 
-      if (!cancelled) {
-        setPinnedTickets(result);
-        setIsGeocoding(false);
-      }
+      if (!cancelled) setIsGeocoding(false);
     };
 
+    setPinnedTickets([]);
     resolveCoordinates();
     return () => { cancelled = true; };
   }, [tickets]);
 
+  // Sync markers to the Leaflet map whenever pinnedTickets changes
   useEffect(() => {
-    if (!mapDivRef.current) return;
+    if (!mapRef.current) return;
 
-    if (!mapRef.current) {
-      mapRef.current = L.map(mapDivRef.current, { zoomControl: true }).setView([39.5, -98.35], 4);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        maxZoom: 19,
-      }).addTo(mapRef.current);
-    }
-
-    // Clear existing markers
+    // Remove old markers
     markersRef.current.forEach(m => m.remove());
     markersRef.current = [];
 
@@ -138,7 +157,7 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
       const popupHtml = `
         <div style="min-width:180px;font-family:system-ui,sans-serif">
           <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.1em;color:#64748b;margin-bottom:4px">
-            Job #${ticket.jobNumber}${isEstimated ? ' <span title="Location estimated via geocoding" aria-label="estimated location"style="color:#f59e0b">~</span>' : ''}
+            Job #${ticket.jobNumber}${isEstimated ? ' <span title="Location estimated via geocoding" aria-label="estimated location" style="color:#f59e0b">~</span>' : ''}
           </div>
           <div style="font-size:13px;font-weight:700;margin-bottom:2px">${ticket.street}</div>
           ${ticket.crossStreet ? `<div style="font-size:11px;color:#64748b">at ${ticket.crossStreet}</div>` : ''}
@@ -162,16 +181,6 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
       mapRef.current.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
     }
   }, [pinnedTickets, onEditTicket]);
-
-  // Cleanup map on unmount
-  useEffect(() => {
-    return () => {
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
-      }
-    };
-  }, []);
 
   const withCoords = activeTickets.filter(t => t.lat != null && t.lng != null).length;
   const withoutCoords = activeTickets.length - withCoords;
