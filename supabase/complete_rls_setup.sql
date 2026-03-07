@@ -109,6 +109,8 @@ CREATE TABLE IF NOT EXISTS tickets (
     no_show_requested boolean DEFAULT false,
     is_archived       boolean DEFAULT false,
     document_url      text,
+    geotag_lat        double precision,
+    geotag_lng        double precision,
     created_at        timestamp with time zone DEFAULT now()
 );
 

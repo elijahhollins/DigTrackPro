@@ -340,7 +340,7 @@ export const apiService = {
         callInDate: t.call_in_date,
         workDate: t.work_date,
         expires: t.expires,
-        site_contact: t.site_contact,
+        siteContact: t.site_contact,
         refreshRequested: t.refresh_requested ?? false,
         noShowRequested: t.no_show_requested ?? false,
         isArchived: t.is_archived ?? false,

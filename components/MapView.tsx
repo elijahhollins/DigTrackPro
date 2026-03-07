@@ -129,7 +129,7 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
       setTotalToGeocode(needGeocode.length);
       setGeocodedCount(0);
 
-      const geocodedResults: Array<{ id: string; lat: number; lng: number }> = [];
+      const geocodedResults: Array<{ id: string; companyId: string; lat: number; lng: number }> = [];
 
       for (const ticket of needGeocode) {
         if (cancelled) break;
