@@ -410,6 +410,17 @@ export const apiService = {
     if (error) throw error;
   },
 
+  async batchUpdateTicketCoords(items: Array<{ id: string; companyId: string; lat: number; lng: number }>): Promise<void> {
+    if (items.length === 0) return;
+    const { error } = await supabase
+      .from('tickets')
+      .upsert(
+        items.map(({ id, companyId, lat, lng }) => ({ id, company_id: companyId, geotag_lat: lat, geotag_lng: lng })),
+        { onConflict: 'id' }
+      );
+    if (error) throw error;
+  },
+
   async getPhotos(): Promise<JobPhoto[]> {
     const { data, error } = await supabase.from('photos').select('*');
     if (error) return [];

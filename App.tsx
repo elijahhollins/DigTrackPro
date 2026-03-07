@@ -797,7 +797,9 @@ const App: React.FC = () => {
               onViewTicket={setViewingDocUrl}
               onTicketGeocoded={(id, lat, lng) => {
                 setTickets(prev => prev.map(t => t.id === id ? { ...t, lat, lng } : t));
-                apiService.updateTicketCoords(id, lat, lng).catch((err) => console.error('Failed to persist geocoded coordinates for ticket', id, err));
+              }}
+              onGeocodeComplete={(results) => {
+                apiService.batchUpdateTicketCoords(results).catch((err) => console.error(`Failed to batch-persist ${results.length} geocoded coordinate(s):`, err));
               }}
             />}
             {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} isAdmin={isAdmin} isDarkMode={isDarkMode} onJobSelect={(job: Job) => handleJobSelection(job.jobNumber, job)} onViewDoc={setViewingDocUrl} />}
