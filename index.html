@@ -47,6 +47,34 @@
           to { transform: scale(1); opacity: 1; }
         }
         .nav-item-active { animation: navPop 0.2s ease-out forwards; }
+
+        /* Premium table row hover */
+        tbody tr { transition: background-color 0.15s ease; }
+
+        /* Refined scrollbar for supported browsers */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(100,116,139,0.25); border-radius: 99px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(100,116,139,0.45); }
+
+        /* Smooth focus rings */
+        button:focus-visible, input:focus-visible, select:focus-visible {
+          outline: 2px solid var(--brand-primary);
+          outline-offset: 2px;
+        }
+
+        /* Premium header gradient separator */
+        .app-header::after {
+          content: '';
+          position: absolute;
+          bottom: -1px;
+          left: 0;
+          right: 0;
+          height: 1px;
+          background: linear-gradient(90deg, transparent, var(--brand-primary), transparent);
+          opacity: 0.15;
+          pointer-events: none;
+        }
     </style>
 <script type="importmap">
 {

@@ -21,7 +21,7 @@ const StatCards = ({ tickets, isDarkMode, activeFilter, onFilterClick }: StatCar
   const items = [
     { 
       id: TicketStatus.VALID,
-      label: 'Sites Valid', 
+      label: 'Active & Clear', 
       value: stats[TicketStatus.VALID] || 0, 
       color: 'text-emerald-500', 
       darkBorder: 'border-emerald-500/20',
@@ -29,34 +29,34 @@ const StatCards = ({ tickets, isDarkMode, activeFilter, onFilterClick }: StatCar
     },
     { 
       id: TicketStatus.EXTENDABLE,
-      label: 'Refresh', 
+      label: 'Expiring Soon', 
       value: stats[TicketStatus.EXTENDABLE] || 0, 
       color: 'text-orange-500', 
-      description: 'Expiring Soon',
+      description: 'Renewal Required',
       darkBorder: 'border-orange-500/20',
       activeBg: 'bg-orange-500/10 border-orange-500'
     },
     { 
       id: TicketStatus.REFRESH_NEEDED,
-      label: 'Refresh Req', 
+      label: 'Refresh Needed', 
       value: stats[TicketStatus.REFRESH_NEEDED] || 0, 
       color: 'text-amber-500', 
-      description: 'Manual Request',
+      description: 'Call-In Required',
       darkBorder: 'border-amber-500/20',
       activeBg: 'bg-amber-500/10 border-amber-500'
     },
     { 
       id: 'NO_SHOW' as const,
-      label: 'No Shows Req', 
+      label: 'No Shows', 
       value: noShowCount, 
       color: 'text-rose-500', 
-      description: 'Call Ins Required',
+      description: 'Utility Call-Ins Due',
       darkBorder: 'border-rose-500/20',
       activeBg: 'bg-rose-500/10 border-rose-500'
     },
     { 
       id: TicketStatus.EXPIRED,
-      label: 'Expirations', 
+      label: 'Expired', 
       value: stats[TicketStatus.EXPIRED] || 0, 
       color: 'text-rose-600', 
       darkBorder: 'border-rose-600/20',
@@ -73,10 +73,10 @@ const StatCards = ({ tickets, isDarkMode, activeFilter, onFilterClick }: StatCar
           <button 
             key={it.label} 
             onClick={() => onFilterClick(isActive ? null : it.id)}
-            className={`p-4 rounded-xl border transition-all text-left group relative cursor-pointer
+            className={`p-4 rounded-xl border transition-all text-left group relative cursor-pointer overflow-hidden
               ${isDarkMode 
                 ? `${isActive ? it.activeBg : `bg-[#1e293b] ${it.darkBorder}`} hover:border-white/20` 
-                : `${isActive ? it.activeBg : `bg-white border-slate-300`} hover:border-slate-500`
+                : `${isActive ? it.activeBg : `bg-white border-slate-200`} hover:border-slate-400`
               } shadow-sm active:scale-[0.98]`}
           >
             <div className="flex justify-between items-start">

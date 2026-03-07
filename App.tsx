@@ -442,7 +442,7 @@ const App: React.FC = () => {
     return (
       <div className="min-h-screen bg-[#0f172a] flex flex-col items-center justify-center">
         <div className="w-8 h-8 border-2 border-brand border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-[9px] font-black uppercase tracking-widest opacity-40">Connecting Vault...</p>
+        <p className="text-[9px] font-black uppercase tracking-widest opacity-40">Loading...</p>
       </div>
     );
   }
@@ -453,27 +453,26 @@ const App: React.FC = () => {
   const isSuperAdmin = sessionUser.role === UserRole.SUPER_ADMIN;
   const isAdmin = sessionUser.role === UserRole.ADMIN || isSuperAdmin;
   const NAV_ITEMS: { id: AppView; label: string; icon: React.ReactNode }[] = [
-    { id: 'dashboard', label: 'Vault', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg> },
-    { id: 'jobs', label: 'Projects', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2-2v10a2 2 0 002 2z" /></svg> },
+    { id: 'dashboard', label: 'Tickets', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg> },
     { id: 'calendar', label: 'Schedule', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
-    { id: 'photos', label: 'Media', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
-    { id: 'team', label: 'Team', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg> },
+    { id: 'photos', label: 'Field Docs', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
+    { id: 'team', label: 'Crew', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg> },
   ];
 
   return (
     <div className={`min-h-screen ${isDarkMode ? 'bg-[#0f172a] text-slate-100' : 'bg-slate-50 text-black'} transition-all duration-500 pb-20 sm:pb-0`}>
-      <header className={`${isDarkMode ? 'bg-[#1e293b]/95 border-white/5 shadow-2xl shadow-black/20' : 'bg-white/95 border-slate-200 shadow-sm'} backdrop-blur-xl border-b sticky top-0 z-40 h-16 transition-all duration-500`}>
+      <header className={`app-header ${isDarkMode ? 'bg-[#1e293b]/95 border-white/5 shadow-2xl shadow-black/20' : 'bg-white/95 border-slate-200 shadow-sm'} backdrop-blur-xl border-b sticky top-0 z-40 h-16 transition-all duration-500`}>
         <div className="max-w-[1400px] mx-auto px-4 h-full flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 cursor-pointer group shrink-0" onClick={() => { handleNavigate('dashboard'); }}>
             <div className={`p-2.5 rounded-2xl shadow-lg transition-all duration-500 glow-brand ${isProcessing ? 'bg-purple-500 shadow-purple-500/30' : 'bg-brand shadow-brand/20'} group-hover:scale-110 active:scale-95`}>
-              <svg className={`w-5 h-5 text-[#0f172a] ${isProcessing ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+              <svg className={`w-5 h-5 text-[#0f172a] ${isProcessing ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
             </div>
             <div className="hidden lg:block">
               {/* Display the company name associated with the logged-in user. 
                   Company is loaded from database based on user's companyId (see lines 125-128).
                   Falls back to 'DigTrack Pro' if company data is unavailable. */}
               <h1 className="text-sm font-black uppercase tracking-tight group-hover:text-brand transition-colors">{company?.name || 'DigTrack Pro'}</h1>
-              <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest leading-none">Enterprise Locate Hub</p>
+              <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest leading-none">Locate Management System</p>
             </div>
           </div>
           
@@ -526,9 +525,9 @@ const App: React.FC = () => {
           <div className="space-y-8">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h2 className="text-2xl font-black uppercase tracking-tight">Locate Vault</h2>
+                <h2 className="text-2xl font-black uppercase tracking-tight">Active Locate Tickets</h2>
                 <div className="flex items-center gap-2 mt-1">
-                  <p className={`text-[10px] font-bold uppercase tracking-widest ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Real-time Field Compliance</p>
+                  <p className={`text-[10px] font-bold uppercase tracking-widest ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Real-Time Field Compliance</p>
                   {!hasApiKey && (
                     <button onClick={handleOpenSelectKey} className="bg-brand text-slate-900 text-[9px] font-black uppercase px-3 py-1 rounded-lg shadow-lg shadow-brand/20 animate-pulse hover:scale-105 transition-all">
                       ⚠️ Connect Paid AI Project
@@ -542,7 +541,7 @@ const App: React.FC = () => {
                   {showArchived ? 'History Included' : 'View History'}
                 </button>
                 <div className="relative w-full sm:w-64 group">
-                  <input type="text" placeholder="Filter vault..." className={`w-full pl-9 pr-4 py-2 border rounded-2xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-slate-300 shadow-sm text-black'}`} value={globalSearch} onChange={e => setGlobalSearch(e.target.value)} />
+                  <input type="text" placeholder="Search by job, ticket, or address..." className={`w-full pl-9 pr-4 py-2 border rounded-2xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-slate-300 shadow-sm text-black'}`} value={globalSearch} onChange={e => setGlobalSearch(e.target.value)} />
                   <svg className="w-4 h-4 text-slate-500 absolute left-3 top-2.5 group-focus-within:text-brand transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                 </div>
               </div>
@@ -553,10 +552,10 @@ const App: React.FC = () => {
                 <table className="w-full text-left">
                   <thead className={`${isDarkMode ? 'bg-black/20' : 'bg-slate-50/80'} border-b border-black/5`}>
                     <tr>
-                      <th className="px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Project Details</th>
+                      <th className="px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Job Details</th>
                       <th className="px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Tickets</th>
-                      <th className="px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Location Info</th>
-                      <th className="px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-center text-slate-500">State</th>
+                      <th className="px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Site Location</th>
+                      <th className="px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-center text-slate-500">Status</th>
                       <th className={`px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-right ${isDarkMode ? 'text-slate-500' : 'text-slate-700'}`}>Expiry</th>
                       <th className={`px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-right ${isDarkMode ? 'text-slate-500' : 'text-slate-700'}`}>Actions</th>
                     </tr>
@@ -587,7 +586,7 @@ const App: React.FC = () => {
                               </div>
                             </td>
                             <td className="px-8 py-6 text-center"><div className={`w-2.5 h-2.5 rounded-full mx-auto ring-4 ${aggregateStatus === TicketStatus.EXPIRED ? 'bg-rose-500 ring-rose-500/10' : aggregateStatus === TicketStatus.REFRESH_NEEDED ? 'bg-amber-500 ring-amber-500/10' : 'bg-emerald-500 ring-emerald-500/10'}`} /></td>
-                            <td className={`px-8 py-6 text-right font-black text-[10px] ${isDarkMode ? 'opacity-30 text-slate-400' : 'opacity-60 text-slate-900'}`}>{isExpanded ? 'COLLAPSE' : 'DETAILS'}</td>
+                            <td className={`px-8 py-6 text-right font-black text-[10px] ${isDarkMode ? 'opacity-30 text-slate-400' : 'opacity-60 text-slate-900'}`}>{isExpanded ? 'COLLAPSE' : 'EXPAND'}</td>
                             <td className="px-8 py-6 text-right">{isAdmin && <button onClick={(e) => { e.stopPropagation(); jobEntity && apiService.deleteJob(jobEntity.id).then(() => initApp()); }} className="p-2.5 text-slate-400 hover:text-rose-500 opacity-0 group-hover:opacity-100"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>}</td>
                           </tr>
                           {isExpanded && jobTickets.map((ticket: DigTicket) => {
