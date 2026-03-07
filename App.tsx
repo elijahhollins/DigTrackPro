@@ -730,7 +730,7 @@ const App: React.FC = () => {
                                     <td className="px-5 py-3 pl-14">
                                       <div className="flex items-center gap-2.5">
                                         <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${ticket.isArchived ? 'bg-slate-600' : 'bg-brand'}`} style={!ticket.isArchived ? { boxShadow: '0 0 4px var(--brand-shadow)' } : {}} />
-                                        <button onClick={(e) => { e.stopPropagation(); if (ticket.documentUrl) setViewingDocUrl(ticket.documentUrl); }} className={`text-[11px] font-mono font-bold tracking-tight transition-colors ${ticket.documentUrl ? 'text-brand hover:underline' : isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                                        <button onClick={(e) => { e.stopPropagation(); if (ticket.documentUrl) setViewingDocUrl(ticket.documentUrl); }} title={`Ticket ${ticket.ticketNo}`} className={`text-[11px] font-mono font-bold tracking-tight transition-colors ${ticket.documentUrl ? 'text-brand hover:underline' : isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>
                                           {ticket.ticketNo}
                                         </button>
                                       </div>

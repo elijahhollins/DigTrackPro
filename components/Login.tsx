@@ -130,7 +130,7 @@ const Login: React.FC<LoginProps> = ({ authError = '' }) => {
           <div className="absolute -top-32 -left-32 w-96 h-96 bg-brand/[0.04] rounded-full blur-3xl" />
           <div className="absolute bottom-20 right-0 w-72 h-72 bg-brand/[0.03] rounded-full blur-3xl" />
           {/* Grid pattern */}
-          <svg className="absolute inset-0 w-full h-full opacity-[0.03]" xmlns="http://www.w3.org/2000/svg">
+          <svg aria-hidden="true" className="absolute inset-0 w-full h-full opacity-[0.03]" xmlns="http://www.w3.org/2000/svg">
             <defs>
               <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
                 <path d="M 40 0 L 0 0 0 40" fill="none" stroke="white" strokeWidth="1"/>

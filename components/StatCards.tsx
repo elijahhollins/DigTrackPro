@@ -9,6 +9,8 @@ interface StatCardsProps {
   onFilterClick: (filter: TicketStatus | 'NO_SHOW' | null) => void;
 }
 
+const hexAlpha = (hex: string, alpha: string) => `${hex}${alpha}`;
+
 const StatCards = ({ tickets, isDarkMode, activeFilter, onFilterClick }: StatCardsProps) => {
   const stats = tickets.reduce((acc, t) => {
     const s = getTicketStatus(t);
@@ -90,7 +92,7 @@ const StatCards = ({ tickets, isDarkMode, activeFilter, onFilterClick }: StatCar
           <button
             key={it.label}
             onClick={() => onFilterClick(isActive ? null : it.id)}
-            style={isActive ? { borderColor: it.accent + '60', boxShadow: `0 0 0 1px ${it.accent}30, 0 4px 20px ${it.accent}15` } : {}}
+            style={isActive ? { borderColor: hexAlpha(it.accent, '60'), boxShadow: `0 0 0 1px ${hexAlpha(it.accent, '30')}, 0 4px 20px ${hexAlpha(it.accent, '15')}` } : {}}
             className={`relative p-4 rounded-2xl border text-left transition-all active:scale-[0.97] overflow-hidden group
               bg-gradient-to-br ${it.bg}
               ${isActive
@@ -113,7 +115,7 @@ const StatCards = ({ tickets, isDarkMode, activeFilter, onFilterClick }: StatCar
             {/* Icon */}
             <div
               className="w-8 h-8 rounded-xl flex items-center justify-center mb-3"
-              style={{ background: it.accent + '15', border: `1px solid ${it.accent}25` }}
+              style={{ background: hexAlpha(it.accent, '15'), border: `1px solid ${hexAlpha(it.accent, '25')}` }}
             >
               <svg className="w-4 h-4" style={{ color: it.accent }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={it.iconPath} />
