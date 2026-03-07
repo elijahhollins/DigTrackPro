@@ -23,6 +23,7 @@ interface MapViewProps {
   onViewTicket?: (url: string) => void;
   onTicketGeocoded?: (ticketId: string, lat: number, lng: number) => void;
   onGeocodeComplete?: (results: Array<{ id: string; companyId: string; lat: number; lng: number }>) => void;
+  onPinMoved?: (ticketId: string, lat: number, lng: number) => void;
 }
 
 interface PinnedTicket {
@@ -48,17 +49,60 @@ const createMarkerIcon = (statusClass: string) => {
   });
 };
 
+const createDraggableMarkerIcon = (statusClass: string) => {
+  const color = statusClass.includes('rose') ? '#ef4444'
+    : statusClass.includes('amber') ? '#f59e0b'
+    : '#22c55e';
+  return L.divIcon({
+    className: '',
+    html: `<div style="
+      width:20px;height:20px;border-radius:50%;
+      background:${color};border:3px solid #7c3aed;
+      box-shadow:0 0 0 3px rgba(124,58,237,0.3),0 2px 8px rgba(0,0,0,0.4);
+      cursor:grab;
+    "></div>`,
+    iconSize: [20, 20],
+    iconAnchor: [10, 10],
+  });
+};
+
 const geocodeAddress = async (ticket: DigTicket): Promise<{ lat: number; lng: number } | null> => {
-  const parts = [ticket.street, ticket.city, ticket.state].filter(Boolean);
-  if (parts.length === 0) return null;
-  const query = encodeURIComponent(parts.join(', '));
+  if (!ticket.street && !ticket.city) return null;
+
+  // Strategy 1: Structured Nominatim search — most accurate, includes county and
+  // uses "Street & Cross Street" intersection notation when a cross street is present.
+  const streetPart = ticket.crossStreet
+    ? `${ticket.street} & ${ticket.crossStreet}`
+    : ticket.street;
+  const structuredParams = new URLSearchParams({ format: 'json', limit: '1', countrycodes: 'us' });
+  if (streetPart) structuredParams.set('street', streetPart);
+  if (ticket.city) structuredParams.set('city', ticket.city);
+  if (ticket.state) structuredParams.set('state', ticket.state);
+  if (ticket.county) structuredParams.set('county', ticket.county);
   try {
     const res = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${query}`,
+      `https://nominatim.openstreetmap.org/search?${structuredParams.toString()}`,
       { headers: { 'Accept-Language': 'en' } }
     );
     const data = await res.json();
-    if (data && data.length > 0) {
+    if (data?.length > 0) {
+      return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+    }
+  } catch {
+    // fall through to free-text
+  }
+
+  // Strategy 2: Free-text fallback — honor rate limit between the two requests.
+  await new Promise(r => setTimeout(r, NOMINATIM_RATE_LIMIT_MS));
+  const parts = [ticket.street, ticket.city, ticket.state].filter(Boolean);
+  if (parts.length === 0) return null;
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(parts.join(', '))}`,
+      { headers: { 'Accept-Language': 'en' } }
+    );
+    const data = await res.json();
+    if (data?.length > 0) {
       return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
     }
   } catch {
@@ -67,7 +111,7 @@ const geocodeAddress = async (ticket: DigTicket): Promise<{ lat: number; lng: nu
   return null;
 };
 
-export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTicket, onViewTicket, onTicketGeocoded, onGeocodeComplete }) => {
+export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTicket, onViewTicket, onTicketGeocoded, onGeocodeComplete, onPinMoved }) => {
   const mapRef = useRef<L.Map | null>(null);
   const mapDivRef = useRef<HTMLDivElement>(null);
   const markersRef = useRef<L.Marker[]>([]);
@@ -75,14 +119,18 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
   const [isGeocoding, setIsGeocoding] = useState(false);
   const [geocodedCount, setGeocodedCount] = useState(0);
   const [totalToGeocode, setTotalToGeocode] = useState(0);
+  // When true, the next markers-effect run skips fitBounds (e.g. after a pin drag).
+  const skipFitBoundsRef = useRef(false);
 
   // Keep refs to the latest callbacks so the async geocoding loop always calls the
   // current version without needing them in the effect's dependency array (which would
   // restart geocoding on every parent render).
   const onTicketGeocodedRef = useRef(onTicketGeocoded);
   const onGeocodeCompleteRef = useRef(onGeocodeComplete);
+  const onPinMovedRef = useRef(onPinMoved);
   useEffect(() => { onTicketGeocodedRef.current = onTicketGeocoded; });
   useEffect(() => { onGeocodeCompleteRef.current = onGeocodeComplete; });
+  useEffect(() => { onPinMovedRef.current = onPinMoved; });
 
   const activeTickets = tickets.filter(t => !t.isArchived);
   // Stable key: only changes when tickets are added/removed, NOT when coords are saved.
@@ -184,6 +232,7 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
       const hasDoc = Boolean(ticket.documentUrl);
       const viewBtnId = `map-view-${ticket.id}`;
       const editBtnId = `map-edit-${ticket.id}`;
+      const adjustBtnId = `map-adjust-${ticket.id}`;
 
       // Leaflet popups are rendered as raw HTML strings (not React JSX), so
       // inline styles are required here — Tailwind utility classes are not available
@@ -202,6 +251,7 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
           <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
             ${hasDoc ? `<button id="${viewBtnId}" style="padding:4px 10px;background:#3b82f6;color:white;border:none;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer">View PDF</button>` : ''}
             ${onEditTicket ? `<button id="${editBtnId}" style="padding:4px 10px;background:#475569;color:white;border:none;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer">Edit</button>` : ''}
+            ${onPinMoved ? `<button id="${adjustBtnId}" style="padding:4px 10px;background:#7c3aed;color:white;border:none;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer">Adjust Pin</button>` : ''}
           </div>
         </div>
       `;
@@ -218,6 +268,24 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
             onEditTicket(ticket);
           });
         }
+        if (onPinMoved) {
+          document.getElementById(adjustBtnId)?.addEventListener('click', () => {
+            marker.closePopup();
+            marker.dragging?.enable();
+            marker.setIcon(createDraggableMarkerIcon(statusColorClass));
+          });
+        }
+      });
+
+      marker.on('dragend', () => {
+        const pos = marker.getLatLng();
+        marker.dragging?.disable();
+        marker.setIcon(icon);
+        skipFitBoundsRef.current = true;
+        setPinnedTickets(prev =>
+          prev.map(p => p.ticket.id === ticket.id ? { ...p, lat: pos.lat, lng: pos.lng, isEstimated: false } : p)
+        );
+        onPinMovedRef.current?.(ticket.id, pos.lat, pos.lng);
       });
 
       // Double-click opens the PDF viewer directly
@@ -231,10 +299,11 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
       markersRef.current.push(marker);
     });
 
-    if (bounds.length > 0) {
+    if (bounds.length > 0 && !skipFitBoundsRef.current) {
       mapRef.current.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
     }
-  }, [pinnedTickets, onEditTicket, onViewTicket]);
+    skipFitBoundsRef.current = false;
+  }, [pinnedTickets, onEditTicket, onViewTicket, onPinMoved]);
 
   const withCoords = activeTickets.filter(t => t.lat != null && t.lng != null).length;
   const withoutCoords = activeTickets.length - withCoords;
@@ -287,6 +356,7 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
 
       <p className={`text-[9px] font-bold uppercase tracking-widest text-center ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>
         Tickets with stored GPS coordinates are shown immediately. Others are geocoded via OpenStreetMap Nominatim (1 req/sec) and saved for future sessions. Click a marker to view ticket details.
+        {onPinMoved && ' Admins can click "Adjust Pin" in any popup to drag a marker to the correct location.'}
       </p>
     </div>
   );
