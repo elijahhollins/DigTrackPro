@@ -82,6 +82,10 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
   useEffect(() => { onTicketGeocodedRef.current = onTicketGeocoded; });
 
   const activeTickets = tickets.filter(t => !t.isArchived);
+  // Stable key: only changes when tickets are added/removed, NOT when coords are saved.
+  // Using this instead of `tickets` as the effect dependency prevents the geocoding loop
+  // from restarting every time a coordinate is written back to the parent's state.
+  const ticketIdKey = activeTickets.map(t => t.id).sort().join(',');
 
   // Initialize map once on mount
   useEffect(() => {
@@ -144,7 +148,7 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
     setPinnedTickets([]);
     resolveCoordinates();
     return () => { cancelled = true; };
-  }, [tickets]);
+  }, [ticketIdKey]);
 
   // Sync markers to the Leaflet map whenever pinnedTickets changes
   useEffect(() => {
