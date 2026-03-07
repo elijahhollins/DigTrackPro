@@ -441,9 +441,11 @@ const App: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#0f172a] flex flex-col items-center justify-center">
-        <div className="w-8 h-8 border-2 border-brand border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-[9px] font-black uppercase tracking-widest opacity-40">Connecting Vault...</p>
+      <div className="min-h-screen bg-[#07101f] flex flex-col items-center justify-center gap-4">
+        <div className="w-10 h-10 rounded-2xl bg-brand/15 border border-brand/25 flex items-center justify-center">
+          <div className="w-5 h-5 border-2 border-brand border-t-transparent rounded-full animate-spin" />
+        </div>
+        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-600">Loading...</p>
       </div>
     );
   }
@@ -454,211 +456,386 @@ const App: React.FC = () => {
   const isSuperAdmin = sessionUser.role === UserRole.SUPER_ADMIN;
   const isAdmin = sessionUser.role === UserRole.ADMIN || isSuperAdmin;
   const NAV_ITEMS: { id: AppView; label: string; icon: React.ReactNode }[] = [
-    { id: 'dashboard', label: 'Vault', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg> },
-    { id: 'jobs', label: 'Projects', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2-2v10a2 2 0 002 2z" /></svg> },
+    { id: 'dashboard', label: 'Tickets', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg> },
     { id: 'calendar', label: 'Schedule', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
     { id: 'map', label: 'Map', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg> },
-    { id: 'photos', label: 'Media', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
-    { id: 'team', label: 'Team', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg> },
+    { id: 'photos', label: 'Field Docs', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
+    { id: 'team', label: 'Crew', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg> },
   ];
 
   return (
-    <div className={`min-h-screen ${isDarkMode ? 'bg-[#0f172a] text-slate-100' : 'bg-slate-50 text-black'} transition-all duration-500 pb-20 sm:pb-0`}>
-      <header className={`${isDarkMode ? 'bg-[#1e293b]/95 border-white/5 shadow-2xl shadow-black/20' : 'bg-white/95 border-slate-200 shadow-sm'} backdrop-blur-xl border-b sticky top-0 z-40 h-16 transition-all duration-500`}>
-        <div className="max-w-[1400px] mx-auto px-4 h-full flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3 cursor-pointer group shrink-0" onClick={() => { handleNavigate('dashboard'); }}>
-            <div className={`p-2.5 rounded-2xl shadow-lg transition-all duration-500 glow-brand ${isProcessing ? 'bg-purple-500 shadow-purple-500/30' : 'bg-brand shadow-brand/20'} group-hover:scale-110 active:scale-95`}>
-              <svg className={`w-5 h-5 text-[#0f172a] ${isProcessing ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-            </div>
-            <div className="hidden lg:block">
-              {/* Display the company name associated with the logged-in user. 
-                  Company is loaded from database based on user's companyId (see lines 125-128).
-                  Falls back to 'DigTrack Pro' if company data is unavailable. */}
-              <h1 className="text-sm font-black uppercase tracking-tight group-hover:text-brand transition-colors">{company?.name || 'DigTrack Pro'}</h1>
-              <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest leading-none">Enterprise Locate Hub</p>
-            </div>
-          </div>
-          
-          <nav className="hidden sm:flex items-center gap-1 bg-black/5 p-1 rounded-2xl border border-black/5 mx-auto">
-            {NAV_ITEMS.map((item) => {
-              const isActive = activeView === item.id;
-              return (
-                <button key={item.id} onClick={() => handleNavigate(item.id)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all relative ${isActive ? 'bg-brand text-slate-900 shadow-lg shadow-brand/10 nav-item-active' : isDarkMode ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-brand'}`}
-                >
-                  {item.icon}
-                  <span className="hidden md:inline">{item.label}</span>
-                  {isActive && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-slate-900 rounded-full" />}
-                </button>
-              );
-            })}
-          </nav>
+    <div className={`flex h-screen overflow-hidden ${isDarkMode ? 'bg-[#07101f] text-slate-100' : 'bg-slate-100 text-slate-900'} transition-colors duration-300`}>
 
-          <div className="flex items-center gap-2 shrink-0">
-            <div className="hidden sm:flex items-center gap-1">
-               {isAdmin && (
-                <>
-                  <button onClick={() => { setEditingJob(null); setShowJobForm(true); }} className={`p-2 rounded-xl transition-all ${isDarkMode ? 'bg-white/5 text-slate-300' : 'bg-slate-100 text-slate-900 hover:text-brand'}`} title="New Job">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
-                  </button>
-                  <button onClick={() => { setEditingTicket(null); setShowTicketForm(true); }} className="bg-brand text-[#0f172a] p-2 rounded-xl shadow-lg shadow-brand/20 hover:scale-105 active:scale-95 transition-all" title="New Ticket">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
-                  </button>
-                </>
-              )}
-            </div>
-            <div className="w-px h-6 bg-black/10 mx-1 hidden sm:block" />
-            <div className="hidden md:flex flex-col items-end leading-none">
-              <span className={`text-[10px] font-black uppercase tracking-widest truncate max-w-[140px] ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>{sessionUser.name || 'User'}</span>
-              <span className={`text-[9px] font-bold truncate max-w-[140px] ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>{sessionUser.username || ''}</span>
-            </div>
-            <button onClick={toggleDarkMode} className={`p-2.5 rounded-xl transition-all ${isDarkMode ? 'bg-white/5 text-amber-300' : 'bg-slate-100 text-slate-900'}`}>
-              {isDarkMode ? <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M12 7a5 5 0 100 10 5 5 0 000-10z" /></svg> : <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>}
-            </button>
-            <button onClick={handleSignOut} disabled={isSigningOut} className={`p-2.5 transition-colors ${isSigningOut ? 'text-slate-300 cursor-not-allowed' : 'text-slate-500 hover:text-rose-500'}`}>
-               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
-            </button>
+      {/* ── LEFT SIDEBAR ── */}
+      <aside className={`hidden sm:flex flex-col shrink-0 w-[68px] lg:w-[220px] transition-all duration-300 ${isDarkMode ? 'bg-[#0b1629] border-white/[0.05]' : 'bg-white border-slate-200'} border-r`}>
+
+        {/* Logo */}
+        <div
+          className={`flex items-center gap-3 px-3 lg:px-4 h-16 cursor-pointer group shrink-0 border-b ${isDarkMode ? 'border-white/[0.05]' : 'border-slate-100'}`}
+          onClick={() => handleNavigate('dashboard')}
+        >
+          <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-all bg-brand/15 border border-brand/25 group-hover:scale-105 ${isProcessing ? 'animate-pulse' : ''}`}>
+            <svg className="w-5 h-5 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+            </svg>
+          </div>
+          <div className="hidden lg:block overflow-hidden">
+            <p className={`text-[13px] font-black uppercase tracking-tight font-display truncate group-hover:text-brand transition-colors ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+              {company?.name || 'DigTrack Pro'}
+            </p>
+            <p className="text-[9px] font-bold text-slate-500 uppercase tracking-[0.15em] leading-none mt-0.5">Locate System</p>
           </div>
         </div>
-      </header>
 
-      <main key={activeView} className="max-w-[1400px] mx-auto px-4 py-8 view-transition overflow-y-auto"
-            style={{ maxHeight: 'calc(100vh - 4rem - 5rem)' }}>
-        {activeView === 'dashboard' && (
-          <div className="space-y-8">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <h2 className="text-2xl font-black uppercase tracking-tight">Locate Vault</h2>
-                <div className="flex items-center gap-2 mt-1">
-                  <p className={`text-[10px] font-bold uppercase tracking-widest ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Real-time Field Compliance</p>
-                  {!hasApiKey && (
-                    <button onClick={handleOpenSelectKey} className="bg-brand text-slate-900 text-[9px] font-black uppercase px-3 py-1 rounded-lg shadow-lg shadow-brand/20 animate-pulse hover:scale-105 transition-all">
-                      ⚠️ Connect Paid AI Project
-                    </button>
-                  )}
-                </div>
-              </div>
-              <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
-                <button onClick={() => setShowArchived(!showArchived)} className={`flex items-center gap-2 px-4 py-2 rounded-2xl border text-[10px] font-black uppercase tracking-widest transition-all ${showArchived ? 'bg-slate-900 text-white border-slate-900' : isDarkMode ? 'bg-white/5 border-white/5 text-slate-400 hover:text-white' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-400'}`}>
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>
-                  {showArchived ? 'History Included' : 'View History'}
-                </button>
-                <div className="relative w-full sm:w-64 group">
-                  <input type="text" placeholder="Filter vault..." className={`w-full pl-9 pr-4 py-2 border rounded-2xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-slate-300 shadow-sm text-black'}`} value={globalSearch} onChange={e => setGlobalSearch(e.target.value)} />
-                  <svg className="w-4 h-4 text-slate-500 absolute left-3 top-2.5 group-focus-within:text-brand transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                </div>
-              </div>
-            </div>
-            <StatCards tickets={activeTicketsList.filter(t => !t.isArchived)} isDarkMode={isDarkMode} activeFilter={activeFilter} onFilterClick={setActiveFilter} />
-            <div className={`${isDarkMode ? 'bg-[#1e293b] border-white/5 shadow-2xl shadow-black/40' : 'bg-white border-slate-200 shadow-xl shadow-slate-200/50'} rounded-[2.5rem] border overflow-hidden`}>
-              <div className="overflow-x-auto no-scrollbar">
-                <table className="w-full text-left">
-                  <thead className={`${isDarkMode ? 'bg-black/20' : 'bg-slate-50/80'} border-b border-black/5`}>
-                    <tr>
-                      <th className="px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Project Details</th>
-                      <th className="px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Tickets</th>
-                      <th className="px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Location Info</th>
-                      <th className="px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-center text-slate-500">State</th>
-                      <th className={`px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-right ${isDarkMode ? 'text-slate-500' : 'text-slate-700'}`}>Expiry</th>
-                      <th className={`px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] text-right ${isDarkMode ? 'text-slate-500' : 'text-slate-700'}`}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className={`divide-y ${isDarkMode ? 'divide-white/5' : 'divide-slate-100'}`}>
-                    {Array.from(groupedTicketsMap.keys()).map((jobNum: string) => {
-                      const jobTickets = groupedTicketsMap.get(jobNum)!;
-                      const jobEntity = jobs.find(j => j.jobNumber === jobNum);
-                      const isExpanded = expandedJobs.has(jobNum);
-                      const statuses = jobTickets.filter(t => !t.isArchived).map(t => getTicketStatus(t));
-                      let aggregateStatus = TicketStatus.VALID;
-                      if (statuses.includes(TicketStatus.EXPIRED)) aggregateStatus = TicketStatus.EXPIRED;
-                      else if (statuses.includes(TicketStatus.REFRESH_NEEDED) || statuses.includes(TicketStatus.EXTENDABLE)) aggregateStatus = TicketStatus.REFRESH_NEEDED;
-                      return (
-                        <React.Fragment key={jobNum}>
-                          <tr onClick={() => toggleJobExpansion(jobNum)} className={`transition-all cursor-pointer border-l-4 ${isExpanded ? 'border-brand' : 'border-transparent'} ${isDarkMode ? 'hover:bg-white/[0.03]' : 'hover:bg-slate-50/80'}`}>
-                            <td className="px-8 py-6 flex items-center gap-4">
-                              <div className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${isExpanded ? 'bg-brand/10 border-brand/20 text-brand rotate-90' : 'bg-black/5 border-transparent opacity-40'}`}>
-                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M9 5l7 7-7 7" /></svg>
-                              </div>
-                              <button onClick={(e) => { e.stopPropagation(); handleJobSelection(jobNum, jobEntity); }} className={`text-[13px] font-black hover:text-brand transition-colors text-left ${isDarkMode ? 'text-white' : 'text-black'}`}>JOB #{jobNum}</button>
-                            </td>
-                            <td className="px-8 py-6"><span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-lg ${isDarkMode ? 'bg-white/5 text-slate-400' : 'bg-slate-100 text-slate-600'}`}>{jobTickets.length} Assets</span></td>
-                            <td className="px-8 py-6">
-                              <div className="flex flex-col">
-                                <span className={`text-[11px] font-black uppercase tracking-tight truncate max-w-[200px] ${isDarkMode ? 'text-white' : 'text-black'}`}>{jobEntity?.customer || 'Direct Client'}</span>
-                                <span className={`text-[9px] font-black truncate max-w-[200px] ${isDarkMode ? 'opacity-40' : 'text-slate-900'}`}>{jobEntity?.city || 'Field Location'}</span>
-                              </div>
-                            </td>
-                            <td className="px-8 py-6 text-center"><div className={`w-2.5 h-2.5 rounded-full mx-auto ring-4 ${aggregateStatus === TicketStatus.EXPIRED ? 'bg-rose-500 ring-rose-500/10' : aggregateStatus === TicketStatus.REFRESH_NEEDED ? 'bg-amber-500 ring-amber-500/10' : 'bg-emerald-500 ring-emerald-500/10'}`} /></td>
-                            <td className={`px-8 py-6 text-right font-black text-[10px] ${isDarkMode ? 'opacity-30 text-slate-400' : 'opacity-60 text-slate-900'}`}>{isExpanded ? 'COLLAPSE' : 'DETAILS'}</td>
-                            <td className="px-8 py-6 text-right">{isAdmin && <button onClick={(e) => { e.stopPropagation(); jobEntity && apiService.deleteJob(jobEntity.id).then(() => initApp()); }} className="p-2.5 text-slate-400 hover:text-rose-500 opacity-0 group-hover:opacity-100"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>}</td>
-                          </tr>
-                          {isExpanded && jobTickets.map((ticket: DigTicket) => {
-                            const status = getTicketStatus(ticket);
-                            return (
-                              <tr key={ticket.id} onClick={() => isAdmin && setEditingTicket(ticket)} className={`animate-in transition-all group ${isAdmin ? 'cursor-pointer' : ''} ${isDarkMode ? 'bg-white/[0.01]' : 'bg-slate-50/30'} border-l-4 border-slate-500/10 ${ticket.isArchived ? 'opacity-50 grayscale' : ''}`}>
-                                <td className="px-8 py-4 pl-16"><div className="flex items-center gap-3"><div className={`w-2 h-2 rounded-full ${ticket.isArchived ? 'bg-slate-400' : 'bg-brand'}`} /><button onClick={(e) => { e.stopPropagation(); if (ticket.documentUrl) setViewingDocUrl(ticket.documentUrl); }} className={`text-[11px] font-mono font-bold tracking-tight transition-colors ${ticket.documentUrl ? 'hover:text-brand hover:underline text-brand' : 'opacity-40'}`}>{ticket.ticketNo}</button></div></td>
-                                <td className="px-8 py-4"></td>
-                                <td className="px-8 py-4">
-                                  <div className="flex flex-col">
-                                    <span className={`text-[11px] font-bold truncate max-w-[300px] ${isDarkMode ? 'text-slate-300' : 'text-slate-950'}`}>{ticket.street}</span>
-                                    <span className={`text-[9px] font-black uppercase tracking-widest truncate max-w-[300px] ${isDarkMode ? 'opacity-40 text-slate-500' : 'text-slate-950'}`}>{ticket.crossStreet ? `at ${ticket.crossStreet}` : 'No Cross Street'}</span>
-                                  </div>
-                                </td>
-                                <td className="px-8 py-4 text-center"><span className={`inline-flex px-2 py-0.5 rounded-lg text-[8px] font-black uppercase border tracking-widest ${ticket.isArchived ? 'bg-slate-100 text-slate-500 border-slate-200' : getStatusColor(status)}`}>{ticket.isArchived ? 'ARCHIVED' : status}</span></td>
-                                <td className={`px-8 py-4 text-[11px] font-bold text-right ${isDarkMode ? 'opacity-60 text-slate-300' : 'opacity-100 text-slate-900'}`}>{new Date(ticket.expires).toLocaleDateString()}</td>
-                                <td className="px-8 py-4 text-right flex items-center justify-end gap-2">
-                                  <button onClick={(e) => { e.stopPropagation(); setNoShowTicket(ticket); }} className="p-2 rounded-xl transition-all border bg-rose-500/5 text-rose-500 border-rose-500/10 hover:bg-rose-500 hover:text-white"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg></button>
-                                  <button onClick={(e) => handleRefreshRequest(ticket, e)} title={ticket.refreshRequested ? "Clear Refresh Request" : "Request Refresh"} className={`p-2 rounded-xl transition-all border ${ticket.refreshRequested ? 'bg-amber-500 text-white border-amber-500 hover:bg-red-500 hover:border-red-500' : 'bg-amber-500/5 text-amber-500 border-amber-500/10 hover:bg-amber-500 hover:text-white'}`}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg></button>
-                                  <button onClick={(e) => { e.stopPropagation(); handleToggleArchive(ticket, e); }} className="p-2 rounded-xl transition-all border bg-slate-100 text-slate-500 hover:text-brand"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg></button>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </React.Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+        {/* Nav */}
+        <nav className="flex-1 py-3 px-2 space-y-0.5 overflow-y-auto no-scrollbar">
+          {NAV_ITEMS.map((item) => {
+            const isActive = activeView === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => handleNavigate(item.id)}
+                className={`w-full flex items-center justify-center lg:justify-start gap-3 px-0 lg:px-3 py-3 rounded-xl transition-all relative group ${
+                  isActive
+                    ? isDarkMode
+                      ? 'bg-brand/10 text-brand border border-brand/20 sidebar-active'
+                      : 'bg-brand text-white shadow-md shadow-brand/20'
+                    : isDarkMode
+                    ? 'text-slate-600 hover:text-slate-200 hover:bg-white/[0.04]'
+                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
+                }`}
+              >
+                <span className={`transition-transform ${isActive ? 'scale-110' : 'group-hover:scale-105'}`}>{item.icon}</span>
+                <span className="hidden lg:block text-[10px] font-black uppercase tracking-[0.12em]">{item.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Admin CTA buttons */}
+        {isAdmin && (
+          <div className="hidden lg:flex flex-col gap-2 px-3 mb-3">
+            <button
+              onClick={() => { setEditingTicket(null); setShowTicketForm(true); }}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-brand text-[#07101f] text-[10px] font-black uppercase tracking-widest transition-all hover:opacity-90 shadow-lg shadow-brand/20"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
+              New Ticket
+            </button>
+            <button
+              onClick={() => { setEditingJob(null); setShowJobForm(true); }}
+              className={`w-full flex items-center justify-center gap-2 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border ${isDarkMode ? 'border-white/10 text-slate-500 hover:text-slate-200 hover:border-white/20 hover:bg-white/5' : 'border-slate-200 text-slate-500 hover:text-brand hover:border-brand/30'}`}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+              New Job
+            </button>
           </div>
         )}
-        {activeView === 'calendar' && <CalendarView tickets={tickets} onEditTicket={setEditingTicket} onViewDoc={setViewingDocUrl} />}
-        {activeView === 'map' && <MapView
-          tickets={activeTicketsList}
-          isDarkMode={isDarkMode}
-          onEditTicket={isAdmin ? setEditingTicket : undefined}
-          onViewTicket={setViewingDocUrl}
-          onTicketGeocoded={(id, lat, lng) => {
-            setTickets(prev => prev.map(t => t.id === id ? { ...t, lat, lng } : t));
-            apiService.updateTicketCoords(id, lat, lng).catch((err) => console.error('Failed to persist geocoded coordinates for ticket', id, err));
-          }}
-        />}
-        {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} isAdmin={isAdmin} isDarkMode={isDarkMode} onJobSelect={(job: Job) => handleJobSelection(job.jobNumber, job)} onViewDoc={setViewingDocUrl} />}
-        {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} companyId={sessionUser.companyId} onAddPhoto={(data, file) => apiService.addPhoto({ ...data, companyId: sessionUser.companyId }, file)} onDeletePhoto={(id: string) => apiService.deletePhoto(id)} initialSearch={mediaFolderFilter} />}
-        {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} company={company || undefined} isDarkMode={isDarkMode} hasApiKey={hasApiKey} isSuperAdmin={isSuperAdmin} allCompanies={allCompanies} onCompanyCreated={(co) => setAllCompanies(prev => [...prev, co])} onCompanyUpdated={handleUpdateCompany} onAddUser={async (u) => { await apiService.addUser({ ...u, companyId: sessionUser.companyId }); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onThemeChange={applyThemeColor} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onOpenSelectKey={handleOpenSelectKey} onUpdateUserName={async (id, name) => { await apiService.updateUserName(id, name); initApp(); }} onSendPasswordReset={async (email) => { await apiService.sendPasswordReset(email); }} onUpdateCurrentUserPassword={async (password) => { await apiService.updateCurrentUserPassword(password); }} />}
-      </main>
+
+        {/* User row */}
+        <div className={`border-t p-3 ${isDarkMode ? 'border-white/[0.05]' : 'border-slate-100'}`}>
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-brand/15 border border-brand/20 flex items-center justify-center shrink-0">
+              <span className="text-[11px] font-black text-brand">{(sessionUser.name || 'U')[0].toUpperCase()}</span>
+            </div>
+            <div className="hidden lg:block flex-1 overflow-hidden">
+              <p className={`text-[10px] font-black uppercase tracking-wide truncate ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>{sessionUser.name || 'User'}</p>
+              <p className={`text-[9px] truncate ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>{sessionUser.username || ''}</p>
+            </div>
+            <div className="hidden lg:flex items-center gap-0.5 ml-auto shrink-0">
+              <button onClick={toggleDarkMode} className={`p-1.5 rounded-lg transition-colors ${isDarkMode ? 'text-slate-600 hover:text-amber-400 hover:bg-white/5' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'}`} title="Toggle theme">
+                {isDarkMode ? <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M12 7a5 5 0 100 10 5 5 0 000-10z" /></svg> : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>}
+              </button>
+              <button onClick={handleSignOut} disabled={isSigningOut} className={`p-1.5 rounded-lg transition-colors ${isSigningOut ? 'opacity-30 cursor-not-allowed' : 'text-slate-600 hover:text-rose-500 hover:bg-white/5'}`} title="Sign out">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      {/* ── MAIN CONTENT ── */}
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+
+        {/* Top bar */}
+        <header className={`app-header shrink-0 h-14 border-b flex items-center gap-3 px-5 z-30 relative ${isDarkMode ? 'bg-[#07101f]/90 border-white/[0.05]' : 'bg-white/90 border-slate-200'} backdrop-blur-xl`}>
+          {/* Mobile: company name */}
+          <div className="sm:hidden flex-1">
+            <p className={`text-sm font-black uppercase tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{company?.name || 'DigTrack Pro'}</p>
+          </div>
+          {/* Desktop: view name */}
+          <div className="hidden sm:flex flex-1 items-center gap-2">
+            <span className="text-brand opacity-50">{NAV_ITEMS.find(n => n.id === activeView)?.icon}</span>
+            <span className={`text-sm font-black uppercase tracking-[0.1em] ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{NAV_ITEMS.find(n => n.id === activeView)?.label}</span>
+          </div>
+
+          {/* Search (dashboard only, desktop) */}
+          {activeView === 'dashboard' && (
+            <div className="relative hidden md:block">
+              <input
+                type="text"
+                placeholder="Search tickets, jobs, addresses..."
+                className={`pl-9 pr-4 py-2 border rounded-xl text-[11px] font-medium outline-none transition-all w-56 focus:w-72 ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder:text-slate-600' : 'bg-slate-50 border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
+                value={globalSearch}
+                onChange={e => setGlobalSearch(e.target.value)}
+              />
+              <svg className="w-4 h-4 text-slate-500 absolute left-2.5 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+            </div>
+          )}
+
+          {/* AI key warning */}
+          {!hasApiKey && (
+            <button onClick={handleOpenSelectKey} className="hidden sm:flex items-center gap-1.5 bg-amber-500 text-slate-900 text-[9px] font-black uppercase px-3 py-1.5 rounded-lg shadow-lg shadow-amber-500/20 hover:scale-105 transition-all">
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+              AI Setup
+            </button>
+          )}
+
+          {/* Mobile action buttons */}
+          <div className="sm:hidden flex items-center gap-1">
+            {isAdmin && (
+              <button onClick={() => { setEditingTicket(null); setShowTicketForm(true); }} className="bg-brand text-[#07101f] p-2 rounded-xl shadow-lg shadow-brand/20">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
+              </button>
+            )}
+            <button onClick={toggleDarkMode} className={`p-2 rounded-xl ${isDarkMode ? 'text-amber-400' : 'text-slate-500'}`}>
+              {isDarkMode ? <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M12 7a5 5 0 100 10 5 5 0 000-10z" /></svg> : <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>}
+            </button>
+            <button onClick={handleSignOut} disabled={isSigningOut} className={`p-2 rounded-xl ${isSigningOut ? 'opacity-30' : 'text-slate-500 hover:text-rose-500'}`}>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+            </button>
+          </div>
+
+          {/* Tablet (sm–lg): show admin buttons in topbar since sidebar is icon-only */}
+          <div className="hidden sm:flex lg:hidden items-center gap-1">
+            {isAdmin && (
+              <>
+                <button onClick={() => { setEditingJob(null); setShowJobForm(true); }} className={`p-2 rounded-xl transition-all ${isDarkMode ? 'bg-white/5 text-slate-400 hover:text-white' : 'bg-slate-100 text-slate-600 hover:text-brand'}`} title="New Job">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                </button>
+                <button onClick={() => { setEditingTicket(null); setShowTicketForm(true); }} className="bg-brand text-[#07101f] p-2 rounded-xl shadow-lg shadow-brand/20 hover:scale-105 transition-all" title="New Ticket">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
+                </button>
+              </>
+            )}
+          </div>
+        </header>
+
+        {/* Scrollable content */}
+        <main key={activeView} className="flex-1 overflow-y-auto view-transition">
+          <div className="max-w-[1400px] mx-auto px-5 py-6">
+
+            {activeView === 'dashboard' && (
+              <div className="space-y-6">
+
+                {/* Page header */}
+                <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+                  <div>
+                    <h2 className={`text-3xl font-black uppercase tracking-tight font-display ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                      Active Tickets
+                    </h2>
+                    <p className={`text-[10px] font-bold uppercase tracking-[0.2em] mt-1 ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                      {groupedTicketsMap.size} job{groupedTicketsMap.size !== 1 ? 's' : ''} · Real-Time Field Compliance
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowArchived(!showArchived)}
+                      className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${
+                        showArchived
+                          ? isDarkMode ? 'bg-white/10 border-white/20 text-white' : 'bg-slate-800 border-slate-800 text-white'
+                          : isDarkMode ? 'border-white/10 text-slate-500 hover:text-slate-200 hover:border-white/20' : 'border-slate-200 text-slate-500 hover:border-slate-400'
+                      }`}
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>
+                      {showArchived ? 'History On' : 'History'}
+                    </button>
+                    {/* Mobile search */}
+                    <div className="relative md:hidden">
+                      <input type="text" placeholder="Search..." className={`pl-8 pr-3 py-2 border rounded-xl text-[11px] font-medium outline-none w-32 ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder:text-slate-600' : 'bg-white border-slate-200 text-slate-900'}`} value={globalSearch} onChange={e => setGlobalSearch(e.target.value)} />
+                      <svg className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Stat cards */}
+                <StatCards tickets={activeTicketsList.filter(t => !t.isArchived)} isDarkMode={isDarkMode} activeFilter={activeFilter} onFilterClick={setActiveFilter} />
+
+                {/* Tickets table */}
+                <div className={`rounded-2xl border overflow-hidden ${isDarkMode ? 'bg-[#0b1629] border-white/[0.06]' : 'bg-white border-slate-200 shadow-sm'}`}>
+                  <div className="overflow-x-auto no-scrollbar">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className={`border-b ${isDarkMode ? 'border-white/[0.05] bg-white/[0.015]' : 'border-slate-100 bg-slate-50/80'}`}>
+                          <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Job #</th>
+                          <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Tickets</th>
+                          <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Client / Location</th>
+                          <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] text-center ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Status</th>
+                          <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] text-right ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Expiry</th>
+                          <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] text-right ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className={`divide-y ${isDarkMode ? 'divide-white/[0.03]' : 'divide-slate-50'}`}>
+                        {Array.from(groupedTicketsMap.keys()).map((jobNum: string) => {
+                          const jobTickets = groupedTicketsMap.get(jobNum)!;
+                          const jobEntity = jobs.find(j => j.jobNumber === jobNum);
+                          const isExpanded = expandedJobs.has(jobNum);
+                          const statuses = jobTickets.filter(t => !t.isArchived).map(t => getTicketStatus(t));
+                          let aggregateStatus = TicketStatus.VALID;
+                          if (statuses.includes(TicketStatus.EXPIRED)) aggregateStatus = TicketStatus.EXPIRED;
+                          else if (statuses.includes(TicketStatus.REFRESH_NEEDED) || statuses.includes(TicketStatus.EXTENDABLE)) aggregateStatus = TicketStatus.REFRESH_NEEDED;
+                          const dotClr = aggregateStatus === TicketStatus.EXPIRED ? '#ef4444' : aggregateStatus === TicketStatus.REFRESH_NEEDED ? '#f59e0b' : '#10b981';
+
+                          return (
+                            <React.Fragment key={jobNum}>
+                              <tr
+                                onClick={() => toggleJobExpansion(jobNum)}
+                                className={`cursor-pointer group transition-colors border-l-2 ${isExpanded ? 'border-l-brand' : 'border-l-transparent'} ${isDarkMode ? 'hover:bg-white/[0.02]' : 'hover:bg-slate-50/70'}`}
+                              >
+                                <td className="px-5 py-4">
+                                  <div className="flex items-center gap-3">
+                                    <div className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all shrink-0 ${isExpanded ? 'bg-brand/15 text-brand border border-brand/20 rotate-90' : isDarkMode ? 'bg-white/[0.04] text-slate-600 border border-white/[0.06]' : 'bg-slate-100 text-slate-400'}`}>
+                                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M9 5l7 7-7 7" /></svg>
+                                    </div>
+                                    <button onClick={(e) => { e.stopPropagation(); handleJobSelection(jobNum, jobEntity); }} className={`text-[13px] font-black hover:text-brand transition-colors text-left font-display ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+                                      #{jobNum}
+                                    </button>
+                                  </div>
+                                </td>
+                                <td className="px-5 py-4">
+                                  <span className={`text-[10px] font-black uppercase px-2 py-1 rounded-lg ${isDarkMode ? 'bg-white/[0.04] text-slate-500' : 'bg-slate-100 text-slate-500'}`}>{jobTickets.length}</span>
+                                </td>
+                                <td className="px-5 py-4">
+                                  <p className={`text-[12px] font-bold truncate max-w-[200px] ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>{jobEntity?.customer || 'Direct Client'}</p>
+                                  <p className={`text-[10px] truncate max-w-[200px] mt-0.5 ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>{jobEntity?.city || 'Field Location'}</p>
+                                </td>
+                                <td className="px-5 py-4 text-center">
+                                  <div className="inline-flex items-center justify-center">
+                                    <div className="w-2.5 h-2.5 rounded-full shadow-lg" style={{ background: dotClr, boxShadow: `0 0 8px ${dotClr}60` }} />
+                                  </div>
+                                </td>
+                                <td className={`px-5 py-4 text-right text-[10px] font-black uppercase tracking-widest ${isDarkMode ? 'text-slate-700' : 'text-slate-400'}`}>
+                                  {isExpanded ? '▲' : '▼'}
+                                </td>
+                                <td className="px-5 py-4 text-right">
+                                  {isAdmin && (
+                                    <button onClick={(e) => { e.stopPropagation(); jobEntity && apiService.deleteJob(jobEntity.id).then(() => initApp()); }} className="p-1.5 text-slate-600 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all rounded-lg hover:bg-rose-500/10">
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                              {isExpanded && jobTickets.map((ticket: DigTicket) => {
+                                const status = getTicketStatus(ticket);
+                                return (
+                                  <tr key={ticket.id} onClick={() => isAdmin && setEditingTicket(ticket)} className={`group transition-all border-l-2 border-brand/25 ${isAdmin ? 'cursor-pointer' : ''} ${isDarkMode ? 'bg-black/20 hover:bg-white/[0.02]' : 'bg-slate-50/50 hover:bg-brand/5'} ${ticket.isArchived ? 'opacity-40' : ''}`}>
+                                    <td className="px-5 py-3 pl-14">
+                                      <div className="flex items-center gap-2.5">
+                                        <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${ticket.isArchived ? 'bg-slate-600' : 'bg-brand'}`} style={!ticket.isArchived ? { boxShadow: '0 0 4px var(--brand-shadow)' } : {}} />
+                                        <button onClick={(e) => { e.stopPropagation(); if (ticket.documentUrl) setViewingDocUrl(ticket.documentUrl); }} title={`Ticket ${ticket.ticketNo}`} className={`text-[11px] font-mono font-bold tracking-tight transition-colors ${ticket.documentUrl ? 'text-brand hover:underline' : isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                                          {ticket.ticketNo}
+                                        </button>
+                                      </div>
+                                    </td>
+                                    <td className="px-5 py-3" />
+                                    <td className="px-5 py-3">
+                                      <p className={`text-[11px] font-semibold truncate max-w-[220px] ${isDarkMode ? 'text-slate-400' : 'text-slate-700'}`}>{ticket.street}</p>
+                                      <p className={`text-[9px] font-black uppercase tracking-widest truncate max-w-[220px] mt-0.5 ${isDarkMode ? 'text-slate-700' : 'text-slate-400'}`}>{ticket.crossStreet ? `@ ${ticket.crossStreet}` : ''}</p>
+                                    </td>
+                                    <td className="px-5 py-3 text-center">
+                                      <span className={`inline-flex px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest border ${ticket.isArchived ? isDarkMode ? 'bg-white/5 text-slate-600 border-white/10' : 'bg-slate-100 text-slate-400 border-slate-200' : getStatusColor(status)}`}>
+                                        {ticket.isArchived ? 'ARCHIVED' : status}
+                                      </span>
+                                    </td>
+                                    <td className={`px-5 py-3 text-[11px] font-semibold text-right tabular-nums ${isDarkMode ? 'text-slate-600' : 'text-slate-500'}`}>
+                                      {new Date(ticket.expires).toLocaleDateString()}
+                                    </td>
+                                    <td className="px-5 py-3 text-right">
+                                      <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                                        <button onClick={(e) => { e.stopPropagation(); setNoShowTicket(ticket); }} className={`p-1.5 rounded-lg transition-all ${isDarkMode ? 'text-rose-600 hover:text-rose-400 hover:bg-rose-500/10' : 'text-rose-400 hover:text-rose-600 hover:bg-rose-50'}`} title="Log No Show">
+                                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
+                                        </button>
+                                        <button onClick={(e) => handleRefreshRequest(ticket, e)} title={ticket.refreshRequested ? "Clear Refresh" : "Request Refresh"} className={`p-1.5 rounded-lg transition-all ${ticket.refreshRequested ? 'text-amber-400 bg-amber-500/10 hover:bg-amber-500 hover:text-white' : isDarkMode ? 'text-amber-600 hover:text-amber-400 hover:bg-amber-500/10' : 'text-amber-500 hover:bg-amber-50'}`}>
+                                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                                        </button>
+                                        <button onClick={(e) => { e.stopPropagation(); handleToggleArchive(ticket, e); }} className={`p-1.5 rounded-lg transition-all ${isDarkMode ? 'text-slate-700 hover:text-brand hover:bg-brand/10' : 'text-slate-400 hover:text-brand hover:bg-brand/10'}`} title="Archive">
+                                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </React.Fragment>
+                          );
+                        })}
+                        {groupedTicketsMap.size === 0 && (
+                          <tr>
+                            <td colSpan={6} className="py-20 text-center">
+                              <div className="flex flex-col items-center gap-3">
+                                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${isDarkMode ? 'bg-white/[0.03] border border-white/[0.05]' : 'bg-slate-100'}`}>
+                                  <svg className="w-7 h-7 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
+                                </div>
+                                <p className={`text-[11px] font-black uppercase tracking-widest ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>No Active Tickets</p>
+                                <p className={`text-[10px] ${isDarkMode ? 'text-slate-700' : 'text-slate-500'}`}>All clear — or create a new ticket to get started.</p>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeView === 'calendar' && <CalendarView tickets={tickets} onEditTicket={setEditingTicket} onViewDoc={setViewingDocUrl} />}
+            {activeView === 'map' && <MapView
+              tickets={activeTicketsList}
+              isDarkMode={isDarkMode}
+              onEditTicket={isAdmin ? setEditingTicket : undefined}
+              onViewTicket={setViewingDocUrl}
+              onTicketGeocoded={(id, lat, lng) => {
+                setTickets(prev => prev.map(t => t.id === id ? { ...t, lat, lng } : t));
+                apiService.updateTicketCoords(id, lat, lng).catch((err) => console.error('Failed to persist geocoded coordinates for ticket', id, err));
+              }}
+            />}
+            {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} isAdmin={isAdmin} isDarkMode={isDarkMode} onJobSelect={(job: Job) => handleJobSelection(job.jobNumber, job)} onViewDoc={setViewingDocUrl} />}
+            {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} companyId={sessionUser.companyId} onAddPhoto={(data, file) => apiService.addPhoto({ ...data, companyId: sessionUser.companyId }, file)} onDeletePhoto={(id: string) => apiService.deletePhoto(id)} initialSearch={mediaFolderFilter} />}
+            {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} company={company || undefined} isDarkMode={isDarkMode} hasApiKey={hasApiKey} isSuperAdmin={isSuperAdmin} allCompanies={allCompanies} onCompanyCreated={(co) => setAllCompanies(prev => [...prev, co])} onCompanyUpdated={handleUpdateCompany} onAddUser={async (u) => { await apiService.addUser({ ...u, companyId: sessionUser.companyId }); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onThemeChange={applyThemeColor} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onOpenSelectKey={handleOpenSelectKey} onUpdateUserName={async (id, name) => { await apiService.updateUserName(id, name); initApp(); }} onSendPasswordReset={async (email) => { await apiService.sendPasswordReset(email); }} onUpdateCurrentUserPassword={async (password) => { await apiService.updateCurrentUserPassword(password); }} />}
+          </div>
+        </main>
+      </div>
+
+      {/* ── MOBILE BOTTOM NAV ── */}
+      <nav className={`sm:hidden fixed bottom-0 left-0 right-0 z-50 flex justify-around items-center px-2 pt-2 pb-6 border-t backdrop-blur-xl ${isDarkMode ? 'bg-[#0b1629]/95 border-white/[0.05]' : 'bg-white/95 border-slate-200'}`}>
+        {NAV_ITEMS.map((item) => {
+          const isActive = activeView === item.id;
+          return (
+            <button key={item.id} onClick={() => handleNavigate(item.id)} className={`flex flex-col items-center gap-1 transition-all px-3 py-1 rounded-xl ${isActive ? 'text-brand' : isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>
+              <div className={`p-1.5 rounded-xl transition-all ${isActive ? 'bg-brand/10' : ''}`}>{item.icon}</div>
+              <span className="text-[8px] font-black uppercase tracking-widest">{item.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* ── MODALS ── */}
       {(showTicketForm || editingTicket) && <TicketForm onSave={handleSaveTicket} onClose={() => { setShowTicketForm(false); setEditingTicket(null); }} initialData={editingTicket} isDarkMode={isDarkMode} existingTickets={tickets} />}
       {(showJobForm || editingJob) && <JobForm onSave={async (data) => { const job: Job = editingJob ? { ...editingJob, ...data } : { ...data, id: crypto.randomUUID(), companyId: sessionUser.companyId, createdAt: Date.now(), isComplete: false }; const saved = await apiService.saveJob(job); setJobs(prev => [...prev.filter(j => j.id !== saved.id), saved]); setShowJobForm(false); setEditingJob(null); }} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} isDarkMode={isDarkMode} />}
       {selectedJobSummary && <JobSummaryModal job={selectedJobSummary} onClose={() => setSelectedJobSummary(null)} onEdit={() => { setEditingJob(selectedJobSummary); setShowJobForm(true); setSelectedJobSummary(null); }} onDelete={() => { apiService.deleteJob(selectedJobSummary.id).then(() => initApp()); setSelectedJobSummary(null); }} onToggleComplete={async () => { await apiService.saveJob({ ...selectedJobSummary, isComplete: !selectedJobSummary.isComplete }); initApp(); }} onViewMedia={() => { setMediaFolderFilter(selectedJobSummary.jobNumber); handleNavigate('photos'); }} onViewMarkup={() => { setShowMarkup(selectedJobSummary); setSelectedJobSummary(null); }} isDarkMode={isDarkMode} />}
       {showMarkup && <JobPrintMarkup job={showMarkup} tickets={tickets.filter(t => t.jobNumber === showMarkup.jobNumber)} isAdmin={isAdmin} onClose={() => setShowMarkup(null)} onViewTicket={(url) => setViewingDocUrl(url)} isDarkMode={isDarkMode} />}
       {noShowTicket && <NoShowForm ticket={noShowTicket} userName={sessionUser?.name || ''} onSave={async (record) => { await apiService.addNoShow(record); initApp(); }} onDelete={async () => { await apiService.deleteNoShow(noShowTicket.id); initApp(); return true; }} onClose={() => setNoShowTicket(null)} isDarkMode={isDarkMode} />}
       {viewingDocUrl && (
-        <div className="fixed inset-0 bg-black/90 z-[300] flex items-center justify-center p-4">
-          <button onClick={() => setViewingDocUrl(null)} className="absolute top-6 right-6 p-4 bg-white/10 rounded-full text-white hover:bg-rose-500 transition-all z-10">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" /></svg>
+        <div className="fixed inset-0 bg-black/95 z-[300] flex items-center justify-center p-4">
+          <button onClick={() => setViewingDocUrl(null)} className="absolute top-5 right-5 p-3 bg-white/10 rounded-xl text-white hover:bg-rose-500/80 transition-all z-10">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
-          <div className="w-full max-w-5xl h-[90vh] rounded-[2rem] bg-slate-900 shadow-2xl overflow-hidden border border-white/5 relative">
+          <div className="w-full max-w-5xl h-[90vh] rounded-2xl bg-slate-900 shadow-2xl overflow-hidden border border-white/10 relative">
             <iframe src={viewingDocUrl} className="w-full h-full bg-white" title="Document Preview" />
           </div>
         </div>
       )}
-      <nav className={`sm:hidden fixed bottom-0 left-0 right-0 z-50 px-4 pb-6 pt-3 backdrop-blur-xl border-t flex justify-between items-center ${isDarkMode ? 'bg-[#1e293b]/95 border-white/5' : 'bg-white/95 border-slate-200'}`}>
-        {NAV_ITEMS.map((item) => {
-          const isActive = activeView === item.id;
-          return <button key={item.id} onClick={() => handleNavigate(item.id)} className={`flex flex-col items-center gap-1 transition-all ${isActive ? 'text-brand scale-110' : 'text-slate-500 opacity-60'}`}><div className={`p-2 rounded-xl ${isActive ? 'bg-brand/10' : ''}`}>{item.icon}</div><span className="text-[8px] font-black uppercase tracking-widest">{item.label}</span></button>;
-        })}
-      </nav>
     </div>
   );
 };
