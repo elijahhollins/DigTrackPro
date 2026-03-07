@@ -44,6 +44,7 @@ const getSafeMimeType = (file: File): string => {
 export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initialData, isDarkMode, existingTickets }) => {
   const [isBatchMode, setIsBatchMode] = useState(false);
   const [isSubmittingManual, setIsSubmittingManual] = useState(false);
+  const [isSavingAll, setIsSavingAll] = useState(false);
   const [hasApiKey, setHasApiKey] = useState(false);
   
   const [formData, setFormData] = useState({
@@ -260,6 +261,56 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
 
   const currentItem = queue[activeIndex];
   const processingCount = queue.filter(i => i.status === 'analyzing' || i.status === 'uploading' || i.status === 'pending').length;
+  const readyCount = queue.filter(i => i.status === 'ready').length;
+
+  const handleSaveAll = async () => {
+    setIsSavingAll(true);
+    const readyItems = queue.filter(i => i.status === 'ready');
+    const outcomes = new Map<string, 'saved' | 'error'>();
+
+    for (const item of readyItems) {
+      const extracted = item.extractedData || {};
+      const submitData = {
+        jobNumber: extracted.jobNumber || '',
+        ticketNo: extracted.ticketNo || '',
+        street: extracted.street || '',
+        crossStreet: extracted.crossStreet || '',
+        place: extracted.place || '',
+        extent: extracted.extent || '',
+        county: extracted.county || '',
+        city: extracted.city || '',
+        state: extracted.state || '',
+        callInDate: extracted.callInDate || '',
+        workDate: extracted.workDate || '',
+        expires: extracted.expires || '',
+        siteContact: extracted.siteContact || '',
+        documentUrl: item.documentUrl || '',
+        lat: extracted.lat != null && !isNaN(Number(extracted.lat)) ? Number(extracted.lat) : undefined,
+        lng: extracted.lng != null && !isNaN(Number(extracted.lng)) ? Number(extracted.lng) : undefined,
+        isArchived: false,
+        refreshRequested: false,
+        noShowRequested: false,
+      };
+      try {
+        await onSave(submitData);
+        outcomes.set(item.id, 'saved');
+        setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'saved' } : q));
+      } catch (err: any) {
+        console.error('Failed to save batch item:', item.id, err);
+        outcomes.set(item.id, 'error');
+        setQueue(prev => prev.map(q => q.id === item.id ? { ...q, status: 'error', error: err.message } : q));
+      }
+    }
+
+    setIsSavingAll(false);
+
+    // Close if every item in the queue is now saved or errored.
+    // Apply the known outcomes to the current queue snapshot to decide.
+    const finalQueue = queue.map(i => outcomes.has(i.id) ? { ...i, status: outcomes.get(i.id)! as IngestionItem['status'] } : i);
+    if (finalQueue.every(i => i.status === 'saved' || i.status === 'error')) {
+      onClose();
+    }
+  };
 
   return (
     <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[160] flex items-center justify-center p-4 overflow-y-auto">
@@ -469,10 +520,30 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
               </div>
 
               <div className="pt-6">
+                {isBatchMode && readyCount >= 2 && (
+                  <button
+                    type="button"
+                    onClick={handleSaveAll}
+                    disabled={isSavingAll}
+                    className="w-full mb-3 bg-emerald-500 text-white py-5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-lg shadow-emerald-500/20 transition-all hover:scale-[1.01] active:scale-95 flex items-center justify-center gap-3 disabled:opacity-60 disabled:cursor-not-allowed disabled:scale-100"
+                  >
+                    {isSavingAll ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        Saving All...
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
+                        Save All Ready ({readyCount})
+                      </>
+                    )}
+                  </button>
+                )}
                 <button 
                   type="submit" 
-                  disabled={isSubmittingManual}
-                  className="w-full bg-brand text-slate-900 py-6 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-2xl shadow-brand/20 transition-all hover:scale-[1.01] active:scale-95 flex items-center justify-center gap-3"
+                  disabled={isSubmittingManual || isSavingAll}
+                  className="w-full bg-brand text-slate-900 py-6 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-2xl shadow-brand/20 transition-all hover:scale-[1.01] active:scale-95 flex items-center justify-center gap-3 disabled:opacity-60 disabled:cursor-not-allowed disabled:scale-100"
                 >
                   {isSubmittingManual ? (
                     <div className="w-5 h-5 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
