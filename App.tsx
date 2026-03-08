@@ -803,7 +803,6 @@ const App: React.FC = () => {
               onViewTicket={setViewingDocUrl}
               onTicketGeocoded={(id, lat, lng) => {
                 setTickets(prev => prev.map(t => t.id === id ? { ...t, lat, lng } : t));
-                apiService.updateTicketCoords(id, lat, lng).catch((err) => console.error('Failed to save geocoded coordinates:', err));
               }}
               onPinMoved={isAdmin ? (id, lat, lng) => {
                 setTickets(prev => prev.map(t => t.id === id ? { ...t, lat, lng } : t));
