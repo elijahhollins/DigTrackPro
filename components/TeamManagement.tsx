@@ -506,7 +506,9 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                                 Company Members ({companyUsers.length})
                               </div>
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                {companyUsers.map(user => (
+                                {companyUsers.map(user => {
+                                  const canToggle = user.role !== UserRole.SUPER_ADMIN && user.id !== sessionUser.id;
+                                  return (
                                   <div 
                                     key={user.id}
                                     className={`flex items-center justify-between p-3 rounded-xl border ${
@@ -517,15 +519,21 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                                       <div className="text-xs font-bold truncate">{user.name}</div>
                                       <div className="text-[10px] font-mono opacity-40 truncate">{user.username}</div>
                                     </div>
-                                    <div className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${
-                                      user.role === UserRole.ADMIN || user.role === UserRole.SUPER_ADMIN
-                                        ? 'bg-brand/10 border-brand/20 text-brand' 
-                                        : 'bg-slate-100 border-slate-200 text-slate-500'
-                                    }`}>
+                                    <button
+                                      onClick={() => canToggle && onToggleRole?.(user)}
+                                      disabled={!canToggle}
+                                      className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border transition-all ${
+                                        user.role === UserRole.ADMIN || user.role === UserRole.SUPER_ADMIN
+                                          ? 'bg-brand/10 border-brand/20 text-brand' 
+                                          : 'bg-slate-100 border-slate-200 text-slate-500'
+                                      } ${canToggle ? 'hover:scale-105 active:scale-95' : 'opacity-50 cursor-not-allowed'}`}
+                                      title={canToggle ? 'Click to toggle role' : undefined}
+                                    >
                                       {user.role}
-                                    </div>
+                                    </button>
                                   </div>
-                                ))}
+                                  );
+                                })}
                               </div>
                             </div>
                           </td>

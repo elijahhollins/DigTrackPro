@@ -207,6 +207,9 @@ grant execute on function get_company_by_name to anon, authenticated;
 create policy "super_admin_read_all_profiles" on profiles
   for select to authenticated using (is_super_admin());
 
+create policy "super_admin_update_profiles" on profiles
+  for update to authenticated using (is_super_admin()) with check (is_super_admin());
+
 create policy "super_admin_read_all_companies" on companies
   for select to authenticated using (is_super_admin());
 
