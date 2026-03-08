@@ -36,7 +36,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
   onUpdateCurrentUserPassword
 }) => {
   const [isSyncing, setIsSyncing] = useState(false);
-  const [pushStatus, setPushStatus] = useState<'granted' | 'denied' | 'default'>(Notification.permission);
+  const [pushStatus, setPushStatus] = useState<'granted' | 'denied' | 'default'>(typeof Notification !== 'undefined' ? Notification.permission : 'default');
   const [isRegisteringPush, setIsRegisteringPush] = useState(false);
 
   // Platform admin state (super-admin only)
@@ -74,6 +74,10 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
   const isAdmin = sessionUser?.role === UserRole.ADMIN || isSuperAdmin;
 
   const handleEnablePush = async () => {
+    if (typeof Notification === 'undefined') {
+      alert("Push notifications are not supported on this device.");
+      return;
+    }
     setIsRegisteringPush(true);
     try {
       const permission = await Notification.requestPermission();
