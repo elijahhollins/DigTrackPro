@@ -1,42 +1,23 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Job, JobPrint, TicketStatus, DigTicket } from '../types.ts';
+import { Job, JobPrint } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
-import { getTicketStatus } from '../utils/dateUtils.ts';
 
 interface JobPrintMarkupProps {
   job: Job;
-  tickets: DigTicket[];
   isAdmin: boolean;
   onClose: () => void;
-  onViewTicket: (url: string) => void;
   isDarkMode?: boolean;
 }
 
-export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, tickets, isAdmin, onClose }) => {
+export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, isAdmin, onClose }) => {
   const [prints, setPrints] = useState<JobPrint[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Calculate Critical Status for UI Coloring
-  const jobStatus = (() => {
-    if (tickets.length === 0) return TicketStatus.VALID;
-    const statuses = tickets.map(t => getTicketStatus(t));
-    if (statuses.includes(TicketStatus.EXPIRED)) return TicketStatus.EXPIRED;
-    if (statuses.includes(TicketStatus.REFRESH_NEEDED) || statuses.includes(TicketStatus.EXTENDABLE)) return TicketStatus.REFRESH_NEEDED;
-    return TicketStatus.VALID;
-  })();
-
-  const brandColor = (() => {
-    switch(jobStatus) {
-      case TicketStatus.EXPIRED: return 'bg-rose-600';
-      case TicketStatus.REFRESH_NEEDED: return 'bg-amber-500';
-      default: return 'bg-brand';
-    }
-  })();
-
-  const brandText = brandColor.replace('bg-', 'text-');
+  const brandColor = 'bg-brand';
+  const brandText = 'text-brand';
 
   // Load all prints for this job
   useEffect(() => {
