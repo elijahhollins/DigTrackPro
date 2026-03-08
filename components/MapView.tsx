@@ -8,6 +8,8 @@ import { getTicketStatus, getStatusColor } from '../utils/dateUtils.ts';
 // Rate limit for Nominatim geocoding API (max 1 request/second per usage policy)
 const NOMINATIM_RATE_LIMIT_MS = 1100;
 
+const GEOLOCATION_TIMEOUT_MS = 10000;
+
 // Fix leaflet's default icon path issue with bundlers
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -115,10 +117,13 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
   const mapRef = useRef<L.Map | null>(null);
   const mapDivRef = useRef<HTMLDivElement>(null);
   const markersRef = useRef<L.Marker[]>([]);
+  const userLocationMarkerRef = useRef<L.Marker | null>(null);
   const [pinnedTickets, setPinnedTickets] = useState<PinnedTicket[]>([]);
   const [isGeocoding, setIsGeocoding] = useState(false);
   const [geocodedCount, setGeocodedCount] = useState(0);
   const [totalToGeocode, setTotalToGeocode] = useState(0);
+  const [isLocating, setIsLocating] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
   // When true, the next markers-effect run skips fitBounds (e.g. after a pin drag).
   const skipFitBoundsRef = useRef(false);
 
@@ -305,6 +310,50 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
     skipFitBoundsRef.current = false;
   }, [pinnedTickets, onEditTicket, onViewTicket, onPinMoved]);
 
+  const handleCenterOnMe = () => {
+    if (!navigator.geolocation) {
+      setLocationError('Geolocation is not supported by your browser.');
+      return;
+    }
+    setIsLocating(true);
+    setLocationError(null);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        if (mapRef.current) {
+          if (userLocationMarkerRef.current) {
+            userLocationMarkerRef.current.remove();
+          }
+          const userIcon = L.divIcon({
+            className: '',
+            html: `<div style="
+              width:16px;height:16px;border-radius:50%;
+              background:#3b82f6;border:3px solid white;
+              box-shadow:0 0 0 4px rgba(59,130,246,0.3),0 2px 8px rgba(0,0,0,0.4);
+            "></div>`,
+            iconSize: [16, 16],
+            iconAnchor: [8, 8],
+          });
+          userLocationMarkerRef.current = L.marker([latitude, longitude], { icon: userIcon })
+            .addTo(mapRef.current)
+            .bindPopup('<div style="font-family:system-ui,sans-serif;font-size:12px;font-weight:700">Your Location</div>');
+          mapRef.current.setView([latitude, longitude], 14);
+        }
+        setIsLocating(false);
+      },
+      (err) => {
+        const messages: Record<number, string> = {
+          1: 'Location access denied. Please allow location access in your browser settings.',
+          2: 'Unable to determine your location.',
+          3: 'Location request timed out.',
+        };
+        setLocationError(messages[err.code] ?? 'Unable to retrieve your location.');
+        setIsLocating(false);
+      },
+      { timeout: GEOLOCATION_TIMEOUT_MS }
+    );
+  };
+
   const withCoords = activeTickets.filter(t => t.lat != null && t.lng != null).length;
   const withoutCoords = activeTickets.length - withCoords;
 
@@ -334,8 +383,40 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
               Geocoding {geocodedCount}/{totalToGeocode}
             </div>
           )}
+          <button
+            onClick={handleCenterOnMe}
+            disabled={isLocating}
+            title="Center map on my location"
+            className={`flex items-center gap-2 px-4 py-2 rounded-2xl border text-[10px] font-black uppercase tracking-widest transition-colors ${
+              isLocating
+                ? 'opacity-60 cursor-not-allowed'
+                : isDarkMode
+                  ? 'bg-white/5 border-white/5 text-slate-400 hover:bg-white/10 hover:text-slate-200'
+                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+            }`}
+          >
+            {isLocating ? (
+              <div className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />
+            ) : (
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="3" strokeWidth="2" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5a7 7 0 100 14A7 7 0 0012 5z" />
+              </svg>
+            )}
+            {isLocating ? 'Locating…' : 'My Location'}
+          </button>
         </div>
       </div>
+
+      {locationError && (
+        <div className={`flex items-center gap-3 px-4 py-3 rounded-2xl border text-[11px] font-bold ${isDarkMode ? 'bg-rose-500/10 border-rose-500/20 text-rose-400' : 'bg-rose-50 border-rose-200 text-rose-600'}`}>
+          <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+          </svg>
+          {locationError}
+        </div>
+      )}
 
       <div className={`rounded-[2.5rem] overflow-hidden border shadow-2xl ${isDarkMode ? 'border-white/5 shadow-black/40' : 'border-slate-200 shadow-slate-200/50'}`}
            style={{ height: 'calc(100vh - 20rem)' }}>
