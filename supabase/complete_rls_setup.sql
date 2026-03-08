@@ -302,6 +302,14 @@ CREATE POLICY "super_admin_read_all_profiles"
   TO authenticated
   USING (is_super_admin());
 
+-- Super admins can update any profile (e.g. change roles across companies)
+CREATE POLICY "super_admin_update_profiles"
+  ON profiles
+  FOR UPDATE
+  TO authenticated
+  USING (is_super_admin())
+  WITH CHECK (is_super_admin());
+
 
 -- ══════════════════════════════════════════════════════════════
 -- COMPANIES TABLE POLICIES
