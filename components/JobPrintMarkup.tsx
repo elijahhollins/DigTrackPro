@@ -53,20 +53,33 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, isAdmin, on
     }
   };
 
-  const handleDownload = async (print: JobPrint) => {
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+  // Get a download URL with Supabase's download parameter
+  // This sets Content-Disposition: attachment header on the server
+  const getDownloadUrl = (print: JobPrint): string => {
+    if (!print.url) return '';
+    const baseUrl = print.url.split('?')[0];
+    return `${baseUrl}?download=${encodeURIComponent(print.fileName)}`;
+  };
+
+  const handleDownload = (print: JobPrint) => {
     if (!print.url) return;
-    try {
-      const response = await fetch(print.url);
-      const blob = await response.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = blobUrl;
-      link.download = print.fileName;
+    
+    // Use Supabase download URL which sets proper Content-Disposition header
+    const downloadUrl = getDownloadUrl(print);
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = print.fileName;
+    
+    // Mobile browsers need the link in the DOM
+    if (isMobile) {
+      link.style.display = 'none';
+      document.body.appendChild(link);
       link.click();
-      URL.revokeObjectURL(blobUrl);
-    } catch (err) {
-      console.error('Download failed:', err);
-      window.open(print.url, '_blank');
+      setTimeout(() => document.body.removeChild(link), 100);
+    } else {
+      link.click();
     }
   };
 
