@@ -127,6 +127,7 @@ export interface JobNote {
   id: string;
   companyId: string;
   jobNumber: string;
+  ticketId: string;
   text: string;
   author: string;
   timestamp: number;
