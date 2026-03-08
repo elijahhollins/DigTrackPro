@@ -8,48 +8,29 @@ interface TeamManagementProps {
   sessionUser: User;
   company?: Company;
   isDarkMode?: boolean;
-  hasApiKey: boolean;
   isSuperAdmin?: boolean;
   allCompanies?: Company[];
   onCompanyCreated?: (company: Company) => void;
   onCompanyUpdated?: (id: string, updates: { name?: string; city?: string; state?: string; phone?: string }) => Promise<void>;
   onAddUser: (user: Partial<UserRecord>) => Promise<void>;
   onDeleteUser: (id: string) => void;
-  onThemeChange?: (color: string) => void;
   onToggleRole?: (user: UserRecord) => void;
-  onOpenSelectKey?: () => Promise<void>;
   onUpdateUserName?: (id: string, name: string) => Promise<void>;
   onSendPasswordReset?: (email: string) => Promise<void>;
   onUpdateCurrentUserPassword?: (password: string) => Promise<void>;
 }
-
-const BRAND_COLORS = [
-  { name: 'Safety Orange', hex: '#f59e0b' },
-  { name: 'Electric Blue', hex: '#3b82f6' },
-  { name: 'Construction Yellow', hex: '#fbbf24' },
-  { name: 'Utility Pink', hex: '#ec4899' },
-  { name: 'Safety Green', hex: '#10b981' },
-  { name: 'Gas Yellow', hex: '#eab308' },
-  { name: 'Water Blue', hex: '#0ea5e9' },
-  { name: 'Sewer Green', hex: '#65a30d' },
-  { name: 'Telecom Orange', hex: '#ea580c' },
-  { name: 'Power Red', hex: '#e11d48' },
-];
 
 const TeamManagement: React.FC<TeamManagementProps> = ({ 
   users = [], 
   sessionUser, 
   company,
   isDarkMode, 
-  hasApiKey,
   isSuperAdmin = false,
   allCompanies = [],
   onCompanyCreated,
   onCompanyUpdated,
   onDeleteUser, 
-  onThemeChange, 
   onToggleRole,
-  onOpenSelectKey,
   onUpdateUserName,
   onSendPasswordReset,
   onUpdateCurrentUserPassword
@@ -602,56 +583,6 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
           </div>
         )}
 
-        <div className={`p-6 rounded-2xl border ${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-100 shadow-sm'}`}>
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
-                  <svg className="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                  Gemini AI Status
-                </h3>
-                <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase ${hasApiKey ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-500 border border-rose-500/20 animate-pulse'}`}>
-                  {hasApiKey ? 'Connected' : 'Action Required'}
-                </span>
-              </div>
-              <p className={`text-[10px] font-bold uppercase tracking-tighter mt-1 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                {hasApiKey ? 'Extraction Engine Ready' : 'Authentication Needed'}
-              </p>
-            </div>
-            <button 
-              onClick={onOpenSelectKey}
-              className={`px-4 py-2 border rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-purple-500 hover:text-white transition-all shadow-lg active:scale-95 ${hasApiKey ? 'bg-purple-500/10 text-purple-500 border-purple-500/20' : 'bg-purple-600 text-white border-purple-700 animate-bounce'}`}
-            >
-              {hasApiKey ? 'Switch AI Project' : 'Handshake AI'}
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {/* Theme Selection */}
-      <section className={`p-6 rounded-2xl border ${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-100 shadow-sm'}`}>
-        <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-6 flex items-center gap-2">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M7 21a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
-          App Branding & Colors
-        </h3>
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-          {BRAND_COLORS.map(color => (
-            <button
-              key={color.hex}
-              onClick={() => onThemeChange?.(color.hex)}
-              className="group flex items-center gap-3 p-2 rounded-xl border border-transparent hover:border-brand/20 hover:bg-brand/5 transition-all text-left"
-            >
-              <div 
-                className="w-8 h-8 rounded-lg border-2 border-white/10 shadow-lg shrink-0"
-                style={{ backgroundColor: color.hex }}
-              />
-              <div className="overflow-hidden">
-                <span className="block text-[9px] font-black uppercase tracking-tight truncate">{color.name}</span>
-                <span className="block text-[8px] font-mono opacity-40">{color.hex}</span>
-              </div>
-            </button>
-          ))}
-        </div>
       </section>
 
       {/* Company Admin — Invite Link (visible to company admins, not super-admin) */}
