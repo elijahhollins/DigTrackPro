@@ -15,6 +15,7 @@ import PhotoManager from './components/PhotoManager.tsx';
 import CalendarView from './components/CalendarView.tsx';
 import TeamManagement from './components/TeamManagement.tsx';
 import NoShowForm from './components/NoShowForm.tsx';
+import TicketNotesModal from './components/TicketNotesModal.tsx';
 import Login from './components/Login.tsx';
 import CompanyRegistration from './components/CompanyRegistration.tsx';
 import MapView from './components/MapView.tsx';
@@ -61,6 +62,7 @@ const App: React.FC = () => {
   const [editingTicket, setEditingTicket] = useState<DigTicket | null>(null);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
   const [noShowTicket, setNoShowTicket] = useState<DigTicket | null>(null);
+  const [notesTicket, setNotesTicket] = useState<DigTicket | null>(null);
   const [globalSearch, setGlobalSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<TicketStatus | 'NO_SHOW' | null>(null);
   const [showArchived, setShowArchived] = useState(false);
@@ -93,6 +95,7 @@ const App: React.FC = () => {
     setSelectedJobSummary(null);
     setShowMarkup(null);
     setNoShowTicket(null);
+    setNotesTicket(null);
     setViewingDocUrl(null);
     if (view !== 'photos') setMediaFolderFilter(null);
     setActiveView(view);
@@ -752,6 +755,9 @@ const App: React.FC = () => {
                                     </td>
                                     <td className="px-5 py-3 text-right">
                                       <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                                        <button onClick={(e) => { e.stopPropagation(); setNotesTicket(ticket); }} className={`p-1.5 rounded-lg transition-all ${isDarkMode ? 'text-slate-500 hover:text-brand hover:bg-brand/10' : 'text-slate-400 hover:text-brand hover:bg-brand/10'}`} title="Notes">
+                                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 8h10M7 12h6m-6 4h10M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z" /></svg>
+                                        </button>
                                         <button onClick={(e) => { e.stopPropagation(); setNoShowTicket(ticket); }} className={`p-1.5 rounded-lg transition-all ${isDarkMode ? 'text-rose-600 hover:text-rose-400 hover:bg-rose-500/10' : 'text-rose-400 hover:text-rose-600 hover:bg-rose-50'}`} title="Log No Show">
                                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
                                         </button>
@@ -832,6 +838,7 @@ const App: React.FC = () => {
       {selectedJobSummary && <JobSummaryModal job={selectedJobSummary} onClose={() => setSelectedJobSummary(null)} onEdit={() => { setEditingJob(selectedJobSummary); setShowJobForm(true); setSelectedJobSummary(null); }} onDelete={() => { apiService.deleteJob(selectedJobSummary.id).then(() => initApp()); setSelectedJobSummary(null); }} onToggleComplete={async () => { await apiService.saveJob({ ...selectedJobSummary, isComplete: !selectedJobSummary.isComplete }); initApp(); }} onViewMedia={() => { setMediaFolderFilter(selectedJobSummary.jobNumber); handleNavigate('photos'); }} onViewMarkup={() => { setShowMarkup(selectedJobSummary); setSelectedJobSummary(null); }} isDarkMode={isDarkMode} />}
       {showMarkup && <JobPrintMarkup job={showMarkup} isAdmin={isAdmin} onClose={() => setShowMarkup(null)} isDarkMode={isDarkMode} />}
       {noShowTicket && <NoShowForm ticket={noShowTicket} userName={sessionUser?.name || ''} onSave={async (record) => { await apiService.addNoShow(record); initApp(); }} onDelete={async () => { await apiService.deleteNoShow(noShowTicket.id); initApp(); return true; }} onClose={() => setNoShowTicket(null)} isDarkMode={isDarkMode} />}
+      {notesTicket && <TicketNotesModal ticket={notesTicket} userName={sessionUser?.name || ''} isAdmin={isAdmin} onClose={() => setNotesTicket(null)} isDarkMode={isDarkMode} />}
       {viewingDocUrl && (
         <div className="fixed inset-0 bg-black/95 z-[300] flex items-center justify-center p-4">
           <button onClick={() => setViewingDocUrl(null)} className="absolute top-5 right-5 p-3 bg-white/10 rounded-xl text-white hover:bg-rose-500/80 transition-all z-10">

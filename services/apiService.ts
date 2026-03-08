@@ -448,15 +448,26 @@ export const apiService = {
   },
 
   async getNotes(): Promise<JobNote[]> {
-    const { data, error } = await supabase.from('notes').select('*');
+    const { data, error } = await supabase.from('notes').select('*').order('timestamp', { ascending: true });
     if (error) return [];
-    return (data || []).map(n => ({ ...n, jobNumber: n.job_number, companyId: n.company_id }));
+    return (data || []).map(n => ({ ...n, jobNumber: n.job_number, companyId: n.company_id, ticketId: n.ticket_id || '' }));
+  },
+
+  async getTicketNotes(ticketId: string): Promise<JobNote[]> {
+    const { data, error } = await supabase.from('notes').select('*').eq('ticket_id', ticketId).order('timestamp', { ascending: true });
+    if (error) return [];
+    return (data || []).map(n => ({ ...n, jobNumber: n.job_number, companyId: n.company_id, ticketId: n.ticket_id || '' }));
   },
 
   async addNote(note: JobNote): Promise<JobNote> {
-    const { error } = await supabase.from('notes').insert([{ id: note.id, company_id: note.companyId, job_number: note.jobNumber, text: note.text, author: note.author, timestamp: note.timestamp }]);
+    const { error } = await supabase.from('notes').insert([{ id: note.id, company_id: note.companyId, job_number: note.jobNumber, ticket_id: note.ticketId, text: note.text, author: note.author, timestamp: note.timestamp }]);
     if (error) throw error;
     return note;
+  },
+
+  async deleteNote(id: string): Promise<void> {
+    const { error } = await supabase.from('notes').delete().eq('id', id);
+    if (error) throw error;
   },
 
   async addTicketFile(jobNumber: string, file: File): Promise<string> {
