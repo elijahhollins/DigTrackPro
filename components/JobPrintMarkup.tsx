@@ -53,12 +53,21 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, isAdmin, on
     }
   };
 
-  const handleDownload = (print: JobPrint) => {
+  const handleDownload = async (print: JobPrint) => {
     if (!print.url) return;
-    const link = document.createElement('a');
-    link.href = print.url;
-    link.download = print.fileName;
-    link.click();
+    try {
+      const response = await fetch(print.url);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = print.fileName;
+      link.click();
+      URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      console.error('Download failed:', err);
+      window.open(print.url, '_blank');
+    }
   };
 
   const handleOpen = (print: JobPrint) => {
