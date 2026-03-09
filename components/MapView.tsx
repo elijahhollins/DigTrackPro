@@ -163,7 +163,7 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
   const mapRef = useRef<L.Map | null>(null);
   const mapDivRef = useRef<HTMLDivElement>(null);
   const markersRef = useRef<L.Marker[]>([]);
-  const polygonsRef = useRef<L.Polygon[]>([]);
+  const polygonsRef = useRef<Map<string, L.Polygon>>(new Map());
   const userLocationMarkerRef = useRef<L.Marker | null>(null);
   const [pinnedTickets, setPinnedTickets] = useState<PinnedTicket[]>([]);
   const [isGeocoding, setIsGeocoding] = useState(false);
@@ -263,7 +263,7 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
     markersRef.current.forEach(m => m.remove());
     markersRef.current = [];
     polygonsRef.current.forEach(p => p.remove());
-    polygonsRef.current = [];
+    polygonsRef.current = new Map();
 
     if (pinnedTickets.length === 0) return;
 
@@ -304,6 +304,10 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
       marker.bindPopup(popupHtml);
 
       marker.on('popupopen', () => {
+        // Show the dig-area bounding box as a verification overlay
+        const poly = polygonsRef.current.get(ticket.id);
+        if (poly && mapRef.current) poly.addTo(mapRef.current);
+
         if (hasDoc && onViewTicket) {
           document.getElementById(viewBtnId)?.addEventListener('click', () => {
             onViewTicket(ticket.documentUrl!);
@@ -321,6 +325,10 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
             marker.setIcon(createDraggableMarkerIcon(statusColorClass));
           });
         }
+      });
+
+      marker.on('popupclose', () => {
+        polygonsRef.current.get(ticket.id)?.remove();
       });
 
       marker.on('dragend', () => {
@@ -344,7 +352,8 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
       bounds.push([lat, lng]);
       markersRef.current.push(marker);
 
-      // Draw the dig-area bounding polygon when the ticket has 3+ corner coordinates.
+      // Build the dig-area bounding polygon when the ticket has 3+ corner coordinates,
+      // but keep it off the map until the user opens the popup (verification overlay).
       const bbox = ticket.boundingBox;
       if (bbox && bbox.length >= 3) {
         const polygonColor = statusColorClass.includes('rose') ? '#ef4444'
@@ -354,11 +363,12 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
         const polygon = L.polygon(latlngs, {
           color: polygonColor,
           weight: 2,
-          opacity: 0.8,
+          opacity: 0.9,
           fillColor: polygonColor,
-          fillOpacity: 0.08,
-        }).addTo(mapRef.current!);
-        polygonsRef.current.push(polygon);
+          fillOpacity: 0.15,
+          dashArray: '6 4',
+        });
+        polygonsRef.current.set(ticket.id, polygon);
         bbox.forEach(p => bounds.push([p.lat, p.lng]));
       }
     });
