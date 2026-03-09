@@ -101,6 +101,7 @@ export interface DigTicket {
   documentUrl?: string;
   lat?: number;
   lng?: number;
+  boundingBox?: Array<{ lat: number; lng: number }>;
 }
 
 export interface NoShowRecord {

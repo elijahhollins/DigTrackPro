@@ -68,8 +68,46 @@ const createDraggableMarkerIcon = (statusClass: string) => {
   });
 };
 
+/** Compute the centroid (average lat/lng) of a bounding-box polygon. */
+const computeCentroid = (bbox: Array<{ lat: number; lng: number }>): { lat: number; lng: number } => ({
+  lat: bbox.reduce((s, p) => s + p.lat, 0) / bbox.length,
+  lng: bbox.reduce((s, p) => s + p.lng, 0) / bbox.length,
+});
+
+/**
+ * Ray-casting point-in-polygon test.
+ * Returns true when `point` lies inside the `polygon`.
+ */
+const isPointInPolygon = (
+  point: { lat: number; lng: number },
+  polygon: Array<{ lat: number; lng: number }>,
+): boolean => {
+  const { lat: px, lng: py } = point;
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].lat, yi = polygon[i].lng;
+    const xj = polygon[j].lat, yj = polygon[j].lng;
+    if (((yi > py) !== (yj > py)) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+};
+
+/**
+ * Resolve a single geocoded coordinate for a ticket, taking into account the
+ * ticket's bounding box when available:
+ *  1. If a bounding box exists, its centroid is the safe fallback.
+ *  2. Geocoding (Nominatim) is attempted using the full address.
+ *  3. If the geocoded point lies within the bounding box it is used directly.
+ *  4. If it lies outside (or geocoding fails), the centroid is used instead,
+ *     guaranteeing the pin always falls inside the marked dig area.
+ */
 const geocodeAddress = async (ticket: DigTicket): Promise<{ lat: number; lng: number } | null> => {
   if (!ticket.street && !ticket.city) return null;
+
+  const bbox = ticket.boundingBox && ticket.boundingBox.length >= 3 ? ticket.boundingBox : null;
+  const centroid = bbox ? computeCentroid(bbox) : null;
 
   // Strategy 1: Structured Nominatim search — most accurate, includes county and
   // uses "Street & Cross Street" intersection notation when a cross street is present.
@@ -88,7 +126,11 @@ const geocodeAddress = async (ticket: DigTicket): Promise<{ lat: number; lng: nu
     );
     const data = await res.json();
     if (data?.length > 0) {
-      return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+      const geocoded = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+      if (bbox) {
+        return isPointInPolygon(geocoded, bbox) ? geocoded : centroid!;
+      }
+      return geocoded;
     }
   } catch {
     // fall through to free-text
@@ -97,7 +139,7 @@ const geocodeAddress = async (ticket: DigTicket): Promise<{ lat: number; lng: nu
   // Strategy 2: Free-text fallback — honor rate limit between the two requests.
   await new Promise(r => setTimeout(r, NOMINATIM_RATE_LIMIT_MS));
   const parts = [ticket.street, ticket.city, ticket.state].filter(Boolean);
-  if (parts.length === 0) return null;
+  if (parts.length === 0) return centroid;
   try {
     const res = await fetch(
       `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(parts.join(', '))}`,
@@ -105,18 +147,23 @@ const geocodeAddress = async (ticket: DigTicket): Promise<{ lat: number; lng: nu
     );
     const data = await res.json();
     if (data?.length > 0) {
-      return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+      const geocoded = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+      if (bbox) {
+        return isPointInPolygon(geocoded, bbox) ? geocoded : centroid!;
+      }
+      return geocoded;
     }
   } catch {
-    // Geocoding failed – skip silently
+    // Geocoding failed – fall back to centroid
   }
-  return null;
+  return centroid;
 };
 
 export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTicket, onViewTicket, onTicketGeocoded, onPinMoved }) => {
   const mapRef = useRef<L.Map | null>(null);
   const mapDivRef = useRef<HTMLDivElement>(null);
   const markersRef = useRef<L.Marker[]>([]);
+  const polygonsRef = useRef<L.Polygon[]>([]);
   const userLocationMarkerRef = useRef<L.Marker | null>(null);
   const [pinnedTickets, setPinnedTickets] = useState<PinnedTicket[]>([]);
   const [isGeocoding, setIsGeocoding] = useState(false);
@@ -212,9 +259,11 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
   useEffect(() => {
     if (!mapRef.current) return;
 
-    // Remove old markers
+    // Remove old markers and polygons
     markersRef.current.forEach(m => m.remove());
     markersRef.current = [];
+    polygonsRef.current.forEach(p => p.remove());
+    polygonsRef.current = [];
 
     if (pinnedTickets.length === 0) return;
 
@@ -294,6 +343,24 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
 
       bounds.push([lat, lng]);
       markersRef.current.push(marker);
+
+      // Draw the dig-area bounding polygon when the ticket has 3+ corner coordinates.
+      const bbox = ticket.boundingBox;
+      if (bbox && bbox.length >= 3) {
+        const polygonColor = statusColorClass.includes('rose') ? '#ef4444'
+          : statusColorClass.includes('amber') ? '#f59e0b'
+          : '#22c55e';
+        const latlngs = bbox.map(p => [p.lat, p.lng] as [number, number]);
+        const polygon = L.polygon(latlngs, {
+          color: polygonColor,
+          weight: 2,
+          opacity: 0.8,
+          fillColor: polygonColor,
+          fillOpacity: 0.08,
+        }).addTo(mapRef.current!);
+        polygonsRef.current.push(polygon);
+        bbox.forEach(p => bounds.push([p.lat, p.lng]));
+      }
     });
 
     if (bounds.length > 0 && !skipFitBoundsRef.current) {
@@ -428,7 +495,7 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
       )}
 
       <p className={`text-[9px] font-bold uppercase tracking-widest text-center ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>
-        Tickets with stored GPS coordinates are shown immediately. Others are geocoded via OpenStreetMap Nominatim (1 req/sec) and saved for future sessions. Click a marker to view ticket details.
+        Tickets with stored GPS coordinates are shown immediately. Others are geocoded via OpenStreetMap Nominatim (1 req/sec) and saved for future sessions. When a ticket includes a bounding box, the pin is constrained to stay inside the dig area. Click a marker to view ticket details.
         {onPinMoved && ' Admins can click "Adjust Pin" in any popup to drag a marker to the correct location.'}
       </p>
     </div>

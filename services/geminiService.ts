@@ -31,7 +31,8 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
        - Convert all dates to YYYY-MM-DD format.
     6. CUSTOMER: Identify the client or contractor (labels: "Done For", "Contractor", "Customer").
     7. SITE CONTACT: Identify the person to contact on site.
-    8. GPS COORDINATES: Look for latitude/longitude coordinates anywhere on the ticket (often near "Best Fit", "GPS", "Lat/Long", or listed as decimal degree pairs like 41.123456, -87.654321). Extract as separate numeric values.
+    8. GPS COORDINATES: Look for a single representative lat/lng coordinate (often near "Best Fit", "GPS", "Lat/Long", or listed as a decimal degree pair like 41.123456, -87.654321). Extract as separate numeric values.
+    9. BOUNDING BOX: 811 locate tickets often include exactly 4 coordinate pairs that define the dig area boundary (sometimes labeled as corners: NE/NW/SE/SW, or Point 1–4, or listed in a grid/table). Extract them as an ordered array of objects with "lat" and "lng" numeric fields. If all 4 are present return all 4; if only 3 are visible return those 3; return null if fewer than 3 boundary coordinates can be identified.
     
     If a field is missing or illegible, return null for that field.
     Return a clean JSON object according to the requested schema.`;
@@ -73,6 +74,16 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
             siteContact: { type: Type.STRING },
             lat: { type: Type.NUMBER },
             lng: { type: Type.NUMBER },
+            boundingBox: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  lat: { type: Type.NUMBER },
+                  lng: { type: Type.NUMBER },
+                },
+              },
+            },
           },
         },
         temperature: 0,
