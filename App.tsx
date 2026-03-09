@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, User, UserRole, Job, UserRecord, Company } from './types.ts';
+import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, JobNote, User, UserRole, Job, UserRecord, Company } from './types.ts';
 import { getTicketStatus, getStatusColor } from './utils/dateUtils.ts';
 import { apiService } from './services/apiService.ts';
 import { supabase, isSupabaseConfigured, getEnv } from './lib/supabaseClient.ts';
@@ -41,6 +41,7 @@ const App: React.FC = () => {
   const [tickets, setTickets] = useState<DigTicket[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [photos, setPhotos] = useState<JobPhoto[]>([]);
+  const [notes, setNotes] = useState<JobNote[]>([]);
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [authError, setAuthError] = useState<string>('');
@@ -206,15 +207,17 @@ const App: React.FC = () => {
       }
 
       // Fetch operational data - Supabase RLS handles the company filtering automatically now!
-      const [allTicketsRes, allJobsRes, allPhotosRes] = await Promise.allSettled([
+      const [allTicketsRes, allJobsRes, allPhotosRes, allNotesRes] = await Promise.allSettled([
         apiService.getTickets(),
         apiService.getJobs(),
-        apiService.getPhotos()
+        apiService.getPhotos(),
+        apiService.getNotes()
       ]);
 
       setTickets(allTicketsRes.status === 'fulfilled' ? allTicketsRes.value : []);
       setJobs(allJobsRes.status === 'fulfilled' ? allJobsRes.value : []);
       setPhotos(allPhotosRes.status === 'fulfilled' ? allPhotosRes.value : []);
+      setNotes(allNotesRes.status === 'fulfilled' ? allNotesRes.value : []);
 
     } catch (error) { 
       console.error("Critical Init Error:", error);
@@ -434,6 +437,8 @@ const App: React.FC = () => {
     });
     return map;
   }, [filteredTickets]);
+
+  const ticketIdsWithNotes = useMemo(() => new Set(notes.map(n => n.ticketId).filter(Boolean)), [notes]);
 
   const toggleJobExpansion = (jobNumber: string) => {
     const next = new Set(expandedJobs);
@@ -738,6 +743,11 @@ const App: React.FC = () => {
                                         <button onClick={(e) => { e.stopPropagation(); if (ticket.documentUrl) setViewingDocUrl(ticket.documentUrl); }} title={`Ticket ${ticket.ticketNo}`} className={`text-[11px] font-mono font-bold tracking-tight transition-colors ${ticket.documentUrl ? 'text-brand hover:underline' : isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>
                                           {ticket.ticketNo}
                                         </button>
+                                        {ticketIdsWithNotes.has(ticket.id) && (
+                                          <span title="Has notes" className="text-brand shrink-0">
+                                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M20 2H4a2 2 0 00-2 2v12a2 2 0 002 2h14l4 4V4a2 2 0 00-2-2zm-2 10H6v-2h12v2zm0-3H6V7h12v2z"/></svg>
+                                          </span>
+                                        )}
                                       </div>
                                     </td>
                                     <td className="px-5 py-3" />
@@ -838,7 +848,7 @@ const App: React.FC = () => {
       {selectedJobSummary && <JobSummaryModal job={selectedJobSummary} onClose={() => setSelectedJobSummary(null)} onEdit={() => { setEditingJob(selectedJobSummary); setShowJobForm(true); setSelectedJobSummary(null); }} onDelete={() => { apiService.deleteJob(selectedJobSummary.id).then(() => initApp()); setSelectedJobSummary(null); }} onToggleComplete={async () => { await apiService.saveJob({ ...selectedJobSummary, isComplete: !selectedJobSummary.isComplete }); initApp(); }} onViewMedia={() => { setMediaFolderFilter(selectedJobSummary.jobNumber); handleNavigate('photos'); }} onViewMarkup={() => { setShowMarkup(selectedJobSummary); setSelectedJobSummary(null); }} isDarkMode={isDarkMode} />}
       {showMarkup && <JobPrintMarkup job={showMarkup} isAdmin={isAdmin} onClose={() => setShowMarkup(null)} isDarkMode={isDarkMode} />}
       {noShowTicket && <NoShowForm ticket={noShowTicket} userName={sessionUser?.name || ''} onSave={async (record) => { await apiService.addNoShow(record); initApp(); }} onDelete={async () => { await apiService.deleteNoShow(noShowTicket.id); initApp(); return true; }} onClose={() => setNoShowTicket(null)} isDarkMode={isDarkMode} />}
-      {notesTicket && <TicketNotesModal ticket={notesTicket} userName={sessionUser?.name || ''} isAdmin={isAdmin} onClose={() => setNotesTicket(null)} isDarkMode={isDarkMode} />}
+      {notesTicket && <TicketNotesModal ticket={notesTicket} userName={sessionUser?.name || ''} isAdmin={isAdmin} onClose={() => { setNotesTicket(null); apiService.getNotes().then(setNotes).catch((err) => console.error('Failed to refresh notes:', err)); }} isDarkMode={isDarkMode} />}
       {viewingDocUrl && (
         <div className="fixed inset-0 bg-black/95 z-[300] flex items-center justify-center p-4">
           <button onClick={() => setViewingDocUrl(null)} className="absolute top-5 right-5 p-3 bg-white/10 rounded-xl text-white hover:bg-rose-500/80 transition-all z-10">
