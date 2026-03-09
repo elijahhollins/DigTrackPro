@@ -814,9 +814,6 @@ const App: React.FC = () => {
               onTicketGeocoded={(id, lat, lng) => {
                 setTickets(prev => prev.map(t => t.id === id ? { ...t, lat, lng } : t));
               }}
-              onGeocodeComplete={(results) => {
-                apiService.batchUpdateTicketCoords(results).catch((err) => console.error(`Failed to batch-persist ${results.length} geocoded coordinate(s):`, err));
-              }}
               onPinMoved={isAdmin ? (id, lat, lng) => {
                 setTickets(prev => prev.map(t => t.id === id ? { ...t, lat, lng } : t));
                 apiService.updateTicketCoords(id, lat, lng).catch((err) => console.error('Failed to save adjusted pin coordinates:', err));

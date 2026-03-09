@@ -4,6 +4,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { DigTicket } from '../types.ts';
 import { getTicketStatus, getStatusColor } from '../utils/dateUtils.ts';
+import { apiService } from '../services/apiService.ts';
 
 // Rate limit for Nominatim geocoding API (max 1 request/second per usage policy)
 const NOMINATIM_RATE_LIMIT_MS = 1100;
@@ -24,7 +25,6 @@ interface MapViewProps {
   onEditTicket?: (ticket: DigTicket) => void;
   onViewTicket?: (url: string) => void;
   onTicketGeocoded?: (ticketId: string, lat: number, lng: number) => void;
-  onGeocodeComplete?: (results: Array<{ id: string; companyId: string; lat: number; lng: number }>) => void;
   onPinMoved?: (ticketId: string, lat: number, lng: number) => void;
 }
 
@@ -113,7 +113,7 @@ const geocodeAddress = async (ticket: DigTicket): Promise<{ lat: number; lng: nu
   return null;
 };
 
-export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTicket, onViewTicket, onTicketGeocoded, onGeocodeComplete, onPinMoved }) => {
+export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTicket, onViewTicket, onTicketGeocoded, onPinMoved }) => {
   const mapRef = useRef<L.Map | null>(null);
   const mapDivRef = useRef<HTMLDivElement>(null);
   const markersRef = useRef<L.Marker[]>([]);
@@ -131,10 +131,8 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
   // current version without needing them in the effect's dependency array (which would
   // restart geocoding on every parent render).
   const onTicketGeocodedRef = useRef(onTicketGeocoded);
-  const onGeocodeCompleteRef = useRef(onGeocodeComplete);
   const onPinMovedRef = useRef(onPinMoved);
   useEffect(() => { onTicketGeocodedRef.current = onTicketGeocoded; });
-  useEffect(() => { onGeocodeCompleteRef.current = onGeocodeComplete; });
   useEffect(() => { onPinMovedRef.current = onPinMoved; });
 
   const activeTickets = tickets.filter(t => !t.isArchived);
@@ -182,8 +180,6 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
       setTotalToGeocode(needGeocode.length);
       setGeocodedCount(0);
 
-      const geocodedResults: Array<{ id: string; companyId: string; lat: number; lng: number }> = [];
-
       for (const ticket of needGeocode) {
         if (cancelled) break;
         const coords = await geocodeAddress(ticket);
@@ -192,20 +188,16 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
             ...prev,
             { ticket, lat: coords.lat, lng: coords.lng, isEstimated: true },
           ]);
-          // Update parent state immediately so the ticket is no longer counted as unresolved
+          // Update parent state so the ticket is no longer counted as unresolved
           onTicketGeocodedRef.current?.(ticket.id, coords.lat, coords.lng);
-          // Accumulate for a single batch DB save at the end
-          geocodedResults.push({ id: ticket.id, companyId: ticket.companyId, lat: coords.lat, lng: coords.lng });
+          // Persist coordinates directly — this is the authoritative DB write path
+          apiService.updateTicketCoords(ticket.id, coords.lat, coords.lng).catch(err =>
+            console.error('Failed to persist geocoded coordinates for ticket', ticket.id, err)
+          );
         }
         setGeocodedCount(prev => prev + 1);
         // Rate-limit Nominatim requests per their usage policy
         await new Promise(r => setTimeout(r, NOMINATIM_RATE_LIMIT_MS));
-      }
-
-      // Persist all resolved coordinates in one batch call instead of N individual updates.
-      // This runs even when cancelled (loop exited early) so partial progress is never lost.
-      if (geocodedResults.length > 0) {
-        onGeocodeCompleteRef.current?.(geocodedResults);
       }
 
       if (!cancelled) setIsGeocoding(false);
