@@ -77,6 +77,14 @@ create table if not exists tickets (
     document_url text,
     geotag_lat double precision,
     geotag_lng double precision,
+    bbox_lat1 double precision,
+    bbox_lng1 double precision,
+    bbox_lat2 double precision,
+    bbox_lng2 double precision,
+    bbox_lat3 double precision,
+    bbox_lng3 double precision,
+    bbox_lat4 double precision,
+    bbox_lng4 double precision,
     created_at timestamp with time zone default now()
 );
 
@@ -219,7 +227,17 @@ create policy "super_admin_manage_invites" on company_invites
 create policy "mark_invite_used" on company_invites
   for update to authenticated using (used_at is null) with check (true);
 
-grant all on all tables in schema public to authenticated;`;
+grant all on all tables in schema public to authenticated;
+
+-- Migration: add bounding-box coordinate columns to existing installations
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS bbox_lat1 double precision;
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS bbox_lng1 double precision;
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS bbox_lat2 double precision;
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS bbox_lng2 double precision;
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS bbox_lat3 double precision;
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS bbox_lng3 double precision;
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS bbox_lat4 double precision;
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS bbox_lng4 double precision;`;
 
 const generateUUID = () => crypto.randomUUID();
 
@@ -350,6 +368,14 @@ export const apiService = {
         documentUrl: t.document_url || '',
         lat: t.geotag_lat ?? undefined,
         lng: t.geotag_lng ?? undefined,
+        boundingBox: (t.bbox_lat1 != null && t.bbox_lng1 != null)
+          ? [
+              { lat: t.bbox_lat1, lng: t.bbox_lng1 },
+              { lat: t.bbox_lat2, lng: t.bbox_lng2 },
+              { lat: t.bbox_lat3, lng: t.bbox_lng3 },
+              { lat: t.bbox_lat4, lng: t.bbox_lng4 },
+            ].filter(p => p.lat != null && p.lng != null)
+          : undefined,
         createdAt: new Date(t.created_at).getTime()
     } as any));
   },
@@ -380,6 +406,14 @@ export const apiService = {
       document_url: ticket.documentUrl,
       geotag_lat: ticket.lat ?? null,
       geotag_lng: ticket.lng ?? null,
+      bbox_lat1: ticket.boundingBox?.[0]?.lat ?? null,
+      bbox_lng1: ticket.boundingBox?.[0]?.lng ?? null,
+      bbox_lat2: ticket.boundingBox?.[1]?.lat ?? null,
+      bbox_lng2: ticket.boundingBox?.[1]?.lng ?? null,
+      bbox_lat3: ticket.boundingBox?.[2]?.lat ?? null,
+      bbox_lng3: ticket.boundingBox?.[2]?.lng ?? null,
+      bbox_lat4: ticket.boundingBox?.[3]?.lat ?? null,
+      bbox_lng4: ticket.boundingBox?.[3]?.lng ?? null,
     }).select().single();
     if (error) throw error;
     return {
@@ -404,6 +438,14 @@ export const apiService = {
         documentUrl: data.document_url || '',
         lat: data.geotag_lat ?? undefined,
         lng: data.geotag_lng ?? undefined,
+        boundingBox: (data.bbox_lat1 != null && data.bbox_lng1 != null)
+          ? [
+              { lat: data.bbox_lat1, lng: data.bbox_lng1 },
+              { lat: data.bbox_lat2, lng: data.bbox_lng2 },
+              { lat: data.bbox_lat3, lng: data.bbox_lng3 },
+              { lat: data.bbox_lat4, lng: data.bbox_lng4 },
+            ].filter(p => p.lat != null && p.lng != null)
+          : undefined,
         createdAt: new Date(data.created_at).getTime()
     };
   },

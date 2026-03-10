@@ -219,14 +219,16 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const submitData = {
+    const submitData: Omit<DigTicket, 'id' | 'createdAt' | 'companyId'> & { boundingBox?: Array<{ lat: number; lng: number }> } = {
       ...formData,
       lat: formData.lat !== '' && !isNaN(parseFloat(formData.lat)) ? parseFloat(formData.lat) : undefined,
       lng: formData.lng !== '' && !isNaN(parseFloat(formData.lng)) ? parseFloat(formData.lng) : undefined,
     };
 
-    // Fixed: Passing formData which now matches the prop signature (Omit DigTicket 'id' | 'createdAt' | 'companyId')
     if (isBatchMode) {
+      const currentItem = queue[activeIndex];
+      const bbox = currentItem?.extractedData?.boundingBox;
+      if (Array.isArray(bbox) && bbox.length >= 3) submitData.boundingBox = bbox;
       const currentId = queue[activeIndex]?.id;
       await onSave(submitData);
       if (currentId) {
@@ -287,6 +289,9 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
         documentUrl: item.documentUrl || '',
         lat: extracted.lat != null && !isNaN(Number(extracted.lat)) ? Number(extracted.lat) : undefined,
         lng: extracted.lng != null && !isNaN(Number(extracted.lng)) ? Number(extracted.lng) : undefined,
+        boundingBox: Array.isArray(extracted.boundingBox) && extracted.boundingBox.length >= 3
+          ? extracted.boundingBox
+          : undefined,
         isArchived: false,
         refreshRequested: false,
         noShowRequested: false,
