@@ -2,13 +2,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { DigTicket } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
-import { parseTicketData } from '../services/geminiService.ts';
+import { parseTicketInfo, parseTicketCoordinates } from '../services/geminiService.ts';
 import { getEnv } from '../lib/supabaseClient.ts';
 
 interface IngestionItem {
   id: string;
   file: File;
   status: 'pending' | 'analyzing' | 'uploading' | 'ready' | 'error' | 'duplicate' | 'saved';
+  coordsStatus?: 'fetching' | 'ready' | 'error';
   extractedData?: any;
   documentUrl?: string;
   error?: string;
@@ -41,6 +42,9 @@ const getSafeMimeType = (file: File): string => {
   }
 };
 
+const applyCoordIfEmpty = (prevValue: string, extracted: number | null | undefined): string =>
+  prevValue === '' && extracted != null ? String(extracted) : prevValue;
+
 export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initialData, isDarkMode, existingTickets }) => {
   const [isBatchMode, setIsBatchMode] = useState(false);
   const [isSubmittingManual, setIsSubmittingManual] = useState(false);
@@ -55,6 +59,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
   const [activeIndex, setActiveIndex] = useState<number>(0);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const prevActiveIndexRef = useRef<number>(-1);
 
   // Sync API Key state from window
   useEffect(() => {
@@ -92,11 +97,27 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
   }, [initialData]);
 
   useEffect(() => {
-    if (isBatchMode) {
-      const activeItem = queue[activeIndex];
-      const isPopulatedStatus = activeItem?.status === 'ready' || activeItem?.status === 'duplicate';
-      
-      if (isPopulatedStatus && activeItem.extractedData) {
+    if (!isBatchMode) {
+      prevActiveIndexRef.current = -1;
+      return;
+    }
+
+    const activeItem = queue[activeIndex];
+    const isPopulatedStatus = activeItem?.status === 'ready' || activeItem?.status === 'duplicate';
+
+    if (isPopulatedStatus && activeItem.extractedData) {
+      const isNavigating = activeIndex !== prevActiveIndexRef.current;
+      prevActiveIndexRef.current = activeIndex;
+
+      if (!isNavigating && activeItem.coordsStatus === 'ready') {
+        // Coords arrived for the item the user is currently viewing — only fill empty lat/lng
+        setFormData(prev => ({
+          ...prev,
+          lat: applyCoordIfEmpty(prev.lat, activeItem.extractedData.lat),
+          lng: applyCoordIfEmpty(prev.lng, activeItem.extractedData.lng),
+        }));
+      } else {
+        // Full sync: navigated to a new item, or item just became ready
         setFormData({
           jobNumber: activeItem.extractedData.jobNumber || '',
           ticketNo: activeItem.extractedData.ticketNo || '',
@@ -139,8 +160,10 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
       
       const base64Data = await base64Promise;
       const mimeType = getSafeMimeType(file);
+      const mediaInput = { data: base64Data, mimeType };
 
-      const extracted = await parseTicketData({ data: base64Data, mimeType });
+      // Phase 1: Extract ticket info (fast — no GPS). Show the form as soon as this completes.
+      const extracted = await parseTicketInfo(mediaInput);
 
       if (existingTickets && extracted.ticketNo) {
         const matched = existingTickets.find(t => 
@@ -155,8 +178,20 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
             ...item, 
             status: 'duplicate', 
             matchedTicket: matched,
-            extractedData: extracted 
+            extractedData: extracted,
+            coordsStatus: 'fetching',
           } : item));
+
+          // Phase 2 in background for duplicate items too
+          parseTicketCoordinates(mediaInput).then(coords => {
+            setQueue(prev => prev.map(item => item.id === id ? {
+              ...item,
+              coordsStatus: 'ready',
+              extractedData: item.extractedData ? { ...item.extractedData, ...coords } : coords,
+            } : item));
+          }).catch(() => {
+            setQueue(prev => prev.map(item => item.id === id ? { ...item, coordsStatus: 'error' } : item));
+          });
           return;
         }
       }
@@ -170,8 +205,20 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
         ...item, 
         status: 'ready', 
         extractedData: extracted, 
-        documentUrl: publicUrl 
+        documentUrl: publicUrl,
+        coordsStatus: 'fetching',
       } : item));
+
+      // Phase 2: Fetch GPS coordinates in the background while the user reviews the ticket.
+      parseTicketCoordinates(mediaInput).then(coords => {
+        setQueue(prev => prev.map(item => item.id === id ? {
+          ...item,
+          coordsStatus: 'ready',
+          extractedData: item.extractedData ? { ...item.extractedData, ...coords } : coords,
+        } : item));
+      }).catch(() => {
+        setQueue(prev => prev.map(item => item.id === id ? { ...item, coordsStatus: 'error' } : item));
+      });
 
     } catch (err: any) {
       console.error("Process error:", err);
@@ -515,12 +562,22 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
 
               <div className="grid grid-cols-2 gap-5">
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase tracking-widest ml-1 text-slate-500">Latitude</label>
-                  <input type="number" step="any" className={`w-full px-5 py-4 border rounded-2xl text-xs font-bold font-mono outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-300 text-black'}`} value={formData.lat} onChange={e => setFormData({...formData, lat: e.target.value})} placeholder="e.g. 41.8781" />
+                  <label className="text-[10px] font-black uppercase tracking-widest ml-1 text-slate-500 flex items-center gap-1.5">
+                    Latitude
+                    {isBatchMode && currentItem?.coordsStatus === 'fetching' && (
+                      <span className="w-1.5 h-1.5 bg-brand rounded-full animate-pulse" title="Scanning GPS coordinates..." />
+                    )}
+                  </label>
+                  <input type="number" step="any" className={`w-full px-5 py-4 border rounded-2xl text-xs font-bold font-mono outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-300 text-black'}`} value={formData.lat} onChange={e => setFormData({...formData, lat: e.target.value})} placeholder={isBatchMode && currentItem?.coordsStatus === 'fetching' ? 'Scanning...' : 'e.g. 41.8781'} />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase tracking-widest ml-1 text-slate-500">Longitude</label>
-                  <input type="number" step="any" className={`w-full px-5 py-4 border rounded-2xl text-xs font-bold font-mono outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-300 text-black'}`} value={formData.lng} onChange={e => setFormData({...formData, lng: e.target.value})} placeholder="e.g. -87.6298" />
+                  <label className="text-[10px] font-black uppercase tracking-widest ml-1 text-slate-500 flex items-center gap-1.5">
+                    Longitude
+                    {isBatchMode && currentItem?.coordsStatus === 'fetching' && (
+                      <span className="w-1.5 h-1.5 bg-brand rounded-full animate-pulse" title="Scanning GPS coordinates..." />
+                    )}
+                  </label>
+                  <input type="number" step="any" className={`w-full px-5 py-4 border rounded-2xl text-xs font-bold font-mono outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-300 text-black'}`} value={formData.lng} onChange={e => setFormData({...formData, lng: e.target.value})} placeholder={isBatchMode && currentItem?.coordsStatus === 'fetching' ? 'Scanning...' : 'e.g. -87.6298'} />
                 </div>
               </div>
 
