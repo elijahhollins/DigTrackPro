@@ -630,7 +630,7 @@ const App: React.FC = () => {
         </header>
 
         {/* Scrollable content */}
-        <main key={activeView} className="flex-1 overflow-y-auto view-transition">
+        <main key={activeView} className="flex-1 overflow-y-auto view-transition pb-20 sm:pb-0">
           <div className="max-w-[1400px] mx-auto px-5 py-6">
 
             {activeView === 'dashboard' && (
