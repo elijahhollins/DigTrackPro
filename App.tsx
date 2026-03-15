@@ -19,6 +19,7 @@ import TicketNotesModal from './components/TicketNotesModal.tsx';
 import Login from './components/Login.tsx';
 import CompanyRegistration from './components/CompanyRegistration.tsx';
 import MapView from './components/MapView.tsx';
+import PdfViewer from './components/PdfViewer.tsx';
 
 declare global {
   interface AIStudio {
@@ -852,7 +853,7 @@ const App: React.FC = () => {
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
           <div className="w-full max-w-5xl h-[90vh] rounded-2xl bg-slate-900 shadow-2xl overflow-hidden border border-white/10 relative">
-            <iframe src={viewingDocUrl} className="w-full h-full bg-white" title="Document Preview" />
+            <PdfViewer url={viewingDocUrl} />
           </div>
         </div>
       )}

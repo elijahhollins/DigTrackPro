@@ -86,6 +86,20 @@
 
         /* Table row hover transition */
         tbody tr { transition: background-color 0.12s ease; }
+
+        /* PDF text layer – transparent but selectable text over canvas */
+        .pdf-text-layer span,
+        .pdf-text-layer br {
+          color: transparent;
+          position: absolute;
+          white-space: pre;
+          cursor: text;
+          transform-origin: 0% 0%;
+        }
+        .pdf-text-layer ::selection {
+          background: rgba(59, 130, 246, 0.35);
+          color: transparent;
+        }
     </style>
 <script type="importmap">
 {
