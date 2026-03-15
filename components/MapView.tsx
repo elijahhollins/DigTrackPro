@@ -48,6 +48,7 @@ const createMarkerIcon = (statusClass: string) => {
     "></div>`,
     iconSize: [14, 14],
     iconAnchor: [7, 7],
+    popupAnchor: [0, -10],
   });
 };
 
@@ -65,6 +66,7 @@ const createDraggableMarkerIcon = (statusClass: string) => {
     "></div>`,
     iconSize: [20, 20],
     iconAnchor: [10, 10],
+    popupAnchor: [0, -13],
   });
 };
 
