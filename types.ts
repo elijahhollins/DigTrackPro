@@ -98,6 +98,7 @@ export interface DigTicket {
   refreshRequested?: boolean;
   noShowRequested?: boolean;
   isArchived?: boolean;
+  workBegun?: boolean;
   documentUrl?: string;
   lat?: number;
   lng?: number;

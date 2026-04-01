@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, JobNote, User, UserRole, Job, UserRecord, Company } from './types.ts';
-import { getTicketStatus, getStatusColor } from './utils/dateUtils.ts';
+import { getTicketStatus, getStatusColor, addDaysToDateStr } from './utils/dateUtils.ts';
 import { apiService } from './services/apiService.ts';
 import { supabase, isSupabaseConfigured, getEnv } from './lib/supabaseClient.ts';
 import type { AuthChangeEvent } from '@supabase/supabase-js';
@@ -64,6 +64,7 @@ const App: React.FC = () => {
   const [editingJob, setEditingJob] = useState<Job | null>(null);
   const [noShowTicket, setNoShowTicket] = useState<DigTicket | null>(null);
   const [notesTicket, setNotesTicket] = useState<DigTicket | null>(null);
+  const [digConfirmTicket, setDigConfirmTicket] = useState<DigTicket | null>(null);
   const [globalSearch, setGlobalSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<TicketStatus | 'NO_SHOW' | null>(null);
   const [showArchived, setShowArchived] = useState(false);
@@ -255,6 +256,24 @@ const App: React.FC = () => {
     return () => { supabase.removeChannel(channel); };
   }, [sessionUser?.id, sessionUser?.role, sessionUser?.companyId]);
 
+  // Prompt the user about any unarchived tickets that are on day 9 after their call-in date
+  // and haven't yet been answered about whether work has begun.
+  useEffect(() => {
+    if (digConfirmTicket) return;
+    const today = new Date();
+    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const pending = tickets.find(t => {
+      if (t.isArchived || t.workBegun !== undefined) return false;
+      if (!t.callInDate) return false;
+      const day9Str = addDaysToDateStr(t.callInDate, 9);
+      if (!day9Str) return false;
+      const [y, m, d] = day9Str.split('-').map(Number);
+      const day9Start = new Date(y, m - 1, d);
+      return todayStart >= day9Start;
+    });
+    if (pending) setDigConfirmTicket(pending);
+  }, [tickets, digConfirmTicket]);
+
   // Fixed: Added missing ensureJobExists function
   const ensureJobExists = async (ticketData: Omit<DigTicket, 'id' | 'createdAt' | 'companyId'>): Promise<Job> => {
     const existingJob = jobs.find(j => j.jobNumber === ticketData.jobNumber);
@@ -370,6 +389,19 @@ const App: React.FC = () => {
       setTickets(prev => prev.map(t => t.id === saved.id ? saved : t));
     } catch (error: any) {
       alert('Refresh request failed: ' + error.message);
+    }
+  };
+
+  const handleDigConfirm = async (workBegun: boolean) => {
+    if (!digConfirmTicket) return;
+    try {
+      const updated = { ...digConfirmTicket, workBegun };
+      const saved = await apiService.saveTicket(updated);
+      setTickets(prev => prev.map(t => t.id === saved.id ? saved : t));
+    } catch (error: any) {
+      alert('Failed to update ticket: ' + error.message);
+    } finally {
+      setDigConfirmTicket(null);
     }
   };
 
@@ -846,6 +878,43 @@ const App: React.FC = () => {
       {showMarkup && <JobPrintMarkup job={showMarkup} isAdmin={isAdmin} onClose={() => setShowMarkup(null)} isDarkMode={isDarkMode} />}
       {noShowTicket && <NoShowForm ticket={noShowTicket} userName={sessionUser?.name || ''} onSave={async (record) => { await apiService.addNoShow(record); initApp(); }} onDelete={async () => { await apiService.deleteNoShow(noShowTicket.id); initApp(); return true; }} onClose={() => setNoShowTicket(null)} isDarkMode={isDarkMode} />}
       {notesTicket && <TicketNotesModal ticket={notesTicket} userName={sessionUser?.name || ''} isAdmin={isAdmin} onClose={() => { setNotesTicket(null); apiService.getNotes().then(setNotes).catch((err) => console.error('Failed to refresh notes:', err)); }} isDarkMode={isDarkMode} />}
+      {digConfirmTicket && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[200] flex items-center justify-center p-4">
+          <div className={`w-full max-w-sm rounded-[2rem] shadow-2xl border p-8 space-y-6 ${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white border-slate-200'}`}>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-amber-500/15 border border-amber-500/25 flex items-center justify-center shrink-0">
+                <svg className="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              </div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-amber-500">Dig Check — Day 9</p>
+                <p className={`text-[13px] font-black ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Ticket #{digConfirmTicket.ticketNo}</p>
+              </div>
+            </div>
+            <div className={`text-xs font-semibold leading-relaxed ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>
+              <p>{digConfirmTicket.street}{digConfirmTicket.crossStreet ? ` @ ${digConfirmTicket.crossStreet}` : ''}</p>
+              <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                Called in: {digConfirmTicket.callInDate} · Dig by: {digConfirmTicket.callInDate ? addDaysToDateStr(digConfirmTicket.callInDate, 10) : '—'}
+              </p>
+              <p className="mt-3 font-bold text-sm">Has work begun on this ticket?</p>
+              <p className="mt-1 text-[10px] text-slate-400">If no, this ticket will be marked expired. If yes, it remains valid until the expiration date.</p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => handleDigConfirm(false)}
+                className={`flex-1 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${isDarkMode ? 'bg-rose-500/15 text-rose-400 border border-rose-500/20 hover:bg-rose-500/25' : 'bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100'}`}
+              >
+                No — Not Dug
+              </button>
+              <button
+                onClick={() => handleDigConfirm(true)}
+                className="flex-1 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest bg-emerald-500 text-white shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-all active:scale-95"
+              >
+                Yes — Work Begun
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {viewingDocUrl && (
         <div className="fixed inset-0 bg-black/95 z-[300] flex items-center justify-center p-4">
           <button onClick={() => setViewingDocUrl(null)} className="absolute top-5 right-5 p-3 bg-white/10 rounded-xl text-white hover:bg-rose-500/80 transition-all z-10">
