@@ -49,7 +49,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
   const [hasApiKey, setHasApiKey] = useState(false);
   
   const [formData, setFormData] = useState({
-    jobNumber: '', ticketNo: '', street: '', crossStreet: '', place: '', extent: '', county: '', city: '', state: '', callInDate: '', workDate: '', digByDate: '', expires: '', siteContact: '', documentUrl: '', lat: '' as string, lng: '' as string,
+    jobNumber: '', ticketNo: '', street: '', crossStreet: '', place: '', extent: '', county: '', city: '', state: '', callInDate: '', workDate: '', digByDate: '', expires: '', siteContact: '', documentUrl: '', lat: '' as string, lng: '' as string, workBegun: undefined as boolean | undefined,
   });
   
   const [queue, setQueue] = useState<IngestionItem[]>([]);
@@ -88,6 +88,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
         documentUrl: initialData.documentUrl || '',
         lat: initialData.lat != null ? String(initialData.lat) : '',
         lng: initialData.lng != null ? String(initialData.lng) : '',
+        workBegun: initialData.workBegun,
       });
       setIsBatchMode(false);
     }
@@ -268,6 +269,13 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
   const currentItem = queue[activeIndex];
   const processingCount = queue.filter(i => i.status === 'analyzing' || i.status === 'uploading' || i.status === 'pending').length;
   const readyCount = queue.filter(i => i.status === 'ready').length;
+
+  const getWorkBegunBtnClass = (value: boolean | undefined, activeColor: string) => {
+    const isActive = formData.workBegun === value;
+    const base = 'py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all border';
+    if (isActive) return `${base} ${activeColor}`;
+    return `${base} ${isDarkMode ? 'bg-white/5 text-slate-400 border-white/10' : 'bg-slate-50 text-slate-500 border-slate-200'}`;
+  };
 
   const handleSaveAll = async () => {
     setIsSavingAll(true);
@@ -539,6 +547,35 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
                   <input type="date" required className={`w-full px-5 py-4 border rounded-2xl text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-300 text-black'}`} value={formData.expires} onChange={e => setFormData({...formData, expires: e.target.value})} />
                 </div>
               </div>
+
+              {initialData && (
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest ml-1 text-slate-500">Work Begun</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setFormData({...formData, workBegun: true})}
+                      className={getWorkBegunBtnClass(true, 'bg-emerald-500/20 text-emerald-500 border-emerald-500/40')}
+                    >
+                      Yes
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({...formData, workBegun: false})}
+                      className={getWorkBegunBtnClass(false, 'bg-rose-500/20 text-rose-500 border-rose-500/40')}
+                    >
+                      No
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({...formData, workBegun: undefined})}
+                      className={getWorkBegunBtnClass(undefined, 'bg-slate-500/20 text-slate-400 border-slate-500/40')}
+                    >
+                      Not Set
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-1">
                 <label className="text-[10px] font-black uppercase tracking-widest ml-1 text-slate-500">Site Contact / Client</label>
