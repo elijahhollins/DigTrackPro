@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { DigTicket } from '../types.ts';
-import { getTicketStatus, getStatusColor } from '../utils/dateUtils.ts';
+import { getTicketStatus, getStatusColor, formatDateStr } from '../utils/dateUtils.ts';
 import { apiService } from '../services/apiService.ts';
 
 // Rate limit for Nominatim geocoding API (max 1 request/second per usage policy)
@@ -294,7 +294,7 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
           ${ticket.crossStreet ? `<div style="font-size:11px;color:#64748b">at ${ticket.crossStreet}</div>` : ''}
           <div style="font-size:10px;color:#94a3b8;margin-top:2px">${[ticket.city, ticket.state].filter(Boolean).join(', ')}</div>
           <div style="margin-top:6px;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.1em;color:#64748b">
-            Ticket #${ticket.ticketNo} · Expires ${new Date(ticket.expires).toLocaleDateString()}
+            Ticket #${ticket.ticketNo} · Expires ${formatDateStr(ticket.expires)}
           </div>
           <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
             ${hasDoc ? `<button id="${viewBtnId}" style="padding:4px 10px;background:#3b82f6;color:white;border:none;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer">View PDF</button>` : ''}
