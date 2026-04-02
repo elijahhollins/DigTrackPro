@@ -30,7 +30,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onVi
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
 
-  const today = useMemo(() => new Date(), []);
+  const today = new Date();
 
   const isViewingCurrentMonth = year === today.getFullYear() && month === today.getMonth();
 
@@ -109,8 +109,9 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onVi
   const monthName = currentDate.toLocaleString('default', { month: 'long' });
 
   const goToToday = () => {
-    setCurrentDate(new Date());
-    setSelectedDay(new Date().getDate());
+    const now = new Date();
+    setCurrentDate(now);
+    setSelectedDay(now.getDate());
   };
 
   const standardEvents = selectedDayEvents.filter(ev => !['noShowRequest', 'manualRefreshRequest'].includes(ev.type));
