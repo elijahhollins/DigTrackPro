@@ -712,7 +712,8 @@ const App: React.FC = () => {
                           <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Client / Location</th>
                           <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] text-center ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Status</th>
                           <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] text-right ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Expiry</th>
-                          <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] text-right ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Dig By / Status</th>
+                          <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] text-right ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Dig By</th>
+                          <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] text-center ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Dig Begun?</th>
                           <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] text-right ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Actions</th>
                         </tr>
                       </thead>
@@ -759,6 +760,7 @@ const App: React.FC = () => {
                                   {isExpanded ? '▲' : '▼'}
                                 </td>
                                 <td className="px-5 py-4" />
+                                <td className="px-5 py-4" />
                                 <td className="px-5 py-4 text-right">
                                   {isAdmin && (
                                     <button onClick={(e) => { e.stopPropagation(); jobEntity && apiService.deleteJob(jobEntity.id).then(() => initApp()); }} className="p-1.5 text-slate-600 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all rounded-lg hover:bg-rose-500/10">
@@ -797,28 +799,22 @@ const App: React.FC = () => {
                                     <td className={`px-5 py-3 text-[11px] font-semibold text-right tabular-nums ${isDarkMode ? 'text-slate-600' : 'text-slate-500'}`}>
                                       {new Date(ticket.expires).toLocaleDateString()}
                                     </td>
-                                    <td className="px-5 py-3 text-right">
-                                      {(ticket.callInDate || ticket.digByDate) ? (
-                                        <div className="flex flex-col items-end gap-1">
-                                          <span className={`text-[11px] font-semibold tabular-nums ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`}>
-                                            {formatDateStr(ticket.digByDate || addDaysToDateStr(ticket.callInDate, 10))}
-                                          </span>
-                                          {ticket.workBegun === true ? (
-                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
-                                              Work Begun
-                                            </span>
-                                          ) : ticket.workBegun === false ? (
-                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest bg-rose-500/10 text-rose-500 border border-rose-500/20">
-                                              Not Dug
-                                            </span>
-                                          ) : (
-                                            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest ${isDarkMode ? 'bg-white/5 text-slate-600 border border-white/10' : 'bg-slate-100 text-slate-400 border-slate-200'}`}>
-                                              Awaiting
-                                            </span>
-                                          )}
-                                        </div>
+                                    <td className={`px-5 py-3 text-[11px] font-semibold text-right tabular-nums ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`}>
+                                      {(ticket.callInDate || ticket.digByDate) ? formatDateStr(ticket.digByDate || addDaysToDateStr(ticket.callInDate, 10)) : <span className={`text-[10px] ${isDarkMode ? 'text-slate-700' : 'text-slate-400'}`}>—</span>}
+                                    </td>
+                                    <td className="px-5 py-3 text-center">
+                                      {ticket.workBegun === true ? (
+                                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                                          Yes
+                                        </span>
+                                      ) : ticket.workBegun === false ? (
+                                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest bg-rose-500/10 text-rose-500 border border-rose-500/20">
+                                          No
+                                        </span>
                                       ) : (
-                                        <span className={`text-[10px] ${isDarkMode ? 'text-slate-700' : 'text-slate-400'}`}>—</span>
+                                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest ${isDarkMode ? 'bg-white/5 text-slate-600 border border-white/10' : 'bg-slate-100 text-slate-400 border-slate-200'}`}>
+                                          —
+                                        </span>
                                       )}
                                     </td>
                                     <td className="px-5 py-3 text-right">
