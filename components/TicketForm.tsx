@@ -4,7 +4,7 @@ import { DigTicket } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
 import { parseTicketData } from '../services/geminiService.ts';
 import { getEnv } from '../lib/supabaseClient.ts';
-import { addDaysToDateStr, formatDateStr } from '../utils/dateUtils.ts';
+import { addDaysToDateStr } from '../utils/dateUtils.ts';
 
 interface IngestionItem {
   id: string;
@@ -49,7 +49,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
   const [hasApiKey, setHasApiKey] = useState(false);
   
   const [formData, setFormData] = useState({
-    jobNumber: '', ticketNo: '', street: '', crossStreet: '', place: '', extent: '', county: '', city: '', state: '', callInDate: '', workDate: '', expires: '', siteContact: '', documentUrl: '', lat: '' as string, lng: '' as string,
+    jobNumber: '', ticketNo: '', street: '', crossStreet: '', place: '', extent: '', county: '', city: '', state: '', callInDate: '', workDate: '', digByDate: '', expires: '', siteContact: '', documentUrl: '', lat: '' as string, lng: '' as string,
   });
   
   const [queue, setQueue] = useState<IngestionItem[]>([]);
@@ -82,6 +82,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
         state: initialData.state,
         callInDate: initialData.callInDate,
         workDate: initialData.workDate,
+        digByDate: initialData.digByDate || addDaysToDateStr(initialData.callInDate, 10),
         expires: initialData.expires,
         siteContact: initialData.siteContact,
         documentUrl: initialData.documentUrl || '',
@@ -110,6 +111,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
           state: activeItem.extractedData.state || '',
           callInDate: activeItem.extractedData.callInDate || '',
           workDate: activeItem.extractedData.workDate || '',
+          digByDate: activeItem.extractedData.digByDate || (activeItem.extractedData.callInDate ? addDaysToDateStr(activeItem.extractedData.callInDate, 10) : ''),
           expires: activeItem.extractedData.expires || '',
           siteContact: activeItem.extractedData.siteContact || '',
           documentUrl: activeItem.documentUrl || '',
@@ -222,6 +224,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
     
     const submitData: Omit<DigTicket, 'id' | 'createdAt' | 'companyId'> & { boundingBox?: Array<{ lat: number; lng: number }> } = {
       ...formData,
+      digByDate: formData.digByDate || undefined,
       lat: formData.lat !== '' && !isNaN(parseFloat(formData.lat)) ? parseFloat(formData.lat) : undefined,
       lng: formData.lng !== '' && !isNaN(parseFloat(formData.lng)) ? parseFloat(formData.lng) : undefined,
     };
@@ -285,6 +288,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
         state: extracted.state || '',
         callInDate: extracted.callInDate || '',
         workDate: extracted.workDate || '',
+        digByDate: extracted.digByDate || (extracted.callInDate ? addDaysToDateStr(extracted.callInDate, 10) : undefined),
         expires: extracted.expires || '',
         siteContact: extracted.siteContact || '',
         documentUrl: item.documentUrl || '',
@@ -509,10 +513,12 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
                     onChange={e => {
                       const callIn = e.target.value;
                       const newWorkDate = addDaysToDateStr(callIn, 2);
+                      const newDigByDate = addDaysToDateStr(callIn, 10);
                       setFormData(prev => ({
                         ...prev,
                         callInDate: callIn,
                         workDate: newWorkDate || prev.workDate,
+                        digByDate: newDigByDate || prev.digByDate,
                       }));
                     }}
                   />
@@ -526,9 +532,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
               <div className="grid grid-cols-2 gap-5">
                 <div className="space-y-1">
                   <label className="text-[10px] font-black uppercase tracking-widest ml-1 text-slate-500">Dig By Date <span className="normal-case font-normal text-slate-400">(if no work)</span></label>
-                  <div className={`w-full px-5 py-4 border rounded-2xl text-xs font-bold ${isDarkMode ? 'bg-white/[0.02] border-white/5 text-slate-500' : 'bg-slate-100 border-slate-200 text-slate-400'}`}>
-                    {formData.callInDate ? formatDateStr(addDaysToDateStr(formData.callInDate, 10)) : '—'}
-                  </div>
+                  <input type="date" className={`w-full px-5 py-4 border rounded-2xl text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-300 text-black'}`} value={formData.digByDate} onChange={e => setFormData({...formData, digByDate: e.target.value})} />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-black uppercase tracking-widest ml-1 text-slate-500">Expires Date <span className="normal-case font-normal text-slate-400">(if work begun)</span></label>

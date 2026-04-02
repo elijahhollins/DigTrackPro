@@ -798,10 +798,10 @@ const App: React.FC = () => {
                                       {new Date(ticket.expires).toLocaleDateString()}
                                     </td>
                                     <td className="px-5 py-3 text-right">
-                                      {ticket.callInDate ? (
+                                      {(ticket.callInDate || ticket.digByDate) ? (
                                         <div className="flex flex-col items-end gap-1">
                                           <span className={`text-[11px] font-semibold tabular-nums ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`}>
-                                            {formatDateStr(addDaysToDateStr(ticket.callInDate, 10))}
+                                            {formatDateStr(ticket.digByDate || addDaysToDateStr(ticket.callInDate, 10))}
                                           </span>
                                           {ticket.workBegun === true ? (
                                             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
@@ -919,7 +919,7 @@ const App: React.FC = () => {
             <div className={`text-xs font-semibold leading-relaxed ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>
               <p>{digConfirmTicket.street}{digConfirmTicket.crossStreet ? ` @ ${digConfirmTicket.crossStreet}` : ''}</p>
               <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                Called in: {digConfirmTicket.callInDate} · Dig by: {formatDateStr(addDaysToDateStr(digConfirmTicket.callInDate || '', 10))}
+                Called in: {digConfirmTicket.callInDate} · Dig by: {formatDateStr(digConfirmTicket.digByDate || addDaysToDateStr(digConfirmTicket.callInDate || '', 10))}
               </p>
               <p className="mt-3 font-bold text-sm">Has work begun on this ticket?</p>
               <p className="mt-1 text-[10px] text-slate-400">If no, this ticket will be marked expired. If yes, it remains valid until the expiration date.</p>

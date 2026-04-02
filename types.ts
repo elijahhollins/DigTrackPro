@@ -92,6 +92,7 @@ export interface DigTicket {
   state: string;
   callInDate: string;
   workDate: string;
+  digByDate?: string;
   expires: string;
   siteContact: string;
   createdAt: number;
