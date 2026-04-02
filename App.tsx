@@ -800,7 +800,7 @@ const App: React.FC = () => {
                                       </span>
                                     </td>
                                     <td className={`px-5 py-3 text-[11px] font-semibold text-right tabular-nums ${isDarkMode ? 'text-slate-600' : 'text-slate-500'}`}>
-                                      {new Date(ticket.expires).toLocaleDateString()}
+                                      {formatDateStr(ticket.expires)}
                                     </td>
                                     <td className={`px-5 py-3 text-[11px] font-semibold text-right tabular-nums ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`}>
                                       {(ticket.callInDate || ticket.digByDate) ? formatDateStr(ticket.digByDate || addDaysToDateStr(ticket.callInDate, 10)) : <span className={`text-[10px] ${isDarkMode ? 'text-slate-700' : 'text-slate-400'}`}>—</span>}

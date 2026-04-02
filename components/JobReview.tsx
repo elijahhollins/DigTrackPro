@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Job, DigTicket } from '../types.ts';
-import { getTicketStatus, getStatusColor } from '../utils/dateUtils.ts';
+import { getTicketStatus, getStatusColor, formatDateStr } from '../utils/dateUtils.ts';
 
 interface JobReviewProps {
   tickets: DigTicket[];
@@ -134,7 +134,7 @@ export const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, isDarkMode,
                            {archivedTickets.map(t => (
                              <div key={t.id} className="flex items-center justify-between text-[10px] font-bold py-1 opacity-40">
                                <span className="font-mono">{t.ticketNo}</span>
-                               <span className="text-[8px] uppercase">{new Date(t.expires).toLocaleDateString()}</span>
+                               <span className="text-[8px] uppercase">{formatDateStr(t.expires)}</span>
                              </div>
                            ))}
                         </div>
@@ -227,7 +227,7 @@ export const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, isDarkMode,
                                       <span className="text-[10px] font-mono font-bold">{t.ticketNo}</span>
                                       <span className="text-[10px] font-bold">{t.street}</span>
                                     </div>
-                                    <span className="text-[9px] font-black uppercase tracking-tighter">Expired {new Date(t.expires).toLocaleDateString()}</span>
+                                    <span className="text-[9px] font-black uppercase tracking-tighter">Expired {formatDateStr(t.expires)}</span>
                                   </div>
                                 ))}
                               </div>
