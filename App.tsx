@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, JobNote, User, UserRole, Job, UserRecord, Company } from './types.ts';
-import { getTicketStatus, getStatusColor, addDaysToDateStr } from './utils/dateUtils.ts';
+import { getTicketStatus, getStatusColor, addDaysToDateStr, formatDateStr } from './utils/dateUtils.ts';
 import { apiService } from './services/apiService.ts';
 import { supabase, isSupabaseConfigured, getEnv } from './lib/supabaseClient.ts';
 import type { AuthChangeEvent } from '@supabase/supabase-js';
@@ -712,6 +712,7 @@ const App: React.FC = () => {
                           <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Client / Location</th>
                           <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] text-center ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Status</th>
                           <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] text-right ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Expiry</th>
+                          <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] text-right ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Dig By / Status</th>
                           <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] text-right ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Actions</th>
                         </tr>
                       </thead>
@@ -757,6 +758,7 @@ const App: React.FC = () => {
                                 <td className={`px-5 py-4 text-right text-[10px] font-black uppercase tracking-widest ${isDarkMode ? 'text-slate-700' : 'text-slate-400'}`}>
                                   {isExpanded ? '▲' : '▼'}
                                 </td>
+                                <td className="px-5 py-4" />
                                 <td className="px-5 py-4 text-right">
                                   {isAdmin && (
                                     <button onClick={(e) => { e.stopPropagation(); jobEntity && apiService.deleteJob(jobEntity.id).then(() => initApp()); }} className="p-1.5 text-slate-600 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all rounded-lg hover:bg-rose-500/10">
@@ -794,6 +796,30 @@ const App: React.FC = () => {
                                     </td>
                                     <td className={`px-5 py-3 text-[11px] font-semibold text-right tabular-nums ${isDarkMode ? 'text-slate-600' : 'text-slate-500'}`}>
                                       {new Date(ticket.expires).toLocaleDateString()}
+                                    </td>
+                                    <td className="px-5 py-3 text-right">
+                                      {ticket.callInDate ? (
+                                        <div className="flex flex-col items-end gap-1">
+                                          <span className={`text-[11px] font-semibold tabular-nums ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`}>
+                                            {formatDateStr(addDaysToDateStr(ticket.callInDate, 10))}
+                                          </span>
+                                          {ticket.workBegun === true ? (
+                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                                              Work Begun
+                                            </span>
+                                          ) : ticket.workBegun === false ? (
+                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest bg-rose-500/10 text-rose-500 border border-rose-500/20">
+                                              Not Dug
+                                            </span>
+                                          ) : (
+                                            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest ${isDarkMode ? 'bg-white/5 text-slate-600 border border-white/10' : 'bg-slate-100 text-slate-400 border-slate-200'}`}>
+                                              Awaiting
+                                            </span>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <span className={`text-[10px] ${isDarkMode ? 'text-slate-700' : 'text-slate-400'}`}>—</span>
+                                      )}
                                     </td>
                                     <td className="px-5 py-3 text-right">
                                       <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all">
@@ -893,7 +919,7 @@ const App: React.FC = () => {
             <div className={`text-xs font-semibold leading-relaxed ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>
               <p>{digConfirmTicket.street}{digConfirmTicket.crossStreet ? ` @ ${digConfirmTicket.crossStreet}` : ''}</p>
               <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                Called in: {digConfirmTicket.callInDate} · Dig by: {digConfirmTicket.callInDate ? addDaysToDateStr(digConfirmTicket.callInDate, 10) : '—'}
+                Called in: {digConfirmTicket.callInDate} · Dig by: {formatDateStr(addDaysToDateStr(digConfirmTicket.callInDate || '', 10))}
               </p>
               <p className="mt-3 font-bold text-sm">Has work begun on this ticket?</p>
               <p className="mt-1 text-[10px] text-slate-400">If no, this ticket will be marked expired. If yes, it remains valid until the expiration date.</p>

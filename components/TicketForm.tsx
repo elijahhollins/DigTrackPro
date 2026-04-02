@@ -4,7 +4,7 @@ import { DigTicket } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
 import { parseTicketData } from '../services/geminiService.ts';
 import { getEnv } from '../lib/supabaseClient.ts';
-import { addDaysToDateStr } from '../utils/dateUtils.ts';
+import { addDaysToDateStr, formatDateStr } from '../utils/dateUtils.ts';
 
 interface IngestionItem {
   id: string;
@@ -527,7 +527,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
                 <div className="space-y-1">
                   <label className="text-[10px] font-black uppercase tracking-widest ml-1 text-slate-500">Dig By Date <span className="normal-case font-normal text-slate-400">(if no work)</span></label>
                   <div className={`w-full px-5 py-4 border rounded-2xl text-xs font-bold ${isDarkMode ? 'bg-white/[0.02] border-white/5 text-slate-500' : 'bg-slate-100 border-slate-200 text-slate-400'}`}>
-                    {formData.callInDate ? new Date(addDaysToDateStr(formData.callInDate, 10) + 'T00:00:00').toLocaleDateString() : '—'}
+                    {formData.callInDate ? formatDateStr(addDaysToDateStr(formData.callInDate, 10)) : '—'}
                   </div>
                 </div>
                 <div className="space-y-1">

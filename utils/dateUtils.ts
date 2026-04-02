@@ -36,6 +36,18 @@ export const addDaysToDateStr = (dateStr: string, days: number): string => {
 };
 
 /**
+ * Formats a YYYY-MM-DD string as a locale date string (e.g. "4/10/2026").
+ * Returns '—' if the string is empty or invalid.
+ */
+export const formatDateStr = (dateStr: string): string => {
+  if (!dateStr) return '—';
+  const parts = dateStr.split('-').map(Number);
+  if (parts.length !== 3) return '—';
+  const [year, month, day] = parts;
+  return new Date(year, month - 1, day).toLocaleDateString();
+};
+
+/**
  * Calculates the current status of a ticket based on dates and manual request flags.
  *
  * Expiration rules:
