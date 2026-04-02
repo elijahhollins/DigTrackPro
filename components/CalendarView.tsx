@@ -27,9 +27,19 @@ const DAY_HEADERS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 const EVENT_LEGEND = Object.entries(EVENT_META) as [CalendarEvent['type'], typeof EVENT_META[CalendarEvent['type']]][];
 
+const DISMISSED_KEY = 'cal_dismissed_alerts';
+
 const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onViewDoc, onManageNoShow, isDarkMode }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState<number | null>(new Date().getDate());
+  const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(() => {
+    try {
+      const saved = sessionStorage.getItem(DISMISSED_KEY);
+      return saved ? new Set(JSON.parse(saved) as string[]) : new Set<string>();
+    } catch {
+      return new Set<string>();
+    }
+  });
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
@@ -46,6 +56,17 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onVi
     d1.getDate() === d2.getDate() &&
     d1.getMonth() === d2.getMonth() &&
     d1.getFullYear() === d2.getFullYear();
+
+  const dismissAlert = useCallback((ticketId: string) => {
+    setDismissedAlerts(prev => {
+      const next = new Set(prev);
+      next.add(ticketId);
+      try {
+        sessionStorage.setItem(DISMISSED_KEY, JSON.stringify([...next]));
+      } catch { /* sessionStorage may be unavailable in some environments */ }
+      return next;
+    });
+  }, []);
 
   const getEventsForDate = useCallback((cellDate: Date): CalendarEvent[] => {
     const events: CalendarEvent[] = [];
@@ -87,6 +108,11 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onVi
     [tickets]
   );
 
+  const visibleAlerts = useMemo(
+    () => activeAlerts.filter(t => !dismissedAlerts.has(t.id)),
+    [activeAlerts, dismissedAlerts]
+  );
+
   const monthName = currentDate.toLocaleString('default', { month: 'long' });
 
   const goToToday = () => {
@@ -103,7 +129,8 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onVi
   }, [selectedDay, month, year]);
 
   const priorityEvents = selectedDayEvents.filter(ev =>
-    ev.type === 'noShowRequest' || ev.type === 'manualRefreshRequest'
+    (ev.type === 'noShowRequest' || ev.type === 'manualRefreshRequest') &&
+    !dismissedAlerts.has(ev.ticket.id)
   );
   const standardEvents = selectedDayEvents.filter(ev =>
     ev.type !== 'noShowRequest' && ev.type !== 'manualRefreshRequest'
@@ -117,14 +144,14 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onVi
     <div className="flex flex-col gap-4">
 
       {/* Alert banner */}
-      {activeAlerts.length > 0 && (
+      {visibleAlerts.length > 0 && (
         <div className={`rounded-xl border px-5 py-3 flex items-center gap-3 ${isDarkMode ? 'bg-rose-500/5 border-rose-500/10' : 'bg-rose-50 border-rose-100'}`}>
           <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse shrink-0" />
-          <p className={`text-[11px] font-black uppercase tracking-widest ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>
-            {activeAlerts.length} Active {activeAlerts.length === 1 ? 'Alert' : 'Alerts'}
+          <p className={`text-[11px] font-black uppercase tracking-widest shrink-0 ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>
+            {visibleAlerts.length} Active {visibleAlerts.length === 1 ? 'Alert' : 'Alerts'}
           </p>
           <p className={`text-[11px] font-mono truncate ${subtle}`}>
-            {activeAlerts.map(t => t.ticketNo).join(' · ')}
+            {visibleAlerts.map(t => t.ticketNo).join(' · ')}
           </p>
           <button
             onClick={goToToday}
@@ -185,8 +212,12 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onVi
               const isToday = d !== null && d.day === today.getDate() && isViewingCurrentMonth;
               const isSelected = d?.day === selectedDay;
               const MAX_SHOW = 2;
-              const shown = d?.events.slice(0, MAX_SHOW) ?? [];
-              const overflow = (d?.events.length ?? 0) - MAX_SHOW;
+              const visibleEvents = d?.events.filter(ev =>
+                (ev.type !== 'noShowRequest' && ev.type !== 'manualRefreshRequest') ||
+                !dismissedAlerts.has(ev.ticket.id)
+              ) ?? [];
+              const shown = visibleEvents.slice(0, MAX_SHOW);
+              const overflow = visibleEvents.length - MAX_SHOW;
 
               return (
                 <div
@@ -272,22 +303,33 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onVi
                 <p className={`text-[9px] font-black uppercase tracking-[0.15em] mb-3 text-rose-500`}>⚠ Needs Action</p>
                 <div className="flex flex-col gap-2">
                   {priorityEvents.map((ev: CalendarEvent, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => ev.type === 'noShowRequest' ? onManageNoShow?.(ev.ticket) : onEditTicket(ev.ticket)}
-                      className={`w-full text-left p-3 rounded-xl border-l-4 transition-all ${EVENT_META[ev.type].border} ${isDarkMode ? 'bg-white/[0.03] hover:bg-white/[0.06]' : 'bg-slate-50 hover:bg-slate-100'}`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className={`text-[9px] font-black uppercase tracking-wider ${EVENT_META[ev.type].accent}`}>
-                          {EVENT_META[ev.type].label}
-                        </span>
-                        <svg className={`w-3 h-3 ${subtle}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
-                      </div>
-                      <p className={`text-[11px] font-black truncate ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
-                        #{ev.ticket.jobNumber} · {ev.ticket.street}
-                      </p>
-                      <p className={`text-[9px] font-mono mt-0.5 ${subtle}`}>{ev.ticket.ticketNo}</p>
-                    </button>
+                    <div key={idx} className={`relative rounded-xl border-l-4 transition-all ${EVENT_META[ev.type].border} ${isDarkMode ? 'bg-white/[0.03]' : 'bg-slate-50'}`}>
+                      <button
+                        onClick={() => ev.type === 'noShowRequest' ? onManageNoShow?.(ev.ticket) : onEditTicket(ev.ticket)}
+                        className="w-full text-left p-3 pr-8"
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className={`text-[9px] font-black uppercase tracking-wider ${EVENT_META[ev.type].accent}`}>
+                            {EVENT_META[ev.type].label}
+                          </span>
+                          <svg className={`w-3 h-3 ${subtle}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
+                        </div>
+                        <p className={`text-[11px] font-black truncate ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
+                          #{ev.ticket.jobNumber} · {ev.ticket.street}
+                        </p>
+                        <p className={`text-[9px] font-mono mt-0.5 ${subtle}`}>{ev.ticket.ticketNo}</p>
+                      </button>
+                      <button
+                        onClick={e => {
+                          e.stopPropagation();
+                          dismissAlert(ev.ticket.id);
+                        }}
+                        title="Acknowledge and hide"
+                        className={`absolute top-2 right-2 w-5 h-5 flex items-center justify-center rounded-full transition-all ${isDarkMode ? 'text-slate-600 hover:text-slate-300 hover:bg-white/10' : 'text-slate-300 hover:text-slate-500 hover:bg-slate-200'}`}
+                      >
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
+                      </button>
+                    </div>
                   ))}
                 </div>
               </div>
