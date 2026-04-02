@@ -779,6 +779,9 @@ const App: React.FC = () => {
                                         <button onClick={(e) => { e.stopPropagation(); if (ticket.documentUrl) setViewingDocUrl(ticket.documentUrl); }} title={`Ticket ${ticket.ticketNo}`} className={`text-[11px] font-mono font-bold tracking-tight transition-colors ${ticket.documentUrl ? 'text-brand hover:underline' : isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>
                                           {ticket.ticketNo}
                                         </button>
+                                        <button onClick={(e) => { e.stopPropagation(); window.open(`https://newtin.julie1call.com/responsedisplay/?ticket=${ticket.ticketNo}`, '_blank', 'noopener,noreferrer'); }} title="Check Positive Response" className={`p-1 rounded-lg transition-all opacity-0 group-hover:opacity-100 shrink-0 ${isDarkMode ? 'text-slate-500 hover:text-brand hover:bg-brand/10' : 'text-slate-400 hover:text-brand hover:bg-brand/10'}`}>
+                                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
+                                        </button>
                                         {ticketIdsWithNotes.has(ticket.id) && (
                                           <span title="Has notes" className="text-brand shrink-0">
                                             <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M20 2H4a2 2 0 00-2 2v12a2 2 0 002 2h14l4 4V4a2 2 0 00-2-2zm-2 10H6v-2h12v2zm0-3H6V7h12v2z"/></svg>
