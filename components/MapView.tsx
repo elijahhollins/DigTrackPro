@@ -316,24 +316,24 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
         if (hasDoc && onViewTicket) {
           document.getElementById(viewBtnId)?.addEventListener('click', () => {
             onViewTicket(ticket.documentUrl!);
-          });
+          }, { once: true });
         }
         if (onEditTicket) {
           document.getElementById(editBtnId)?.addEventListener('click', () => {
             onEditTicket(ticket);
-          });
+          }, { once: true });
         }
         if (onPinMoved) {
           document.getElementById(adjustBtnId)?.addEventListener('click', () => {
             marker.closePopup();
             marker.dragging?.enable();
             marker.setIcon(createDraggableMarkerIcon(statusColorClass));
-          });
+          }, { once: true });
         }
         if (onOpenInDashboard) {
           document.getElementById(dashboardBtnId)?.addEventListener('click', () => {
             onOpenInDashboard(ticket);
-          });
+          }, { once: true });
         }
       });
 
