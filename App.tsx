@@ -862,7 +862,7 @@ const App: React.FC = () => {
               </div>
             )}
 
-            {activeView === 'calendar' && <CalendarView tickets={tickets} onEditTicket={setEditingTicket} onViewDoc={setViewingDocUrl} />}
+            {activeView === 'calendar' && <CalendarView tickets={tickets} onEditTicket={setEditingTicket} onViewDoc={setViewingDocUrl} onManageNoShow={setNoShowTicket} isDarkMode={isDarkMode} />}
             {activeView === 'map' && <MapView
               tickets={activeTicketsList}
               isDarkMode={isDarkMode}
