@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { DigTicket } from '../types.ts';
 
 interface CalendarViewProps {
@@ -25,6 +25,8 @@ const EVENT_META: Record<CalendarEvent['type'], { label: string; pill: string; d
 
 const DAY_HEADERS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
+const EVENT_LEGEND = Object.entries(EVENT_META) as [CalendarEvent['type'], typeof EVENT_META[CalendarEvent['type']]][];
+
 const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onViewDoc, onManageNoShow, isDarkMode }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState<number | null>(new Date().getDate());
@@ -45,8 +47,9 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onVi
     d1.getMonth() === d2.getMonth() &&
     d1.getFullYear() === d2.getFullYear();
 
-  const getEventsForDate = (cellDate: Date): CalendarEvent[] => {
+  const getEventsForDate = useCallback((cellDate: Date): CalendarEvent[] => {
     const events: CalendarEvent[] = [];
+    const now = new Date();
     tickets.forEach(t => {
       const start = new Date(t.workDate);
       const expire = new Date(t.expires);
@@ -55,13 +58,13 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onVi
       if (isSameDay(start, cellDate)) events.push({ ticket: t, type: 'start' });
       if (isSameDay(expire, cellDate)) events.push({ ticket: t, type: 'expire' });
       if (isSameDay(refresh, cellDate)) events.push({ ticket: t, type: 'refresh' });
-      if (isSameDay(today, cellDate)) {
+      if (isSameDay(now, cellDate)) {
         if (t.noShowRequested) events.push({ ticket: t, type: 'noShowRequest' });
         if (t.refreshRequested) events.push({ ticket: t, type: 'manualRefreshRequest' });
       }
     });
     return events;
-  };
+  }, [tickets]);
 
   const calendarDays = useMemo(() => {
     const count = new Date(year, month + 1, 0).getDate();
@@ -233,7 +236,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onVi
 
           {/* Legend */}
           <div className={`px-5 py-2.5 border-t flex flex-wrap gap-x-4 gap-y-1 ${divider}`}>
-            {(Object.entries(EVENT_META) as [CalendarEvent['type'], typeof EVENT_META[CalendarEvent['type']]][]).map(([type, meta]) => (
+            {EVENT_LEGEND.map(([type, meta]) => (
               <div key={type} className="flex items-center gap-1.5">
                 <div className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
                 <span className={`text-[9px] font-bold uppercase tracking-wider ${subtle}`}>{meta.label}</span>
