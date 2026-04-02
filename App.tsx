@@ -875,6 +875,10 @@ const App: React.FC = () => {
                 setTickets(prev => prev.map(t => t.id === id ? { ...t, lat, lng } : t));
                 apiService.updateTicketCoords(id, lat, lng).catch((err) => console.error('Failed to save adjusted pin coordinates:', err));
               } : undefined}
+              onOpenInDashboard={(ticket) => {
+                handleNavigate('dashboard');
+                setExpandedJobs(prev => new Set([...prev, ticket.jobNumber]));
+              }}
             />}
             {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} isAdmin={isAdmin} isDarkMode={isDarkMode} onJobSelect={(job: Job) => handleJobSelection(job.jobNumber, job)} onViewDoc={setViewingDocUrl} />}
             {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} isAdmin={isAdmin} companyId={sessionUser.companyId} onAddPhoto={(data, file) => apiService.addPhoto({ ...data, companyId: sessionUser.companyId }, file)} onDeletePhoto={(id: string) => apiService.deletePhoto(id)} onDeleteJob={async (id) => { await apiService.deleteJob(id); initApp(); }} initialSearch={mediaFolderFilter} />}
