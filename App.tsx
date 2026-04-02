@@ -74,6 +74,7 @@ const App: React.FC = () => {
   });
 
   const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
+  const [highlightedTicketId, setHighlightedTicketId] = useState<string | null>(null);
   const initRef = useRef(false);
 
   const applyThemeColor = (hex: string, save: boolean = false) => {
@@ -273,6 +274,18 @@ const App: React.FC = () => {
     });
     if (pending) setDigConfirmTicket(pending);
   }, [tickets, digConfirmTicket]);
+
+  useEffect(() => {
+    if (!highlightedTicketId || activeView !== 'dashboard') return;
+    const timer = setTimeout(() => {
+      const el = document.querySelector<HTMLElement>(`[data-ticket-id="${highlightedTicketId}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
+    const clearTimer = setTimeout(() => setHighlightedTicketId(null), 2500);
+    return () => { clearTimeout(timer); clearTimeout(clearTimer); };
+  }, [highlightedTicketId, activeView]);
 
   // Fixed: Added missing ensureJobExists function
   const ensureJobExists = async (ticketData: Omit<DigTicket, 'id' | 'createdAt' | 'companyId'>): Promise<Job> => {
@@ -772,7 +785,7 @@ const App: React.FC = () => {
                               {isExpanded && jobTickets.map((ticket: DigTicket) => {
                                 const status = getTicketStatus(ticket);
                                 return (
-                                  <tr key={ticket.id} onClick={() => isAdmin && setEditingTicket(ticket)} className={`group transition-all border-l-2 border-brand/25 ${isAdmin ? 'cursor-pointer' : ''} ${isDarkMode ? 'bg-black/20 hover:bg-white/[0.02]' : 'bg-slate-50/50 hover:bg-brand/5'} ${ticket.isArchived ? 'opacity-40' : ''}`}>
+                                  <tr key={ticket.id} data-ticket-id={ticket.id} onClick={() => isAdmin && setEditingTicket(ticket)} className={`group transition-all border-l-2 border-brand/25 ${isAdmin ? 'cursor-pointer' : ''} ${highlightedTicketId === ticket.id ? isDarkMode ? 'bg-brand/20 border-brand' : 'bg-brand/10 border-brand' : isDarkMode ? 'bg-black/20 hover:bg-white/[0.02]' : 'bg-slate-50/50 hover:bg-brand/5'} ${ticket.isArchived ? 'opacity-40' : ''}`}>
                                     <td className="px-5 py-3 pl-14">
                                       <div className="flex items-center gap-2.5">
                                         <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${ticket.isArchived ? 'bg-slate-600' : 'bg-brand'}`} style={!ticket.isArchived ? { boxShadow: '0 0 4px var(--brand-shadow)' } : {}} />
@@ -878,6 +891,7 @@ const App: React.FC = () => {
               onOpenInDashboard={(ticket) => {
                 handleNavigate('dashboard');
                 setExpandedJobs(prev => new Set([...prev, ticket.jobNumber]));
+                setHighlightedTicketId(ticket.id);
               }}
             />}
             {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} isAdmin={isAdmin} isDarkMode={isDarkMode} onJobSelect={(job: Job) => handleJobSelection(job.jobNumber, job)} onViewDoc={setViewingDocUrl} />}
