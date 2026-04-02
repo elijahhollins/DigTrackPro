@@ -4,6 +4,7 @@ import { DigTicket } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
 import { parseTicketData } from '../services/geminiService.ts';
 import { getEnv } from '../lib/supabaseClient.ts';
+import { addDaysToDateStr, formatDateStr } from '../utils/dateUtils.ts';
 
 interface IngestionItem {
   id: string;
@@ -499,11 +500,38 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
 
               <div className="grid grid-cols-2 gap-5">
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase tracking-widest ml-1 text-slate-500">Work Start Date</label>
-                  <input type="date" required className={`w-full px-5 py-4 border rounded-2xl text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-300 text-black'}`} value={formData.workDate} onChange={e => setFormData({...formData, workDate: e.target.value})} />
+                  <label className="text-[10px] font-black uppercase tracking-widest ml-1 text-slate-500">Call-In Date</label>
+                  <input
+                    type="date"
+                    required
+                    className={`w-full px-5 py-4 border rounded-2xl text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-300 text-black'}`}
+                    value={formData.callInDate}
+                    onChange={e => {
+                      const callIn = e.target.value;
+                      const newWorkDate = addDaysToDateStr(callIn, 2);
+                      setFormData(prev => ({
+                        ...prev,
+                        callInDate: callIn,
+                        workDate: newWorkDate || prev.workDate,
+                      }));
+                    }}
+                  />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase tracking-widest ml-1 text-slate-500">Expires Date</label>
+                  <label className="text-[10px] font-black uppercase tracking-widest ml-1 text-slate-500">Work Valid Date</label>
+                  <input type="date" required className={`w-full px-5 py-4 border rounded-2xl text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-300 text-black'}`} value={formData.workDate} onChange={e => setFormData({...formData, workDate: e.target.value})} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-5">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase tracking-widest ml-1 text-slate-500">Dig By Date <span className="normal-case font-normal text-slate-400">(if no work)</span></label>
+                  <div className={`w-full px-5 py-4 border rounded-2xl text-xs font-bold ${isDarkMode ? 'bg-white/[0.02] border-white/5 text-slate-500' : 'bg-slate-100 border-slate-200 text-slate-400'}`}>
+                    {formData.callInDate ? formatDateStr(addDaysToDateStr(formData.callInDate, 10)) : '—'}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase tracking-widest ml-1 text-slate-500">Expires Date <span className="normal-case font-normal text-slate-400">(if work begun)</span></label>
                   <input type="date" required className={`w-full px-5 py-4 border rounded-2xl text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-300 text-black'}`} value={formData.expires} onChange={e => setFormData({...formData, expires: e.target.value})} />
                 </div>
               </div>

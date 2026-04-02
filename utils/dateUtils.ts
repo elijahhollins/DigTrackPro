@@ -20,7 +20,41 @@ const parseDateLocal = (dateStr: string, endOfDay: boolean = false): Date => {
 };
 
 /**
+ * Returns a YYYY-MM-DD string that is `days` calendar days after the given YYYY-MM-DD string.
+ */
+export const addDaysToDateStr = (dateStr: string, days: number): string => {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-').map(Number);
+  if (parts.length !== 3) return '';
+  const [year, month, day] = parts;
+  const d = new Date(year, month - 1, day);
+  d.setDate(d.getDate() + days);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+};
+
+/**
+ * Formats a YYYY-MM-DD string as a locale date string (e.g. "4/10/2026").
+ * Returns '—' if the string is empty or invalid.
+ */
+export const formatDateStr = (dateStr: string): string => {
+  if (!dateStr) return '—';
+  const parts = dateStr.split('-').map(Number);
+  if (parts.length !== 3) return '—';
+  const [year, month, day] = parts;
+  return new Date(year, month - 1, day).toLocaleDateString();
+};
+
+/**
  * Calculates the current status of a ticket based on dates and manual request flags.
+ *
+ * Expiration rules:
+ *  - The ticket becomes valid at midnight two days after the call-in date.
+ *  - The ticket has a "dig by date" = callInDate + 10 days.
+ *    - If workBegun is not true and today >= digByDate, the ticket is EXPIRED.
+ *  - If workBegun is true, the ticket expires on the stored `expires` date.
  */
 export const getTicketStatus = (ticket: DigTicket): TicketStatus => {
   if (ticket.refreshRequested) return TicketStatus.REFRESH_NEEDED;
@@ -31,6 +65,14 @@ export const getTicketStatus = (ticket: DigTicket): TicketStatus => {
   
   // Calculate days remaining relative to the start of "now" for simpler day-based logic
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+
+  // Dig-by-date check: expires callInDate + 10 days if user explicitly answered no to work begun
+  if (ticket.callInDate && ticket.workBegun === false) {
+    const digByDateStr = addDaysToDateStr(ticket.callInDate, 10);
+    const digByDate = parseDateLocal(digByDateStr, true);
+    if (now > digByDate) return TicketStatus.EXPIRED;
+  }
+
   const expDayStart = new Date(exp.getFullYear(), exp.getMonth(), exp.getDate()).getTime();
   const diffTime = expDayStart - todayStart;
   const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
