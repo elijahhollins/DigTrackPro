@@ -27,7 +27,7 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
     2. JOB NUMBER: Look for "Job:", "Job #", "Project:", or "Reference".
     3. ADDRESS: Extract the primary "Street" and "Cross Street" (Intersection).
     4. LOCATION: Identify "City", "State", "County", and "Place/Township".
-    5. DATES: Extract "Work Start Date" (or "Legal Date") and "Expiration Date". 
+    5. DATES: Extract "Work Start Date" (or "Legal Date"), "Expiration Date", and "Dig By Date" (the deadline by which digging must start if no work has begun — often labeled "Dig By", "Legal Date", or listed as call-in date + 10 calendar days). 
        - Convert all dates to YYYY-MM-DD format.
     6. CUSTOMER: Identify the client or contractor (labels: "Done For", "Contractor", "Customer").
     7. SITE CONTACT: Identify the person to contact on site.
@@ -70,6 +70,7 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
             state: { type: Type.STRING },
             callInDate: { type: Type.STRING },
             workDate: { type: Type.STRING },
+            digByDate: { type: Type.STRING },
             expires: { type: Type.STRING },
             siteContact: { type: Type.STRING },
             lat: { type: Type.NUMBER },

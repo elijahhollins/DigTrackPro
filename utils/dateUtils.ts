@@ -66,11 +66,13 @@ export const getTicketStatus = (ticket: DigTicket): TicketStatus => {
   // Calculate days remaining relative to the start of "now" for simpler day-based logic
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
 
-  // Dig-by-date check: expires callInDate + 10 days if user explicitly answered no to work begun
-  if (ticket.callInDate && ticket.workBegun === false) {
-    const digByDateStr = addDaysToDateStr(ticket.callInDate, 10);
-    const digByDate = parseDateLocal(digByDateStr, true);
-    if (now > digByDate) return TicketStatus.EXPIRED;
+  // Dig-by-date check: expires at dig_by_date (explicit or callInDate + 10) if user explicitly answered no to work begun
+  if (ticket.workBegun === false) {
+    const digByDateStr = ticket.digByDate || (ticket.callInDate ? addDaysToDateStr(ticket.callInDate, 10) : '');
+    if (digByDateStr) {
+      const digByDate = parseDateLocal(digByDateStr, true);
+      if (now > digByDate) return TicketStatus.EXPIRED;
+    }
   }
 
   const expDayStart = new Date(exp.getFullYear(), exp.getMonth(), exp.getDate()).getTime();
