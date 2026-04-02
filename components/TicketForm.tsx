@@ -47,6 +47,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
   const [isSubmittingManual, setIsSubmittingManual] = useState(false);
   const [isSavingAll, setIsSavingAll] = useState(false);
   const [hasApiKey, setHasApiKey] = useState(false);
+  const [workBegun, setWorkBegun] = useState<boolean | undefined>(initialData?.workBegun);
   
   const [formData, setFormData] = useState({
     jobNumber: '', ticketNo: '', street: '', crossStreet: '', place: '', extent: '', county: '', city: '', state: '', callInDate: '', workDate: '', digByDate: '', expires: '', siteContact: '', documentUrl: '', lat: '' as string, lng: '' as string,
@@ -89,6 +90,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
         lat: initialData.lat != null ? String(initialData.lat) : '',
         lng: initialData.lng != null ? String(initialData.lng) : '',
       });
+      setWorkBegun(initialData.workBegun);
       setIsBatchMode(false);
     }
   }, [initialData]);
@@ -227,6 +229,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
       digByDate: formData.digByDate || undefined,
       lat: formData.lat !== '' && !isNaN(parseFloat(formData.lat)) ? parseFloat(formData.lat) : undefined,
       lng: formData.lng !== '' && !isNaN(parseFloat(formData.lng)) ? parseFloat(formData.lng) : undefined,
+      workBegun,
     };
 
     if (isBatchMode) {
@@ -539,6 +542,35 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
                   <input type="date" required className={`w-full px-5 py-4 border rounded-2xl text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-300 text-black'}`} value={formData.expires} onChange={e => setFormData({...formData, expires: e.target.value})} />
                 </div>
               </div>
+
+              {initialData && !isBatchMode && (
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest ml-1 text-slate-500">Work Begun</label>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setWorkBegun(undefined)}
+                      className={`flex-1 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all active:scale-95 ${workBegun === undefined ? (isDarkMode ? 'bg-white/10 border-white/20 text-white' : 'bg-slate-200 border-slate-400 text-slate-900') : (isDarkMode ? 'bg-white/5 border-white/10 text-slate-500' : 'bg-slate-50 border-slate-200 text-slate-400')}`}
+                    >
+                      — Unset
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setWorkBegun(false)}
+                      className={`flex-1 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all active:scale-95 ${workBegun === false ? 'bg-rose-500/15 border-rose-500/30 text-rose-500' : (isDarkMode ? 'bg-white/5 border-white/10 text-slate-500' : 'bg-slate-50 border-slate-200 text-slate-400')}`}
+                    >
+                      No — Not Dug
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setWorkBegun(true)}
+                      className={`flex-1 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all active:scale-95 ${workBegun === true ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-500' : (isDarkMode ? 'bg-white/5 border-white/10 text-slate-500' : 'bg-slate-50 border-slate-200 text-slate-400')}`}
+                    >
+                      Yes — Work Begun
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-1">
                 <label className="text-[10px] font-black uppercase tracking-widest ml-1 text-slate-500">Site Contact / Client</label>
