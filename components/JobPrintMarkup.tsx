@@ -1,19 +1,22 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Job, JobPrint } from '../types.ts';
+import { Job, JobPrint, User } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
+import PdfMarkupEditor from './PdfMarkupEditor.tsx';
 
 interface JobPrintMarkupProps {
   job: Job;
   isAdmin: boolean;
+  sessionUser: User;
   onClose: () => void;
   isDarkMode?: boolean;
 }
 
-export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, isAdmin, onClose }) => {
+export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, isAdmin, sessionUser, onClose }) => {
   const [prints, setPrints] = useState<JobPrint[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
+  const [editingPrint, setEditingPrint] = useState<JobPrint | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const brandColor = 'bg-brand';
@@ -46,8 +49,9 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, isAdmin, on
       await apiService.uploadJobPrint(job.jobNumber, file, job.companyId);
       const updatedPrints = await apiService.getJobPrints(job.jobNumber);
       setPrints(updatedPrints);
-    } catch (err: any) {
-      alert("Upload failed: " + err.message);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      alert("Upload failed: " + msg);
     } finally {
       setIsUploading(false);
     }
@@ -55,8 +59,6 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, isAdmin, on
 
   const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
-  // Get a download URL with Supabase's download parameter
-  // This sets Content-Disposition: attachment header on the server
   const getDownloadUrl = (print: JobPrint): string => {
     if (!print.url) return '';
     const baseUrl = print.url.split('?')[0];
@@ -65,14 +67,10 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, isAdmin, on
 
   const handleDownload = (print: JobPrint) => {
     if (!print.url) return;
-    
-    // Use Supabase download URL which sets proper Content-Disposition header
     const downloadUrl = getDownloadUrl(print);
     const link = document.createElement('a');
     link.href = downloadUrl;
     link.download = print.fileName;
-    
-    // Mobile browsers need the link in the DOM
     if (isMobile) {
       link.style.display = 'none';
       document.body.appendChild(link);
@@ -87,6 +85,16 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, isAdmin, on
     if (!print.url) return;
     window.open(print.url, '_blank');
   };
+
+  if (editingPrint) {
+    return (
+      <PdfMarkupEditor
+        print={editingPrint}
+        sessionUser={sessionUser}
+        onClose={() => setEditingPrint(null)}
+      />
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-[200] bg-slate-950 flex flex-col animate-in fade-in duration-300">
@@ -106,7 +114,7 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, isAdmin, on
 
         <div className="flex items-center gap-2">
           {isAdmin && (
-            <button 
+            <button
               onClick={() => fileInputRef.current?.click()}
               disabled={isUploading}
               className="px-4 py-2 bg-brand text-slate-900 rounded-xl font-black text-xs uppercase tracking-wider shadow-lg transition-all hover:scale-105 active:scale-95 disabled:opacity-50"
@@ -120,7 +128,7 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, isAdmin, on
               </div>
             </button>
           )}
-          <button 
+          <button
             onClick={onClose}
             className="p-2 bg-rose-600 text-white rounded-xl shadow-lg transition-all hover:scale-105 active:scale-95"
           >
@@ -146,7 +154,7 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, isAdmin, on
             <p className="text-sm font-black uppercase tracking-widest text-slate-400 mb-2">No PDFs Uploaded</p>
             <p className="text-xs text-slate-500 mb-6 max-w-md">Upload PDF job prints to store and view them for this job.</p>
             {isAdmin && (
-              <button 
+              <button
                 onClick={() => fileInputRef.current?.click()}
                 className="px-6 py-3 bg-brand text-slate-900 rounded-xl font-black text-xs uppercase tracking-wider shadow-lg transition-all hover:scale-105"
               >
@@ -157,7 +165,7 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, isAdmin, on
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {prints.map((print) => (
-              <div 
+              <div
                 key={print.id}
                 className="bg-slate-900/50 backdrop-blur border border-white/10 rounded-2xl p-6 hover:border-brand/40 transition-all"
               >
@@ -177,16 +185,26 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, isAdmin, on
                   </div>
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
+                  <button
+                    onClick={() => setEditingPrint(print)}
+                    className="flex-1 px-3 py-2.5 bg-brand text-slate-900 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-1.5"
+                    title="Open markup editor"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                    </svg>
+                    Markup
+                  </button>
                   <button
                     onClick={() => handleOpen(print)}
-                    className="flex-1 px-4 py-2.5 bg-brand text-slate-900 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all hover:scale-105 active:scale-95"
+                    className="px-3 py-2.5 bg-slate-800 text-white border border-white/10 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all hover:bg-slate-700 active:scale-95"
                   >
                     Open
                   </button>
                   <button
                     onClick={() => handleDownload(print)}
-                    className="flex-1 px-4 py-2.5 bg-slate-800 text-white border border-white/10 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all hover:bg-slate-700 active:scale-95"
+                    className="px-3 py-2.5 bg-slate-800 text-white border border-white/10 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all hover:bg-slate-700 active:scale-95"
                   >
                     Download
                   </button>
@@ -197,12 +215,12 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, isAdmin, on
         )}
       </div>
 
-      <input 
-        type="file" 
-        ref={fileInputRef} 
-        className="hidden" 
-        accept="application/pdf" 
-        onChange={handleFileUpload} 
+      <input
+        type="file"
+        ref={fileInputRef}
+        className="hidden"
+        accept="application/pdf"
+        onChange={handleFileUpload}
       />
     </div>
   );

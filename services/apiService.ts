@@ -1,6 +1,6 @@
 
 import { supabase } from '../lib/supabaseClient.ts';
-import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job, NoShowRecord, JobPrint, PrintMarker, Company } from '../types.ts';
+import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job, NoShowRecord, JobPrint, PrintMarker, Company, PdfAnnotation } from '../types.ts';
 
 const mapRole = (role: string | undefined): UserRole => {
   const r = role?.toUpperCase();
@@ -597,6 +597,61 @@ export const apiService = {
 
   async deletePrintMarker(id: string): Promise<void> {
     const { error } = await supabase.from('print_markers').delete().eq('id', id);
+    if (error) throw error;
+  },
+
+  async getAnnotations(printId: string): Promise<PdfAnnotation[]> {
+    const { data, error } = await supabase
+      .from('pdf_annotations')
+      .select('*')
+      .eq('print_id', printId)
+      .order('created_at', { ascending: true });
+    if (error) return [];
+    return (data || []).map(a => ({
+      id: a.id,
+      printId: a.print_id,
+      companyId: a.company_id,
+      authorId: a.author_id,
+      authorName: a.author_name,
+      pageNumber: a.page_number,
+      toolType: a.tool_type as PdfAnnotation['toolType'],
+      color: a.color,
+      strokeWidth: a.stroke_width,
+      data: a.data,
+      createdAt: new Date(a.created_at).getTime(),
+    }));
+  },
+
+  async saveAnnotation(annotation: Omit<PdfAnnotation, 'id' | 'createdAt'>): Promise<PdfAnnotation> {
+    const { data, error } = await supabase.from('pdf_annotations').insert([{
+      print_id: annotation.printId,
+      company_id: annotation.companyId,
+      author_id: annotation.authorId,
+      author_name: annotation.authorName,
+      page_number: annotation.pageNumber,
+      tool_type: annotation.toolType,
+      color: annotation.color,
+      stroke_width: annotation.strokeWidth,
+      data: annotation.data,
+    }]).select().single();
+    if (error) throw error;
+    return {
+      id: data.id,
+      printId: data.print_id,
+      companyId: data.company_id,
+      authorId: data.author_id,
+      authorName: data.author_name,
+      pageNumber: data.page_number,
+      toolType: data.tool_type as PdfAnnotation['toolType'],
+      color: data.color,
+      strokeWidth: data.stroke_width,
+      data: data.data,
+      createdAt: new Date(data.created_at).getTime(),
+    };
+  },
+
+  async deleteAnnotation(id: string): Promise<void> {
+    const { error } = await supabase.from('pdf_annotations').delete().eq('id', id);
     if (error) throw error;
   },
 

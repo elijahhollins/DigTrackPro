@@ -78,6 +78,20 @@ export interface PrintMarker {
   label?: string;
 }
 
+export interface PdfAnnotation {
+  id: string;
+  printId: string;
+  companyId: string;
+  authorId: string;
+  authorName: string;
+  pageNumber: number;
+  toolType: 'pen' | 'text' | 'arrow' | 'rectangle' | 'circle' | 'line';
+  color: string;
+  strokeWidth: number;
+  data: Record<string, unknown>;
+  createdAt: number;
+}
+
 export interface DigTicket {
   id: string;
   companyId: string;
