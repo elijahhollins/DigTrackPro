@@ -154,6 +154,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   onClose,
 }) => {
   const [annotations, setAnnotations] = useState<PdfAnnotation[]>([]);
+  const [annotationLoadError, setAnnotationLoadError] = useState<string | null>(null);
   const [currentTool, setCurrentTool] = useState<ToolType>('pen');
   const [currentColor, setCurrentColor] = useState('#ef4444');
   const [strokeWidth, setStrokeWidth] = useState(4);
@@ -167,6 +168,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   const [textInput, setTextInput] = useState<{ px: number; py: number; rx: number; ry: number } | null>(null);
   const [textValue, setTextValue] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [showLog, setShowLog] = useState(false);
   const [isLoadingPdf, setIsLoadingPdf] = useState(true);
   const [pdfError, setPdfError] = useState<string | null>(null);
@@ -179,7 +181,9 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   const renderTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
 
   useEffect(() => {
-    apiService.getAnnotations(print.id).then(setAnnotations).catch(console.error);
+    apiService.getAnnotations(print.id)
+      .then(setAnnotations)
+      .catch((err: Error) => setAnnotationLoadError(err.message || 'Failed to load annotations'));
   }, [print.id]);
 
   useEffect(() => {
@@ -246,7 +250,9 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     if (textInput) return;
     const coords = getCoords(clientX, clientY);
     if (currentTool === 'text') {
-      const r = containerRef.current!.getBoundingClientRect();
+      const container = containerRef.current;
+      if (!container) return;
+      const r = container.getBoundingClientRect();
       setTextInput({ px: clientX - r.left, py: clientY - r.top, rx: coords.x, ry: coords.y });
       setTextValue('');
       setTimeout(() => textInputRef.current?.focus(), 30);
@@ -285,7 +291,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       setAnnotations(prev => [...prev, saved]);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
-      alert('Failed to save annotation: ' + msg);
+      setActionError('Failed to save annotation: ' + msg);
     } finally {
       setIsSaving(false);
     }
@@ -327,7 +333,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       setAnnotations(prev => prev.filter(a => a.id !== id));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
-      alert('Failed to delete: ' + msg);
+      setActionError('Failed to delete annotation: ' + msg);
     }
   };
 
@@ -463,6 +469,36 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
 
       {/* ── Main canvas area ── */}
       <div ref={mainRef} className="flex-1 overflow-auto flex flex-col items-center p-4 gap-4">
+
+        {/* Annotation load error */}
+        {annotationLoadError && (
+          <div className="w-full max-w-2xl flex items-center gap-3 px-4 py-3 bg-amber-500/10 border border-amber-500/30 rounded-xl">
+            <svg className="w-4 h-4 text-amber-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+            </svg>
+            <p className="text-amber-300 text-xs font-bold flex-1">Could not load existing annotations: {annotationLoadError}</p>
+            <button onClick={() => setAnnotationLoadError(null)} className="text-amber-400 hover:text-white transition-colors">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        )}
+
+        {/* Action error (save/delete failures) */}
+        {actionError && (
+          <div className="w-full max-w-2xl flex items-center gap-3 px-4 py-3 bg-rose-500/10 border border-rose-500/30 rounded-xl">
+            <svg className="w-4 h-4 text-rose-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p className="text-rose-300 text-xs font-bold flex-1">{actionError}</p>
+            <button onClick={() => setActionError(null)} className="text-rose-400 hover:text-white transition-colors">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        )}
 
         {isLoadingPdf && (
           <div className="flex-1 flex flex-col items-center justify-center gap-4">

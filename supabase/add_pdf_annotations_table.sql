@@ -20,21 +20,18 @@ alter table pdf_annotations enable row level security;
 
 -- All company members (and super-admins) can view annotations
 create policy "pdf_annotations_select" on pdf_annotations
-    for select using (
-        company_id = (select company_id from profiles where id = auth.uid())
-        or (select role from profiles where id = auth.uid()) = 'SUPER_ADMIN'
-    );
+    for select to authenticated
+    using (company_id = get_user_company_id());
 
 -- Any authenticated company member can insert their own annotations
 create policy "pdf_annotations_insert" on pdf_annotations
-    for insert with check (
-        company_id = (select company_id from profiles where id = auth.uid())
-        or (select role from profiles where id = auth.uid()) = 'SUPER_ADMIN'
-    );
+    for insert to authenticated
+    with check (company_id = get_user_company_id());
 
 -- Authors can delete their own annotations; admins and super-admins can delete any
 create policy "pdf_annotations_delete" on pdf_annotations
-    for delete using (
+    for delete to authenticated
+    using (
         author_id = auth.uid()
-        or (select role from profiles where id = auth.uid()) in ('ADMIN', 'SUPER_ADMIN')
+        or is_company_admin()
     );
