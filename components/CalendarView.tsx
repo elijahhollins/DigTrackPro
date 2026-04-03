@@ -1,11 +1,13 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { DigTicket } from '../types.ts';
 
 interface CalendarViewProps {
   tickets: DigTicket[];
   onEditTicket: (ticket: DigTicket) => void;
   onViewDoc?: (url: string) => void;
+  onManageNoShow?: (ticket: DigTicket) => void;
+  isDarkMode?: boolean;
 }
 
 type CalendarEvent = {
@@ -13,210 +15,379 @@ type CalendarEvent = {
   type: 'start' | 'refresh' | 'expire' | 'noShowRequest' | 'manualRefreshRequest';
 };
 
-const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onViewDoc }) => {
+const EVENT_META: Record<CalendarEvent['type'], { label: string; pill: string; dot: string; border: string; accent: string }> = {
+  start:                { label: 'Dig Start',      pill: 'bg-blue-500/10 text-blue-600',    dot: 'bg-blue-500',   border: 'border-l-blue-500',   accent: 'text-blue-500' },
+  refresh:              { label: 'Refresh Window',  pill: 'bg-orange-400/10 text-orange-600',dot: 'bg-orange-400', border: 'border-l-orange-400', accent: 'text-orange-500' },
+  expire:               { label: 'Expires',         pill: 'bg-red-500/10 text-red-600',      dot: 'bg-red-500',    border: 'border-l-red-500',    accent: 'text-red-500' },
+  noShowRequest:        { label: 'No Show',         pill: 'bg-rose-500/10 text-rose-600',    dot: 'bg-rose-500',   border: 'border-l-rose-500',   accent: 'text-rose-500' },
+  manualRefreshRequest: { label: 'Manual Refresh',  pill: 'bg-amber-400/10 text-amber-600',  dot: 'bg-amber-400',  border: 'border-l-amber-400',  accent: 'text-amber-500' },
+};
+
+const DAY_HEADERS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+const EVENT_LEGEND = Object.entries(EVENT_META) as [CalendarEvent['type'], typeof EVENT_META[CalendarEvent['type']]][];
+
+const DISMISSED_KEY = 'cal_dismissed_events';
+
+const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onViewDoc, onManageNoShow, isDarkMode }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState<number | null>(new Date().getDate());
+  const [dismissedEvents, setDismissedEvents] = useState<Set<string>>(() => {
+    try {
+      const saved = sessionStorage.getItem(DISMISSED_KEY);
+      return saved ? new Set(JSON.parse(saved) as string[]) : new Set<string>();
+    } catch {
+      return new Set<string>();
+    }
+  });
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
+  const today = new Date();
 
-  const daysInMonth = (y: number, m: number) => new Date(y, m + 1, 0).getDate();
-  const firstDayOfMonth = (y: number, m: number) => new Date(y, m, 1).getDay();
+  const isViewingCurrentMonth = year === today.getFullYear() && month === today.getMonth();
 
-  const isSameDay = (d1: Date, d2: Date) => 
-    d1.getDate() === d2.getDate() && 
-    d1.getMonth() === d2.getMonth() && 
+  const isSelectedToday =
+    selectedDay !== null &&
+    selectedDay === today.getDate() &&
+    isViewingCurrentMonth;
+
+  const isSameDay = (d1: Date, d2: Date) =>
+    d1.getDate() === d2.getDate() &&
+    d1.getMonth() === d2.getMonth() &&
     d1.getFullYear() === d2.getFullYear();
 
+  const dismissEvent = useCallback((ticketId: string, eventType: CalendarEvent['type']) => {
+    const key = `${ticketId}:${eventType}`;
+    setDismissedEvents(prev => {
+      const next = new Set(prev);
+      next.add(key);
+      try {
+        sessionStorage.setItem(DISMISSED_KEY, JSON.stringify([...next]));
+      } catch { /* sessionStorage may be unavailable in some environments */ }
+      return next;
+    });
+  }, []);
+
+  const getEventsForDate = useCallback((cellDate: Date): CalendarEvent[] => {
+    const events: CalendarEvent[] = [];
+    const now = new Date();
+    tickets.forEach(t => {
+      const start = new Date(t.workDate);
+      const expire = new Date(t.expires);
+      const refresh = new Date(expire);
+      refresh.setDate(refresh.getDate() - 3);
+      if (isSameDay(start, cellDate)) events.push({ ticket: t, type: 'start' });
+      if (isSameDay(expire, cellDate)) events.push({ ticket: t, type: 'expire' });
+      if (isSameDay(refresh, cellDate)) events.push({ ticket: t, type: 'refresh' });
+      if (isSameDay(now, cellDate)) {
+        if (t.noShowRequested) events.push({ ticket: t, type: 'noShowRequest' });
+        if (t.refreshRequested) events.push({ ticket: t, type: 'manualRefreshRequest' });
+      }
+    });
+    return events;
+  }, [tickets]);
+
   const calendarDays = useMemo(() => {
-    const days = [];
-    const count = daysInMonth(year, month);
-    const startOffset = firstDayOfMonth(year, month);
-    const today = new Date();
-
+    const count = new Date(year, month + 1, 0).getDate();
+    const startOffset = new Date(year, month, 1).getDay();
+    const days: (null | { day: number; events: CalendarEvent[] })[] = [];
     for (let i = 0; i < startOffset; i++) days.push(null);
-
     for (let i = 1; i <= count; i++) {
-      const cellDate = new Date(year, month, i);
-      const dayEvents: CalendarEvent[] = [];
-      
-      tickets.forEach(t => {
-        const start = new Date(t.workDate);
-        const expire = new Date(t.expires);
-        const refreshDate = new Date(expire);
-        refreshDate.setDate(refreshDate.getDate() - 3);
-
-        if (isSameDay(start, cellDate)) dayEvents.push({ ticket: t, type: 'start' });
-        if (isSameDay(expire, cellDate)) dayEvents.push({ ticket: t, type: 'expire' });
-        if (isSameDay(refreshDate, cellDate)) dayEvents.push({ ticket: t, type: 'refresh' });
-
-        if (isSameDay(today, cellDate)) {
-          if (t.noShowRequested) dayEvents.push({ ticket: t, type: 'noShowRequest' });
-          if (t.refreshRequested) dayEvents.push({ ticket: t, type: 'manualRefreshRequest' });
-        }
-      });
-
-      days.push({ day: i, events: dayEvents });
+      days.push({ day: i, events: getEventsForDate(new Date(year, month, i)) });
     }
     return days;
   }, [year, month, tickets]);
 
   const selectedDayEvents = useMemo(() => {
     if (selectedDay === null) return [];
-    const cellDate = new Date(year, month, selectedDay);
-    const today = new Date();
-    const results: CalendarEvent[] = [];
-    
-    tickets.forEach(t => {
-      const start = new Date(t.workDate);
-      const expire = new Date(t.expires);
-      const refreshDate = new Date(expire);
-      refreshDate.setDate(refreshDate.getDate() - 3);
-
-      if (isSameDay(start, cellDate)) results.push({ ticket: t, type: 'start' });
-      if (isSameDay(expire, cellDate)) results.push({ ticket: t, type: 'expire' });
-      if (isSameDay(refreshDate, cellDate)) results.push({ ticket: t, type: 'refresh' });
-      
-      if (isSameDay(today, cellDate)) {
-        if (t.noShowRequested) results.push({ ticket: t, type: 'noShowRequest' });
-        if (t.refreshRequested) results.push({ ticket: t, type: 'manualRefreshRequest' });
-      }
-    });
-    return results;
+    return getEventsForDate(new Date(year, month, selectedDay));
   }, [selectedDay, month, year, tickets]);
 
-  const activeAlerts = useMemo(() => {
-    return tickets.filter(t => t.noShowRequested || t.refreshRequested);
-  }, [tickets]);
+  const activeAlerts = useMemo(
+    () => tickets.filter(t => t.noShowRequested || t.refreshRequested),
+    [tickets]
+  );
+
+  const visibleAlerts = useMemo(
+    () => activeAlerts.filter(t =>
+      (t.noShowRequested && !dismissedEvents.has(`${t.id}:noShowRequest`)) ||
+      (t.refreshRequested && !dismissedEvents.has(`${t.id}:manualRefreshRequest`))
+    ),
+    [activeAlerts, dismissedEvents]
+  );
 
   const monthName = currentDate.toLocaleString('default', { month: 'long' });
 
+  const goToToday = () => {
+    const now = new Date();
+    setCurrentDate(now);
+    setSelectedDay(now.getDate());
+  };
+
+  const selectedDateLabel = useMemo(() => {
+    if (selectedDay === null) return null;
+    return new Date(year, month, selectedDay).toLocaleDateString('default', {
+      weekday: 'long', month: 'long', day: 'numeric',
+    });
+  }, [selectedDay, month, year]);
+
+  const priorityEvents = selectedDayEvents.filter(ev =>
+    (ev.type === 'noShowRequest' || ev.type === 'manualRefreshRequest') &&
+    !dismissedEvents.has(`${ev.ticket.id}:${ev.type}`)
+  );
+  const standardEvents = selectedDayEvents.filter(ev =>
+    ev.type !== 'noShowRequest' &&
+    ev.type !== 'manualRefreshRequest' &&
+    !dismissedEvents.has(`${ev.ticket.id}:${ev.type}`)
+  );
+
+  const divider = isDarkMode ? 'border-white/[0.05]' : 'border-slate-100';
+  const subtle = isDarkMode ? 'text-slate-500' : 'text-slate-400';
+  const card = isDarkMode ? 'bg-[#0b1629] border-white/[0.06]' : 'bg-white border-slate-100 shadow-sm';
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-      <div className="lg:col-span-3 bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-          <div className="flex items-center gap-4">
-            <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">{monthName} {year}</h2>
-            {activeAlerts.length > 0 && (
-              <span className="flex items-center gap-1.5 px-3 py-1 bg-rose-500 rounded-full text-[9px] font-black text-white uppercase tracking-widest animate-pulse">
-                <span className="w-1.5 h-1.5 bg-white rounded-full" />
-                {activeAlerts.length} Action Items
-              </span>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <button onClick={() => setCurrentDate(new Date(year, month - 1, 1))} className="p-2 hover:bg-white rounded-lg transition-colors border border-slate-200 shadow-sm">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg>
-            </button>
-            <button onClick={() => setCurrentDate(new Date(year, month + 1, 1))} className="p-2 hover:bg-white rounded-lg transition-colors border border-slate-200 shadow-sm">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
-            </button>
-          </div>
+    <div className="flex flex-col gap-4">
+
+      {/* Alert banner */}
+      {visibleAlerts.length > 0 && (
+        <div className={`rounded-xl border px-5 py-3 flex items-center gap-3 ${isDarkMode ? 'bg-rose-500/5 border-rose-500/10' : 'bg-rose-50 border-rose-100'}`}>
+          <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse shrink-0" />
+          <p className={`text-[11px] font-black uppercase tracking-widest shrink-0 ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>
+            {visibleAlerts.length} Active {visibleAlerts.length === 1 ? 'Alert' : 'Alerts'}
+          </p>
+          <p className={`text-[11px] font-mono truncate ${subtle}`}>
+            {visibleAlerts.map(t => t.ticketNo).join(' · ')}
+          </p>
+          <button
+            onClick={goToToday}
+            className={`ml-auto shrink-0 text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-lg transition-all ${isDarkMode ? 'bg-rose-500/10 text-rose-400 hover:bg-rose-500/20' : 'bg-rose-100 text-rose-600 hover:bg-rose-200'}`}
+          >
+            View Today
+          </button>
         </div>
-        <div className="grid grid-cols-7 border-b border-slate-100">
-          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
-            <div key={d} className="py-3 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">{d}</div>
-          ))}
-        </div>
-        <div className="grid grid-cols-7 auto-rows-fr min-h-[500px]">
-          {calendarDays.map((d, i) => (
-            <div 
-              key={i} 
-              onClick={() => d && setSelectedDay(d.day)}
-              className={`p-2 border-r border-b border-slate-50 min-h-[100px] cursor-pointer transition-all ${!d ? 'bg-slate-50/20' : 'bg-white hover:bg-slate-50/40'} ${d?.day === selectedDay ? 'ring-2 ring-inset ring-brand bg-brand/5' : ''}`}
-            >
-              {d && (
-                <div className="h-full flex flex-col">
-                  <span className={`text-xs font-black w-6 h-6 flex items-center justify-center rounded-full ${d.day === new Date().getDate() && month === new Date().getMonth() && year === new Date().getFullYear() ? 'text-white bg-slate-900' : 'text-slate-400'}`}>
-                    {d.day}
-                  </span>
-                  <div className="flex flex-wrap gap-1 mt-auto pb-1">
-                    {d.events.map((ev, idx) => (
-                      <div 
-                        key={idx} 
-                        className={`w-2.5 h-2.5 rounded-full border-2 border-white shadow-sm ${
-                          ev.type === 'start' ? 'bg-blue-500' : 
-                          ev.type === 'expire' ? 'bg-red-600' : 
-                          ev.type === 'refresh' ? 'bg-orange-400' :
-                          ev.type === 'noShowRequest' ? 'bg-rose-500 ring-2 ring-rose-500/20' : 
-                          'bg-amber-400 ring-2 ring-amber-500/20'
-                        }`} 
-                        title={`${ev.type.toUpperCase()}: ${ev.ticket.ticketNo}`}
-                      />
-                    ))}
-                  </div>
-                </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+        {/* ── Calendar ── */}
+        <div className={`lg:col-span-2 rounded-2xl border overflow-hidden ${card}`}>
+
+          {/* Header */}
+          <div className={`px-6 py-4 flex items-center justify-between border-b ${divider}`}>
+            <div>
+              <div className="flex items-baseline gap-2">
+                <h2 className={`text-2xl font-black tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{monthName}</h2>
+                <span className={`text-lg font-light ${subtle}`}>{year}</span>
+              </div>
+              {!isViewingCurrentMonth && (
+                <button
+                  onClick={goToToday}
+                  className={`text-[10px] font-bold uppercase tracking-widest transition-colors ${isDarkMode ? 'text-slate-500 hover:text-brand' : 'text-slate-400 hover:text-brand'}`}
+                >
+                  ← Back to today
+                </button>
               )}
             </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 flex flex-col">
-        <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-6 border-b border-slate-100 pb-4 flex justify-between items-center">
-          <span>Schedule & Alerts</span>
-          {selectedDay && <span className="text-[10px] text-slate-400 font-bold">{monthName.substring(0,3)} {selectedDay}</span>}
-        </h3>
-        
-        <div className="space-y-6 flex-1 overflow-y-auto no-scrollbar pr-1">
-          {activeAlerts.length > 0 && selectedDay === new Date().getDate() && (
-            <div className="space-y-3">
-              <p className="text-[9px] font-black text-rose-500 uppercase tracking-[0.2em]">Priority Actions</p>
-              {activeAlerts.map(t => (
-                 <div key={t.id} onClick={() => onEditTicket(t)} className="p-4 bg-rose-50 rounded-2xl border border-rose-100 hover:border-rose-300 hover:shadow-md transition-all cursor-pointer group relative overflow-hidden">
-                    <div className="absolute top-0 right-0 w-16 h-16 -mr-4 -mt-4 bg-rose-500/5 rounded-full group-hover:bg-rose-500/10 transition-colors" />
-                    <div className="flex items-center gap-2 mb-2">
-                       <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-md ${t.noShowRequested ? 'bg-rose-500 text-white' : 'bg-amber-500 text-white'}`}>
-                          {t.noShowRequested ? 'No Show Event' : 'Refresh Manual'}
-                       </span>
-                       <span className="w-1.5 h-1.5 bg-rose-500 rounded-full animate-ping" />
-                    </div>
-                    <p className="text-xs font-black text-slate-800 truncate mb-1">#{t.jobNumber} • {t.street}</p>
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); if (t.documentUrl) onViewDoc?.(t.documentUrl); }}
-                      className={`text-[9px] font-mono font-bold uppercase tracking-tighter transition-colors ${t.documentUrl ? 'text-rose-400 hover:text-brand hover:underline cursor-zoom-in' : 'text-rose-400 cursor-default'}`}
-                    >
-                      CALL REQUIRED: {t.ticketNo}
-                    </button>
-                 </div>
-              ))}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setCurrentDate(new Date(year, month - 1, 1))}
+                className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${isDarkMode ? 'hover:bg-white/5 text-slate-500' : 'hover:bg-slate-100 text-slate-400'}`}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg>
+              </button>
+              <button
+                onClick={() => setCurrentDate(new Date(year, month + 1, 1))}
+                className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${isDarkMode ? 'hover:bg-white/5 text-slate-500' : 'hover:bg-slate-100 text-slate-400'}`}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
+              </button>
             </div>
-          )}
+          </div>
 
-          <div className="space-y-4">
-            <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">{selectedDayEvents.length > 0 ? 'Standard Schedule' : ''}</p>
-            {selectedDayEvents.filter(ev => !['noShowRequest', 'manualRefreshRequest'].includes(ev.type)).length > 0 ? (
-              selectedDayEvents.filter(ev => !['noShowRequest', 'manualRefreshRequest'].includes(ev.type)).map((ev, idx) => (
-                <div key={idx} onClick={() => onEditTicket(ev.ticket)} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-brand/40 hover:shadow-md transition-all cursor-pointer group">
-                  <div className="flex justify-between items-start mb-2">
-                    <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-md ${
-                      ev.type === 'start' ? 'bg-blue-100 text-blue-700' : 
-                      ev.type === 'expire' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-800'
-                    }`}>
-                      {ev.type === 'start' ? 'Dig Start' : ev.type === 'expire' ? 'Expires' : 'Refresh Window'}
-                    </span>
-                    <div className={`w-2.5 h-2.5 rounded-full border border-white shadow-sm ${
-                      ev.type === 'start' ? 'bg-blue-500' : 
-                      ev.type === 'expire' ? 'bg-red-600' : 'bg-orange-400'
-                    }`} />
-                  </div>
-                  <p className="text-xs font-black text-slate-800 truncate mb-1">#{ev.ticket.jobNumber} • {ev.ticket.street}</p>
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); if (ev.ticket.documentUrl) onViewDoc?.(ev.ticket.documentUrl); }}
-                    className={`text-[9px] font-mono font-bold transition-colors ${ev.ticket.documentUrl ? 'text-slate-400 hover:text-brand hover:underline cursor-zoom-in' : 'text-slate-400 cursor-default'}`}
-                  >
-                    TKT: {ev.ticket.ticketNo}
-                  </button>
+          {/* Day labels */}
+          <div className="grid grid-cols-7">
+            {DAY_HEADERS.map(d => (
+              <div key={d} className={`py-2 text-center text-[10px] font-bold uppercase tracking-wider ${subtle}`}>{d}</div>
+            ))}
+          </div>
+
+          {/* Day cells */}
+          <div className="grid grid-cols-7">
+            {calendarDays.map((d, i) => {
+              const isToday = d !== null && d.day === today.getDate() && isViewingCurrentMonth;
+              const isSelected = d?.day === selectedDay;
+              const MAX_SHOW = 2;
+              const visibleEvents = d?.events.filter(ev =>
+                !dismissedEvents.has(`${ev.ticket.id}:${ev.type}`)
+              ) ?? [];
+              const shown = visibleEvents.slice(0, MAX_SHOW);
+              const overflow = visibleEvents.length - MAX_SHOW;
+
+              return (
+                <div
+                  key={i}
+                  onClick={() => d && setSelectedDay(d.day)}
+                  className={`border-t min-h-[76px] p-2 flex flex-col gap-1 transition-colors ${divider} ${
+                    d ? 'cursor-pointer' : ''
+                  } ${
+                    isSelected
+                      ? isDarkMode ? 'bg-brand/10' : 'bg-brand/5'
+                      : d
+                        ? isDarkMode ? 'hover:bg-white/[0.02]' : 'hover:bg-slate-50'
+                        : ''
+                  }`}
+                >
+                  {d && (
+                    <>
+                      <span className={`text-[11px] font-bold w-6 h-6 flex items-center justify-center rounded-full self-start ${
+                        isToday
+                          ? 'bg-brand text-white font-black'
+                          : isSelected
+                            ? 'text-brand font-black'
+                            : isDarkMode ? 'text-slate-500' : 'text-slate-400'
+                      }`}>
+                        {d.day}
+                      </span>
+                      <div className="flex flex-col gap-0.5">
+                        {shown.map((ev: CalendarEvent, idx) => (
+                          <div
+                            key={idx}
+                            title={`${EVENT_META[ev.type].label}: ${ev.ticket.ticketNo}`}
+                            className={`text-[9px] font-bold px-1.5 py-0.5 rounded truncate leading-tight ${EVENT_META[ev.type].pill}`}
+                          >
+                            {ev.ticket.ticketNo}
+                          </div>
+                        ))}
+                        {overflow > 0 && (
+                          <p className={`text-[9px] font-bold px-1.5 ${subtle}`}>+{overflow} more</p>
+                        )}
+                      </div>
+                    </>
+                  )}
                 </div>
-              ))
-            ) : selectedDay && activeAlerts.length === 0 && (
-              <div className="py-20 flex flex-col items-center opacity-30">
-                <svg className="w-10 h-10 text-slate-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest text-center">No Activity Scheduled</p>
+              );
+            })}
+          </div>
+
+          {/* Legend */}
+          <div className={`px-5 py-2.5 border-t flex flex-wrap gap-x-4 gap-y-1 ${divider}`}>
+            {EVENT_LEGEND.map(([type, meta]) => (
+              <div key={type} className="flex items-center gap-1.5">
+                <div className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
+                <span className={`text-[9px] font-bold uppercase tracking-wider ${subtle}`}>{meta.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Detail Panel ── */}
+        <div className={`rounded-2xl border flex flex-col ${card}`}>
+
+          {/* Date header */}
+          <div className={`px-5 py-5 border-b ${divider}`}>
+            {selectedDay ? (
+              <>
+                <p className={`text-[10px] font-bold uppercase tracking-widest mb-0.5 ${subtle}`}>
+                  {isSelectedToday ? 'Today' : 'Selected'}
+                </p>
+                <p className={`text-base font-black leading-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                  {selectedDateLabel}
+                </p>
+              </>
+            ) : (
+              <p className={`text-sm font-bold ${subtle}`}>Select a day</p>
+            )}
+          </div>
+
+          <div className="flex-1 overflow-y-auto no-scrollbar">
+
+            {/* Priority events (alerts) */}
+            {priorityEvents.length > 0 && isSelectedToday && (
+              <div className={`p-4 border-b ${divider}`}>
+                <p className={`text-[9px] font-black uppercase tracking-[0.15em] mb-3 text-rose-500`}>⚠ Needs Action</p>
+                <div className="flex flex-col gap-2">
+                  {priorityEvents.map((ev: CalendarEvent, idx) => (
+                    <div key={idx} className={`relative rounded-xl border-l-4 transition-all ${EVENT_META[ev.type].border} ${isDarkMode ? 'bg-white/[0.03]' : 'bg-slate-50'}`}>
+                      <button
+                        onClick={() => ev.type === 'noShowRequest' ? onManageNoShow?.(ev.ticket) : onEditTicket(ev.ticket)}
+                        className="w-full text-left p-3 pr-8"
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className={`text-[9px] font-black uppercase tracking-wider ${EVENT_META[ev.type].accent}`}>
+                            {EVENT_META[ev.type].label}
+                          </span>
+                          <svg className={`w-3 h-3 ${subtle}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
+                        </div>
+                        <p className={`text-[11px] font-black truncate ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
+                          #{ev.ticket.jobNumber} · {ev.ticket.street}
+                        </p>
+                        <p className={`text-[9px] font-mono mt-0.5 ${subtle}`}>{ev.ticket.ticketNo}</p>
+                      </button>
+                      <button
+                        onClick={e => {
+                          e.stopPropagation();
+                          dismissEvent(ev.ticket.id, ev.type);
+                        }}
+                        title="Acknowledge and hide"
+                        className={`absolute top-2 right-2 w-5 h-5 flex items-center justify-center rounded-full transition-all ${isDarkMode ? 'text-slate-600 hover:text-slate-300 hover:bg-white/10' : 'text-slate-300 hover:text-slate-500 hover:bg-slate-200'}`}
+                      >
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Standard events */}
+            {standardEvents.length > 0 ? (
+              <div className="p-4 flex flex-col gap-2">
+                {standardEvents.map((ev: CalendarEvent, idx) => (
+                  <div key={idx} className={`relative rounded-xl border-l-4 transition-all ${EVENT_META[ev.type].border} ${isDarkMode ? 'bg-white/[0.03] hover:bg-white/[0.06]' : 'bg-slate-50 hover:bg-slate-100'}`}>
+                    <button
+                      onClick={() => onEditTicket(ev.ticket)}
+                      className="w-full text-left p-3 pr-8"
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className={`text-[9px] font-black uppercase tracking-wider ${EVENT_META[ev.type].accent}`}>
+                          {EVENT_META[ev.type].label}
+                        </span>
+                        <button
+                          onClick={e => { e.stopPropagation(); if (ev.ticket.documentUrl) onViewDoc?.(ev.ticket.documentUrl); }}
+                          className={`text-[9px] font-mono font-bold transition-colors ${ev.ticket.documentUrl ? (isDarkMode ? 'text-slate-600 hover:text-brand' : 'text-slate-400 hover:text-brand') : `cursor-default ${subtle}`}`}
+                        >
+                          {ev.ticket.ticketNo}
+                        </button>
+                      </div>
+                      <p className={`text-[11px] font-black truncate ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
+                        #{ev.ticket.jobNumber} · {ev.ticket.street}
+                      </p>
+                    </button>
+                    <button
+                      onClick={e => {
+                        e.stopPropagation();
+                        dismissEvent(ev.ticket.id, ev.type);
+                      }}
+                      title="Acknowledge and hide"
+                      className={`absolute top-2 right-2 w-5 h-5 flex items-center justify-center rounded-full transition-all ${isDarkMode ? 'text-slate-600 hover:text-slate-300 hover:bg-white/10' : 'text-slate-300 hover:text-slate-500 hover:bg-slate-200'}`}
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : selectedDay !== null && priorityEvents.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-16 px-6 opacity-30">
+                <svg className="w-8 h-8 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                <p className={`text-[10px] font-bold uppercase tracking-widest text-center ${subtle}`}>Nothing scheduled</p>
               </div>
             )}
           </div>
         </div>
+
       </div>
     </div>
   );
