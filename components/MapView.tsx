@@ -26,6 +26,7 @@ interface MapViewProps {
   onViewTicket?: (url: string) => void;
   onTicketGeocoded?: (ticketId: string, lat: number, lng: number) => void;
   onPinMoved?: (ticketId: string, lat: number, lng: number) => void;
+  onOpenInDashboard?: (ticket: DigTicket) => void;
 }
 
 interface PinnedTicket {
@@ -161,7 +162,7 @@ const geocodeAddress = async (ticket: DigTicket): Promise<{ lat: number; lng: nu
   return centroid;
 };
 
-export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTicket, onViewTicket, onTicketGeocoded, onPinMoved }) => {
+export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTicket, onViewTicket, onTicketGeocoded, onPinMoved, onOpenInDashboard }) => {
   const mapRef = useRef<L.Map | null>(null);
   const mapDivRef = useRef<HTMLDivElement>(null);
   const markersRef = useRef<L.Marker[]>([]);
@@ -281,6 +282,7 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
       const viewBtnId = `map-view-${ticket.id}`;
       const editBtnId = `map-edit-${ticket.id}`;
       const adjustBtnId = `map-adjust-${ticket.id}`;
+      const dashboardBtnId = `map-dashboard-${ticket.id}`;
 
       // Leaflet popups are rendered as raw HTML strings (not React JSX), so
       // inline styles are required here — Tailwind utility classes are not available
@@ -300,6 +302,7 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
             ${hasDoc ? `<button id="${viewBtnId}" style="padding:4px 10px;background:#3b82f6;color:white;border:none;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer">View PDF</button>` : ''}
             ${onEditTicket ? `<button id="${editBtnId}" style="padding:4px 10px;background:#475569;color:white;border:none;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer">Edit</button>` : ''}
             ${onPinMoved ? `<button id="${adjustBtnId}" style="padding:4px 10px;background:#7c3aed;color:white;border:none;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer">Adjust Pin</button>` : ''}
+            ${onOpenInDashboard ? `<button id="${dashboardBtnId}" style="padding:4px 10px;background:#0ea5e9;color:white;border:none;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer">Open in Dashboard</button>` : ''}
           </div>
         </div>
       `;
@@ -313,19 +316,24 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
         if (hasDoc && onViewTicket) {
           document.getElementById(viewBtnId)?.addEventListener('click', () => {
             onViewTicket(ticket.documentUrl!);
-          });
+          }, { once: true });
         }
         if (onEditTicket) {
           document.getElementById(editBtnId)?.addEventListener('click', () => {
             onEditTicket(ticket);
-          });
+          }, { once: true });
         }
         if (onPinMoved) {
           document.getElementById(adjustBtnId)?.addEventListener('click', () => {
             marker.closePopup();
             marker.dragging?.enable();
             marker.setIcon(createDraggableMarkerIcon(statusColorClass));
-          });
+          }, { once: true });
+        }
+        if (onOpenInDashboard) {
+          document.getElementById(dashboardBtnId)?.addEventListener('click', () => {
+            onOpenInDashboard(ticket);
+          }, { once: true });
         }
       });
 
