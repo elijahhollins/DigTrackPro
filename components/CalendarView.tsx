@@ -27,12 +27,12 @@ const DAY_HEADERS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 const EVENT_LEGEND = Object.entries(EVENT_META) as [CalendarEvent['type'], typeof EVENT_META[CalendarEvent['type']]][];
 
-const DISMISSED_KEY = 'cal_dismissed_alerts';
+const DISMISSED_KEY = 'cal_dismissed_events';
 
 const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onViewDoc, onManageNoShow, isDarkMode }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState<number | null>(new Date().getDate());
-  const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(() => {
+  const [dismissedEvents, setDismissedEvents] = useState<Set<string>>(() => {
     try {
       const saved = sessionStorage.getItem(DISMISSED_KEY);
       return saved ? new Set(JSON.parse(saved) as string[]) : new Set<string>();
@@ -57,10 +57,11 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onVi
     d1.getMonth() === d2.getMonth() &&
     d1.getFullYear() === d2.getFullYear();
 
-  const dismissAlert = useCallback((ticketId: string) => {
-    setDismissedAlerts(prev => {
+  const dismissEvent = useCallback((ticketId: string, eventType: CalendarEvent['type']) => {
+    const key = `${ticketId}:${eventType}`;
+    setDismissedEvents(prev => {
       const next = new Set(prev);
-      next.add(ticketId);
+      next.add(key);
       try {
         sessionStorage.setItem(DISMISSED_KEY, JSON.stringify([...next]));
       } catch { /* sessionStorage may be unavailable in some environments */ }
@@ -109,8 +110,11 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onVi
   );
 
   const visibleAlerts = useMemo(
-    () => activeAlerts.filter(t => !dismissedAlerts.has(t.id)),
-    [activeAlerts, dismissedAlerts]
+    () => activeAlerts.filter(t =>
+      (t.noShowRequested && !dismissedEvents.has(`${t.id}:noShowRequest`)) ||
+      (t.refreshRequested && !dismissedEvents.has(`${t.id}:manualRefreshRequest`))
+    ),
+    [activeAlerts, dismissedEvents]
   );
 
   const monthName = currentDate.toLocaleString('default', { month: 'long' });
@@ -130,10 +134,12 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onVi
 
   const priorityEvents = selectedDayEvents.filter(ev =>
     (ev.type === 'noShowRequest' || ev.type === 'manualRefreshRequest') &&
-    !dismissedAlerts.has(ev.ticket.id)
+    !dismissedEvents.has(`${ev.ticket.id}:${ev.type}`)
   );
   const standardEvents = selectedDayEvents.filter(ev =>
-    ev.type !== 'noShowRequest' && ev.type !== 'manualRefreshRequest'
+    ev.type !== 'noShowRequest' &&
+    ev.type !== 'manualRefreshRequest' &&
+    !dismissedEvents.has(`${ev.ticket.id}:${ev.type}`)
   );
 
   const divider = isDarkMode ? 'border-white/[0.05]' : 'border-slate-100';
@@ -213,8 +219,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onVi
               const isSelected = d?.day === selectedDay;
               const MAX_SHOW = 2;
               const visibleEvents = d?.events.filter(ev =>
-                (ev.type !== 'noShowRequest' && ev.type !== 'manualRefreshRequest') ||
-                !dismissedAlerts.has(ev.ticket.id)
+                !dismissedEvents.has(`${ev.ticket.id}:${ev.type}`)
               ) ?? [];
               const shown = visibleEvents.slice(0, MAX_SHOW);
               const overflow = visibleEvents.length - MAX_SHOW;
@@ -322,7 +327,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onVi
                       <button
                         onClick={e => {
                           e.stopPropagation();
-                          dismissAlert(ev.ticket.id);
+                          dismissEvent(ev.ticket.id, ev.type);
                         }}
                         title="Acknowledge and hide"
                         className={`absolute top-2 right-2 w-5 h-5 flex items-center justify-center rounded-full transition-all ${isDarkMode ? 'text-slate-600 hover:text-slate-300 hover:bg-white/10' : 'text-slate-300 hover:text-slate-500 hover:bg-slate-200'}`}
@@ -339,26 +344,37 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onVi
             {standardEvents.length > 0 ? (
               <div className="p-4 flex flex-col gap-2">
                 {standardEvents.map((ev: CalendarEvent, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => onEditTicket(ev.ticket)}
-                    className={`w-full text-left p-3 rounded-xl border-l-4 transition-all ${EVENT_META[ev.type].border} ${isDarkMode ? 'bg-white/[0.03] hover:bg-white/[0.06]' : 'bg-slate-50 hover:bg-slate-100'}`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className={`text-[9px] font-black uppercase tracking-wider ${EVENT_META[ev.type].accent}`}>
-                        {EVENT_META[ev.type].label}
-                      </span>
-                      <button
-                        onClick={e => { e.stopPropagation(); if (ev.ticket.documentUrl) onViewDoc?.(ev.ticket.documentUrl); }}
-                        className={`text-[9px] font-mono font-bold transition-colors ${ev.ticket.documentUrl ? (isDarkMode ? 'text-slate-600 hover:text-brand' : 'text-slate-400 hover:text-brand') : `cursor-default ${subtle}`}`}
-                      >
-                        {ev.ticket.ticketNo}
-                      </button>
-                    </div>
-                    <p className={`text-[11px] font-black truncate ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
-                      #{ev.ticket.jobNumber} · {ev.ticket.street}
-                    </p>
-                  </button>
+                  <div key={idx} className={`relative rounded-xl border-l-4 transition-all ${EVENT_META[ev.type].border} ${isDarkMode ? 'bg-white/[0.03] hover:bg-white/[0.06]' : 'bg-slate-50 hover:bg-slate-100'}`}>
+                    <button
+                      onClick={() => onEditTicket(ev.ticket)}
+                      className="w-full text-left p-3 pr-8"
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className={`text-[9px] font-black uppercase tracking-wider ${EVENT_META[ev.type].accent}`}>
+                          {EVENT_META[ev.type].label}
+                        </span>
+                        <button
+                          onClick={e => { e.stopPropagation(); if (ev.ticket.documentUrl) onViewDoc?.(ev.ticket.documentUrl); }}
+                          className={`text-[9px] font-mono font-bold transition-colors ${ev.ticket.documentUrl ? (isDarkMode ? 'text-slate-600 hover:text-brand' : 'text-slate-400 hover:text-brand') : `cursor-default ${subtle}`}`}
+                        >
+                          {ev.ticket.ticketNo}
+                        </button>
+                      </div>
+                      <p className={`text-[11px] font-black truncate ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
+                        #{ev.ticket.jobNumber} · {ev.ticket.street}
+                      </p>
+                    </button>
+                    <button
+                      onClick={e => {
+                        e.stopPropagation();
+                        dismissEvent(ev.ticket.id, ev.type);
+                      }}
+                      title="Acknowledge and hide"
+                      className={`absolute top-2 right-2 w-5 h-5 flex items-center justify-center rounded-full transition-all ${isDarkMode ? 'text-slate-600 hover:text-slate-300 hover:bg-white/10' : 'text-slate-300 hover:text-slate-500 hover:bg-slate-200'}`}
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                  </div>
                 ))}
               </div>
             ) : selectedDay !== null && priorityEvents.length === 0 && (
