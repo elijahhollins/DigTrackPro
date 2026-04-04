@@ -65,6 +65,9 @@ const SELECTION_RADIUS_NORM     = 0.06;  // max distance to hit an annotation ba
 const TAP_DISTANCE_NORM         = 0.015; // max movement to be treated as a tap (stamp)
 const MIN_SHAPE_SIZE_NORM       = 0.005; // min drag distance to commit a shape
 
+const generateTempId    = () => 'tmp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+const isPendingAnnotation = (id: string) => id.startsWith('tmp-');
+
 type ToolDef   = { id: ToolType; icon: React.ReactNode; title: string };
 type ToolGroup = { label: string; tools: ToolDef[] };
 
@@ -482,7 +485,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     const { id, createdAt: _c, ...rest } = entry;
     redoStackRef.current.push(rest);
     setCanUndo(undoStackRef.current.length > 0); setCanRedo(true);
-    if (id.startsWith('tmp-')) {
+    if (isPendingAnnotation(id)) {
       // Still staged — just remove locally, no API call needed
       setPendingAnnotations(prev => prev.filter(a => a.id !== id));
     } else {
@@ -498,8 +501,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     const entry = redoStackRef.current.pop();
     if (!entry) return;
     setCanRedo(redoStackRef.current.length > 0);
-    const tempId = 'tmp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
-    const staged: PdfAnnotation = { ...entry, id: tempId, createdAt: Date.now() };
+    const staged: PdfAnnotation = { ...entry, id: generateTempId(), createdAt: Date.now() };
     setPendingAnnotations(prev => [...prev, staged]);
     undoStackRef.current.push(staged);
     setCanUndo(true);
@@ -524,9 +526,8 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   const commitAnnotation = useCallback((data: AnyAnnotationData, toolOverride?: ToolType) => {
     const tool      = toolOverride ?? currentTool;
     const finalData = opacity < 1 ? { ...data, opacity } : data;
-    const tempId    = 'tmp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
     const staged: PdfAnnotation = {
-      id: tempId, createdAt: Date.now(),
+      id: generateTempId(), createdAt: Date.now(),
       printId: print.id, companyId: sessionUser.companyId,
       authorId: sessionUser.id, authorName: sessionUser.name,
       pageNumber, toolType: tool, color: currentColor, strokeWidth,
@@ -541,7 +542,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
 
   // Delete annotation — handle both staged (tmp-) and persisted items
   const handleDeleteAnnotation = useCallback(async (id: string) => {
-    if (id.startsWith('tmp-')) {
+    if (isPendingAnnotation(id)) {
       setPendingAnnotations(prev => prev.filter(a => a.id !== id));
       setSelectedAnnId(prev => prev === id ? null : prev);
       undoStackRef.current = undoStackRef.current.filter(a => a.id !== id);
@@ -559,29 +560,37 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     }
   }, []);
 
-  // Persist all staged annotations to DB
+  // Persist all staged annotations to DB in parallel
   const handleSave = useCallback(async () => {
     if (pendingAnnotations.length === 0) return;
     setIsSaving(true);
     const toSave = [...pendingAnnotations];
+    const results = await Promise.allSettled(
+      toSave.map(p => {
+        const { id: _tid, createdAt: _c, ...rest } = p;
+        return apiService.saveAnnotation(rest as Omit<PdfAnnotation, 'id' | 'createdAt'>);
+      })
+    );
     const savedItems: PdfAnnotation[] = [];
-    const errors: string[] = [];
-    for (const p of toSave) {
-      const { id: _tid, createdAt: _c, ...rest } = p;
-      try {
-        const result = await apiService.saveAnnotation(rest);
-        savedItems.push(result);
-      } catch (e: unknown) {
-        errors.push(e instanceof Error ? e.message : 'unknown');
+    const failedIds  = new Set<string>();
+    const savedMap   = new Map<string, PdfAnnotation>();
+    results.forEach((result, i) => {
+      if (result.status === 'fulfilled') {
+        savedItems.push(result.value);
+        savedMap.set(toSave[i].id, result.value);
+      } else {
+        failedIds.add(toSave[i].id);
       }
-    }
-    setPendingAnnotations([]);
+    });
+    // Drop successfully-saved staging entries; keep failed ones so the user can retry
+    setPendingAnnotations(prev => prev.filter(p => failedIds.has(p.id)));
     setAnnotations(prev => [...prev, ...savedItems]);
-    // Clear undo/redo stacks — temp IDs are no longer valid after save
-    undoStackRef.current = [];
-    redoStackRef.current = [];
-    setCanUndo(false); setCanRedo(false);
-    if (errors.length > 0) setActionErr(`${errors.length} annotation(s) failed to save`);
+    // Rebuild undo stack: replace temp IDs that saved successfully with real IDs
+    undoStackRef.current = undoStackRef.current
+      .map(entry => savedMap.get(entry.id) ?? entry)
+      .filter(entry => !isPendingAnnotation(entry.id) || failedIds.has(entry.id));
+    setCanUndo(undoStackRef.current.length > 0);
+    if (failedIds.size > 0) setActionErr(`${failedIds.size} annotation(s) failed to save`);
     setIsSaving(false);
   }, [pendingAnnotations]);
 
@@ -767,6 +776,14 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       .map(([id, name]) => ({ id, name })),
     [allDisplayAnnotations]
   );
+  // Pre-compute a stable first-seen color per author to avoid O(n*m) lookups in JSX
+  const authorColorMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const ann of allDisplayAnnotations) {
+      if (!map.has(ann.authorId)) map.set(ann.authorId, ann.color);
+    }
+    return map;
+  }, [allDisplayAnnotations]);
   const pageAnnotations = allDisplayAnnotations.filter(
     a => a.pageNumber === pageNumber && (filterAuthorId === null || a.authorId === filterAuthorId)
   );
@@ -899,7 +916,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
               All
             </button>
             {allAuthors.map(a => {
-              const color = allDisplayAnnotations.find(ann => ann.authorId === a.id)?.color ?? '#6b7280';
+              const color = authorColorMap.get(a.id) ?? '#6b7280';
               return (
                 <button key={a.id}
                   onClick={() => setFilterAuthorId(prev => prev === a.id ? null : a.id)}
