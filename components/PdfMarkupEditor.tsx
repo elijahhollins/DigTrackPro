@@ -947,8 +947,10 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
 
   // Touch-based pan for mobile: attach direct touch listeners on the canvas container.
   // iOS Safari can fire pointercancel instead of pointermove when setPointerCapture is
-  // combined with touchAction:'none', making the pointer-event pan unreliable. Using
-  // touch events directly is more robust for single-finger scroll in pan mode.
+  // combined with touchAction:'none', making the pointer-event pan unreliable.
+  // Single-finger touch ALWAYS scrolls regardless of the active tool — drawing only
+  // happens via pen/stylus (pointerType==='pen') or mouse events.  Scroll is suppressed
+  // only while a pen/mouse draw gesture is actively in progress (drawingPtrRef !== null).
   useEffect(() => {
     if (isLoadingPdf) return;
     const container = containerRef.current;
@@ -958,7 +960,8 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     let startX = 0, startY = 0, startSL = 0, startST = 0, panning = false;
 
     const onTouchStart = (e: TouchEvent) => {
-      if (e.touches.length !== 1 || currentToolRef.current !== 'pan') return;
+      // Only single-finger scroll; don't pan if a pen/mouse draw is in progress.
+      if (e.touches.length !== 1 || drawingPtrRef.current !== null) return;
       panning = true;
       startX  = e.touches[0].clientX;
       startY  = e.touches[0].clientY;
@@ -1005,8 +1008,9 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       return;
     }
 
-    // Single-finger touch in pan mode: the touch listener handles scrolling — skip pointer capture.
-    if (currentTool === 'pan' && e.pointerType === 'touch') return;
+    // Single-finger touch is handled exclusively by the touch scroll listener.
+    // Pointer capture is only used for pen/stylus and mouse.
+    if (e.pointerType === 'touch') return;
 
     if (drawingPtrRef.current !== null && drawingPtrRef.current !== e.pointerId) return;
     e.currentTarget.setPointerCapture(e.pointerId);
