@@ -85,7 +85,12 @@ export interface PdfAnnotation {
   authorId: string;
   authorName: string;
   pageNumber: number;
-  toolType: 'pen' | 'text' | 'arrow' | 'rectangle' | 'circle' | 'line';
+  toolType:
+    | 'select' | 'pan'
+    | 'pen' | 'highlighter'
+    | 'text' | 'callout' | 'stamp'
+    | 'arrow' | 'double_arrow' | 'line' | 'dashed_line' | 'dimension'
+    | 'rectangle' | 'filled_rectangle' | 'circle' | 'filled_circle' | 'cloud';
   color: string;
   strokeWidth: number;
   data: Record<string, unknown>;
