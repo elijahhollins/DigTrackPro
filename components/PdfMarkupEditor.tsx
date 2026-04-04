@@ -56,6 +56,7 @@ const COLORS = [
 ];
 const STROKE_WIDTHS = [1, 2, 4, 6, 10];
 const FONT_SIZES    = [10, 12, 14, 18, 24, 32, 48];
+const RAINBOW_GRADIENT = 'conic-gradient(#ef4444,#eab308,#22c55e,#3b82f6,#8b5cf6,#ec4899,#ef4444)';
 
 // Thresholds are in normalized 0–1 canvas coordinates
 const MAX_UNDO_STACK_SIZE       = 50;
@@ -1295,7 +1296,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
             <label
               className={`relative w-7 h-7 rounded-full shrink-0 overflow-hidden cursor-pointer transition-transform hover:scale-110 active:scale-95 ${!COLORS.includes(currentColor) ? 'ring-2 ring-white ring-offset-1 ring-offset-slate-900 scale-110' : ''}`}
               title="Custom color"
-              style={{ background: COLORS.includes(currentColor) ? 'conic-gradient(#ef4444,#eab308,#22c55e,#3b82f6,#8b5cf6,#ec4899,#ef4444)' : currentColor, border: '1.5px solid rgba(255,255,255,0.25)' }}>
+              style={{ background: COLORS.includes(currentColor) ? RAINBOW_GRADIENT : currentColor, border: '1.5px solid rgba(255,255,255,0.25)' }}>
               <input type="color" value={currentColor} onChange={e => setCurrentColor(e.target.value)}
                 className="opacity-0 absolute inset-0 w-full h-full cursor-pointer" />
             </label>
@@ -1384,7 +1385,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
                 <label
                   className={`relative w-6 h-6 rounded-full shrink-0 overflow-hidden cursor-pointer transition-transform hover:scale-110 active:scale-95 ${!COLORS.includes(selectedAnn.color) ? 'ring-2 ring-white ring-offset-1 ring-offset-slate-900 scale-110' : ''}`}
                   title="Custom color"
-                  style={{ background: COLORS.includes(selectedAnn.color) ? 'conic-gradient(#ef4444,#eab308,#22c55e,#3b82f6,#8b5cf6,#ec4899,#ef4444)' : selectedAnn.color, border: '1.5px solid rgba(255,255,255,0.25)' }}>
+                  style={{ background: COLORS.includes(selectedAnn.color) ? RAINBOW_GRADIENT : selectedAnn.color, border: '1.5px solid rgba(255,255,255,0.25)' }}>
                   <input type="color" value={selectedAnn.color}
                     onChange={e => { setCurrentColor(e.target.value); updateColor(selectedAnn.id, e.target.value); }}
                     className="opacity-0 absolute inset-0 w-full h-full cursor-pointer" />
