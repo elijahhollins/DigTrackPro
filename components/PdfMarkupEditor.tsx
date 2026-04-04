@@ -527,7 +527,7 @@ const applyHandleDrag = (
     const curAngle   = Math.atan2(curNorm.y - cy, curNorm.x - cx);
     const delta = (curAngle - startAngle) * 180 / Math.PI;
     const newRotation = ((rotation + delta) % 360 + 360) % 360;
-    return { ...origData, rotation: Math.round(newRotation * 10) / 10 };
+    return { ...origData, rotation: Math.round(newRotation) };
   }
 
   // For non-rotation handles on a rotated annotation, unrotate the cursor position
@@ -1593,14 +1593,20 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
                       </svg>
                     </button>
                     <input
-                      type="number" min="0" max="359" step="1"
+                      type="number" step="1"
                       value={Math.round((selectedAnn.data as AnyAnnotationData).rotation ?? 0)}
                       onChange={e => {
-                        const v = ((parseInt(e.target.value, 10) % 360) + 360) % 360;
-                        if (!isNaN(v)) updateAnnotation(selectedAnn.id, { ...(selectedAnn.data as AnyAnnotationData), rotation: v });
+                        const parsed = parseInt(e.target.value, 10);
+                        const v = ((( isNaN(parsed) ? 0 : parsed) % 360) + 360) % 360;
+                        updateAnnotation(selectedAnn.id, { ...(selectedAnn.data as AnyAnnotationData), rotation: v });
+                      }}
+                      onBlur={e => {
+                        const parsed = parseInt(e.target.value, 10);
+                        const v = (((isNaN(parsed) ? 0 : parsed) % 360) + 360) % 360;
+                        updateAnnotation(selectedAnn.id, { ...(selectedAnn.data as AnyAnnotationData), rotation: v });
                       }}
                       className="w-12 h-8 bg-slate-800 text-white rounded-lg text-center text-[11px] font-black border border-white/10 outline-none focus:border-emerald-500 shrink-0"
-                      title="Rotation in degrees (0–359)"
+                      title="Rotation in degrees"
                     />
                     <span className="text-[9px] text-slate-500 font-black shrink-0">°</span>
                     <button onClick={() => {
