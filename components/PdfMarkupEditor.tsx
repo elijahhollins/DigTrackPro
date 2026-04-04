@@ -56,6 +56,7 @@ const COLORS = [
 ];
 const STROKE_WIDTHS = [1, 2, 4, 6, 10];
 const FONT_SIZES    = [10, 12, 14, 18, 24, 32, 48];
+const RAINBOW_GRADIENT = 'conic-gradient(#ef4444,#eab308,#22c55e,#3b82f6,#8b5cf6,#ec4899,#ef4444)';
 
 // Thresholds are in normalized 0–1 canvas coordinates
 const MAX_UNDO_STACK_SIZE       = 50;
@@ -107,7 +108,7 @@ const TOOL_GROUPS: ToolGroup[] = [
   ]},
   { label: 'Lines', tools: [
     { id: 'line',         icon: SvgIcon('M4 20L20 4'),                                   title: 'Line' },
-    { id: 'dashed_line',  icon: SvgIcon('M4 20L20 4'),                                   title: 'Dashed Line' },
+    { id: 'dashed_line',  icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><line x1="4" y1="20" x2="20" y2="4" strokeWidth="2" strokeLinecap="round" strokeDasharray="3 2" /></svg>, title: 'Dashed Line' },
     { id: 'arrow',        icon: SvgIcon('M14 5l7 7m0 0l-7 7m7-7H3'),                     title: 'Arrow' },
     { id: 'double_arrow', icon: SvgIcon('M7 16l-4-4m0 0l4-4m-4 4h18m0 0l-4 4m4-4l-4-4'), title: 'Double Arrow' },
     { id: 'dimension',    icon: SvgIcon('M8 9l4-4 4 4m0 6l-4 4-4-4'),                    title: 'Dimension / Measurement' },
@@ -213,12 +214,16 @@ const renderAnnotationSvg = (
     }
     case 'callout': {
       if (d.x1 === undefined) return null;
-      const ax = (d.x1 ?? 0) * w,  ay = (d.y1 ?? 0) * h;
-      const bx = (d.x2 ?? 0) * w,  by = (d.y2 ?? 0) * h;
-      const fs   = (d.fontSize as number | undefined) ?? 14;
+      // x1,y1 = text-box center (draw start); x2,y2 = arrow tip (drag end)
+      const bx = (d.x1 ?? 0) * w,  by = (d.y1 ?? 0) * h;
+      const ax = (d.x2 ?? 0) * w,  ay = (d.y2 ?? 0) * h;
+      // Scale box dimensions proportionally with canvas width so the callout looks
+      // consistent at any zoom level (600 ≈ typical PDF page width at base zoom).
+      const sf   = w / 600;
+      const fs   = ((d.fontSize as number | undefined) ?? 14) * sf;
       const txt  = (d.text as string | undefined) ?? '';
-      const estW = Math.max(80, txt.length * (fs * 0.62) + 24);
-      const bx1  = bx - estW / 2, by1 = by - fs - 14, by2 = by + 10;
+      const estW = Math.max(80 * sf, txt.length * (fs * 0.62) + 24 * sf);
+      const bx1  = bx - estW / 2, by1 = by - fs - 14 * sf, by2 = by + 10 * sf;
       return (
         <g key={key} opacity={op}>
           <defs>
@@ -226,12 +231,12 @@ const renderAnnotationSvg = (
               <polygon points="0 0, 8 3, 0 6" fill={c} />
             </marker>
           </defs>
-          <line x1={ax} y1={ay} x2={bx} y2={by2 - 2}
+          <line x1={bx} y1={by2 - 2} x2={ax} y2={ay}
             stroke={c} strokeWidth={sw} markerEnd={`url(#${aid})`} />
           <rect x={bx1} y={by1} width={estW} height={by2 - by1}
             stroke={c} strokeWidth={sw} fill={c} fillOpacity={0.1} rx="4" />
           {txt && (
-            <text x={bx1 + 10} y={by - 2} fill={c} fontSize={fs}
+            <text x={bx1 + 10 * sf} y={by - 2} fill={c} fontSize={fs}
               fontFamily="Arial, sans-serif" fontWeight="bold">{txt}</text>
           )}
         </g>
@@ -376,7 +381,7 @@ const getAnnotationAnchor = (ann: PdfAnnotation): { x: number; y: number } | nul
   if (ann.toolType === 'text' || ann.toolType === 'stamp')
     return d.x !== undefined ? { x: d.x ?? 0, y: d.y ?? 0 } : null;
   if (ann.toolType === 'callout')
-    return d.x2 !== undefined ? { x: d.x2 ?? 0, y: d.y2 ?? 0 } : null;
+    return d.x1 !== undefined ? { x: d.x1 ?? 0, y: d.y1 ?? 0 } : null;
   return d.x1 !== undefined ? { x: d.x1 ?? 0, y: d.y1 ?? 0 } : null;
 };
 
@@ -717,6 +722,25 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     }
   }, []);
 
+  const updateColor = useCallback((id: string, color: string) => {
+    if (isPendingAnnotation(id)) {
+      setPendingAnnotations(prev => prev.map(a => a.id === id ? { ...a, color } : a));
+      undoStackRef.current = undoStackRef.current.map(e => e.id === id ? { ...e, color } : e);
+    } else {
+      const target = annotationsRef.current.find(a => a.id === id);
+      if (!target) return;
+      const newId = generateTempId();
+      const promoted: PdfAnnotation = { ...target, id: newId, color };
+      setAnnotations(prev => prev.filter(a => a.id !== id));
+      setPendingAnnotations(prev => [...prev, promoted]);
+      undoStackRef.current.push(promoted);
+      if (undoStackRef.current.length > MAX_UNDO_STACK_SIZE) undoStackRef.current.shift();
+      redoStackRef.current = [];
+      setCanUndo(true); setCanRedo(false);
+      setSelectedAnnId(newId);
+    }
+  }, []);
+
   // Persist all staged annotations to DB in parallel
   const handleSave = useCallback(async () => {
     if (pendingAnnotations.length === 0) return;
@@ -1012,12 +1036,12 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     }
     setPenPoints([]); setPreviewData(null);
 
-    // Callout: show text input at endpoint
+    // Callout: show text input at the text-box location (draw start = x1,y1)
     if (currentTool === 'callout') {
       const container = containerRef.current;
       if (!container) { setDrawStart(null); return; }
       const r = container.getBoundingClientRect();
-      setTextInput({ px: e.clientX - r.left, py: e.clientY - r.top, rx: coords.x, ry: coords.y, calloutData: data });
+      setTextInput({ px: e.clientX - r.left, py: e.clientY - r.top, rx: drawStart.x, ry: drawStart.y, calloutData: data });
       setTextValue(''); setDrawStart(null);
       setTimeout(() => textFieldRef.current?.focus(), 30);
       return;
@@ -1058,8 +1082,9 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       placed = commitAnnotation({ x: textInput.rx, y: textInput.ry, text: textValue.trim(), fontSize }, 'text');
     }
     setTextValue('');
-    // Keep the text/callout tool active so the user can place another label.
     setSelectedAnnId(placed.id);
+    // After placing a callout, auto-switch to Select so handles are immediately visible and draggable
+    if (textInput.calloutData) setCurrentTool('select');
   }, [textInput, textValue, fontSize, commitAnnotation]);
 
   // Derived
@@ -1273,6 +1298,13 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
                 className={`w-7 h-7 rounded-full shrink-0 transition-transform hover:scale-110 active:scale-95 ${currentColor === c ? 'ring-2 ring-white ring-offset-1 ring-offset-slate-900 scale-110' : ''}`}
                 style={{ backgroundColor: c, border: (c === '#ffffff' || c === '#000000') ? '1px solid rgba(255,255,255,0.2)' : undefined }} />
             ))}
+            <label
+              className={`relative w-7 h-7 rounded-full shrink-0 overflow-hidden cursor-pointer transition-transform hover:scale-110 active:scale-95 ${!COLORS.includes(currentColor) ? 'ring-2 ring-white ring-offset-1 ring-offset-slate-900 scale-110' : ''}`}
+              title="Custom color"
+              style={{ background: COLORS.includes(currentColor) ? RAINBOW_GRADIENT : currentColor, border: '1.5px solid rgba(255,255,255,0.25)' }}>
+              <input type="color" value={currentColor} onChange={e => setCurrentColor(e.target.value)}
+                className="opacity-0 absolute inset-0 w-full h-full cursor-pointer" />
+            </label>
           </div>
 
           <div className="w-px h-6 bg-white/10 shrink-0" />
@@ -1339,12 +1371,33 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
             <>
               <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest shrink-0">
                 {selectedAnn.toolType.replace(/_/g, ' ')} selected
-                {getHandlesNorm(selectedAnn).length > 0 && getHandlesNorm(selectedAnn).some(h => !h.isMoveHandle)
-                  ? ' — drag blue dots to reshape, purple dot to move'
-                  : getHandlesNorm(selectedAnn).length > 0
-                    ? ' — drag purple dot to move'
-                    : ''}
+                {selectedAnn.toolType === 'callout' && getHandlesNorm(selectedAnn).length >= 2
+                  ? ' — drag amber dot to repoint arrow · blue dot to move text box'
+                  : getHandlesNorm(selectedAnn).length > 0 && getHandlesNorm(selectedAnn).some(h => !h.isMoveHandle)
+                    ? ' — drag blue dots to reshape, purple dot to move'
+                    : getHandlesNorm(selectedAnn).length > 0
+                      ? ' — drag purple dot to move'
+                      : ''}
               </span>
+
+              {/* Color picker for selected annotation */}
+              <div className="w-px h-6 bg-white/10 shrink-0" />
+              <span className="text-[9px] text-slate-400 font-black uppercase tracking-widest shrink-0">Color</span>
+              <div className="flex items-center gap-1 shrink-0">
+                {COLORS.map(c => (
+                  <button key={c} onClick={() => { setCurrentColor(c); updateColor(selectedAnn.id, c); }} title={c}
+                    className={`w-6 h-6 rounded-full shrink-0 transition-transform hover:scale-110 active:scale-95 ${selectedAnn.color === c ? 'ring-2 ring-white ring-offset-1 ring-offset-slate-900 scale-110' : ''}`}
+                    style={{ backgroundColor: c, border: (c === '#ffffff' || c === '#000000') ? '1px solid rgba(255,255,255,0.2)' : undefined }} />
+                ))}
+                <label
+                  className={`relative w-6 h-6 rounded-full shrink-0 overflow-hidden cursor-pointer transition-transform hover:scale-110 active:scale-95 ${!COLORS.includes(selectedAnn.color) ? 'ring-2 ring-white ring-offset-1 ring-offset-slate-900 scale-110' : ''}`}
+                  title="Custom color"
+                  style={{ background: COLORS.includes(selectedAnn.color) ? RAINBOW_GRADIENT : selectedAnn.color, border: '1.5px solid rgba(255,255,255,0.25)' }}>
+                  <input type="color" value={selectedAnn.color}
+                    onChange={e => { setCurrentColor(e.target.value); updateColor(selectedAnn.id, e.target.value); }}
+                    className="opacity-0 absolute inset-0 w-full h-full cursor-pointer" />
+                </label>
+              </div>
 
               {/* Font size picker for selected text / callout annotations */}
               {(selectedAnn.toolType === 'text' || selectedAnn.toolType === 'callout') && (
@@ -1409,10 +1462,14 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       {/* Hint bar when drawing line/shape tools */}
       {!isNavTool && (
         <div className="flex items-center gap-2 px-3 py-1 border-b border-white/5 bg-slate-950/40 shrink-0">
+          <span className="text-[8px] text-brand/80 font-black uppercase tracking-widest shrink-0">{currentTool.replace(/_/g, ' ')}</span>
+          <span className="text-[8px] text-slate-600 font-black uppercase tracking-widest">·</span>
           <span className="text-[8px] text-slate-600 font-black uppercase tracking-widest">
-            {currentTool !== 'pen' && currentTool !== 'highlighter' && currentTool !== 'text' && currentTool !== 'callout' && currentTool !== 'stamp'
-              ? <>Tap again to deactivate · Hold <kbd className="text-slate-500 font-mono">⇧ Shift</kbd> to constrain / snap to 45°</>
-              : <>Tap the tool icon again to stop drawing</>
+            {currentTool === 'callout'
+              ? <>Drag from arrow tip → text box · tap tool to deactivate</>
+              : currentTool !== 'pen' && currentTool !== 'highlighter' && currentTool !== 'text' && currentTool !== 'stamp'
+                ? <>Tap again to deactivate · Hold <kbd className="text-slate-500 font-mono">⇧ Shift</kbd> to constrain / snap to 45°</>
+                : <>Tap the tool icon again to stop drawing</>
             }
           </span>
         </div>
@@ -1506,15 +1563,24 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
                     {handles.map(h => {
                       const cx = h.nx * canvasSize.width;
                       const cy = h.ny * canvasSize.height;
+                      const isCalloutArrowTip = selectedAnn.toolType === 'callout' && !h.isMoveHandle && h.index === 1;
+                      const handleFill = h.isMoveHandle ? '#6366f1' : isCalloutArrowTip ? '#f59e0b' : '#3b82f6';
+                      const handleTitle = h.isMoveHandle
+                        ? 'Move annotation'
+                        : selectedAnn.toolType === 'callout'
+                          ? h.index === 0 ? 'Text box — drag to reposition' : 'Arrow tip — drag to repoint'
+                          : selectedAnn.toolType === 'arrow' || selectedAnn.toolType === 'double_arrow'
+                            ? h.index === 0 ? 'Line start — drag to adjust' : 'Arrow head — drag to adjust'
+                            : `Endpoint ${h.index + 1} — drag to reshape`;
                       return (
                         <g key={`handle-${h.index}`}>
                           {/* Hit-area circle (invisible, larger) */}
                           <circle cx={cx} cy={cy} r="18" fill="transparent">
-                            <title>{h.isMoveHandle ? 'Move annotation' : `Endpoint ${h.index + 1} — drag to reshape`}</title>
+                            <title>{handleTitle}</title>
                           </circle>
                           {/* Outer white ring */}
                           <circle cx={cx} cy={cy} r={h.isMoveHandle ? 9 : 8}
-                            fill={h.isMoveHandle ? '#6366f1' : '#3b82f6'} stroke="white" strokeWidth="2.5" />
+                            fill={handleFill} stroke="white" strokeWidth="2.5" />
                           {/* Move handle shows a cross icon */}
                           {h.isMoveHandle && (
                             <g stroke="white" strokeWidth="1.5" strokeLinecap="round">
@@ -1568,6 +1634,51 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
                 renderAnnotationSvg({ toolType: currentTool, color: currentColor, strokeWidth, data: previewData },
                   canvasSize.width, canvasSize.height, 'preview')
               }
+
+              {/* Start-point crosshair while drawing lines / callout / shapes */}
+              {isDrawing && drawStart && !['pen', 'highlighter', 'text', 'stamp', 'select', 'pan'].includes(currentTool) && (
+                <g>
+                  <circle cx={drawStart.x * canvasSize.width} cy={drawStart.y * canvasSize.height}
+                    r="5" fill={currentColor} stroke="white" strokeWidth="2" opacity="0.9" />
+                  <line x1={drawStart.x * canvasSize.width - 10} y1={drawStart.y * canvasSize.height}
+                    x2={drawStart.x * canvasSize.width + 10} y2={drawStart.y * canvasSize.height}
+                    stroke="white" strokeWidth="1.5" strokeLinecap="round" opacity="0.6" />
+                  <line x1={drawStart.x * canvasSize.width} y1={drawStart.y * canvasSize.height - 10}
+                    x2={drawStart.x * canvasSize.width} y2={drawStart.y * canvasSize.height + 10}
+                    stroke="white" strokeWidth="1.5" strokeLinecap="round" opacity="0.6" />
+                </g>
+              )}
+
+              {/* Angle badge for line-type tools while drawing */}
+              {isDrawing && previewData && (
+                currentTool === 'line' || currentTool === 'dashed_line' ||
+                currentTool === 'arrow' || currentTool === 'double_arrow' ||
+                currentTool === 'dimension' || currentTool === 'callout'
+              ) && (() => {
+                const x2px = (previewData.x2 ?? 0) * canvasSize.width;
+                const y2px = (previewData.y2 ?? 0) * canvasSize.height;
+                const dx = ((previewData.x2 ?? 0) - (previewData.x1 ?? 0)) * canvasSize.width;
+                const dy = ((previewData.y2 ?? 0) - (previewData.y1 ?? 0)) * canvasSize.height;
+                const angleDeg = ((Math.round(Math.atan2(dy, dx) * 180 / Math.PI) % 360) + 360) % 360;
+                const bx = Math.min(x2px + 12, canvasSize.width - 52);
+                const by = y2px > 20 ? y2px - 8 : y2px + 26;
+                return (
+                  <g opacity="0.92">
+                    <rect x={bx} y={by - 13} width={44} height={16} rx="4" fill="rgba(0,0,0,0.72)" />
+                    <text x={bx + 5} y={by - 1} fontSize="11" fill="white" fontFamily="monospace" fontWeight="bold">
+                      {angleDeg}°
+                    </text>
+                  </g>
+                );
+              })()}
+
+              {/* Ghost callout preview while the text input is open */}
+              {textInput && textInput.calloutData && (
+                renderAnnotationSvg({
+                  toolType: 'callout', color: currentColor, strokeWidth,
+                  data: { ...textInput.calloutData, text: textValue.trim() || '\u00a0', fontSize },
+                }, canvasSize.width, canvasSize.height, 'callout-ghost')
+              )}
             </svg>
 
             {textInput && (
@@ -1582,8 +1693,16 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
                   if (e.key === 'Escape') { setTextInput(null); setTextValue(''); }
                 }}
                 className="absolute bg-black/50 backdrop-blur rounded px-2 py-1 border border-dashed outline-none z-10 font-bold"
-                style={{ left: textInput.px, top: textInput.py - 16, color: currentColor, borderColor: currentColor, fontSize: fontSize + 'px', minWidth: '160px' }}
-                placeholder="Type, then Enter…"
+                style={{
+                  left: textInput.calloutData
+                    ? Math.min(canvasSize.width - 172, Math.max(4, textInput.rx * canvasSize.width - 80))
+                    : textInput.px,
+                  top: textInput.calloutData
+                    ? Math.min(canvasSize.height - 40, Math.max(4, textInput.ry * canvasSize.height - fontSize - 14))
+                    : textInput.py - 16,
+                  color: currentColor, borderColor: currentColor, fontSize: fontSize + 'px', minWidth: '160px',
+                }}
+                placeholder={textInput.calloutData ? 'Callout text, then Enter…' : 'Type, then Enter…'}
               />
             )}
           </div>
