@@ -1366,11 +1366,13 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
             <>
               <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest shrink-0">
                 {selectedAnn.toolType.replace(/_/g, ' ')} selected
-                {getHandlesNorm(selectedAnn).length > 0 && getHandlesNorm(selectedAnn).some(h => !h.isMoveHandle)
-                  ? ' — drag blue dots to reshape, purple dot to move'
-                  : getHandlesNorm(selectedAnn).length > 0
-                    ? ' — drag purple dot to move'
-                    : ''}
+                {selectedAnn.toolType === 'callout' && getHandlesNorm(selectedAnn).length >= 2
+                  ? ' — drag amber dot to repoint arrow · blue dot to move text box'
+                  : getHandlesNorm(selectedAnn).length > 0 && getHandlesNorm(selectedAnn).some(h => !h.isMoveHandle)
+                    ? ' — drag blue dots to reshape, purple dot to move'
+                    : getHandlesNorm(selectedAnn).length > 0
+                      ? ' — drag purple dot to move'
+                      : ''}
               </span>
 
               {/* Color picker for selected annotation */}
@@ -1458,9 +1460,11 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
           <span className="text-[8px] text-brand/80 font-black uppercase tracking-widest shrink-0">{currentTool.replace(/_/g, ' ')}</span>
           <span className="text-[8px] text-slate-600 font-black uppercase tracking-widest">·</span>
           <span className="text-[8px] text-slate-600 font-black uppercase tracking-widest">
-            {currentTool !== 'pen' && currentTool !== 'highlighter' && currentTool !== 'text' && currentTool !== 'callout' && currentTool !== 'stamp'
-              ? <>Tap again to deactivate · Hold <kbd className="text-slate-500 font-mono">⇧ Shift</kbd> to constrain / snap to 45°</>
-              : <>Tap the tool icon again to stop drawing</>
+            {currentTool === 'callout'
+              ? <>Drag from arrow tip → text box · tap tool to deactivate</>
+              : currentTool !== 'pen' && currentTool !== 'highlighter' && currentTool !== 'text' && currentTool !== 'stamp'
+                ? <>Tap again to deactivate · Hold <kbd className="text-slate-500 font-mono">⇧ Shift</kbd> to constrain / snap to 45°</>
+                : <>Tap the tool icon again to stop drawing</>
             }
           </span>
         </div>
@@ -1554,15 +1558,24 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
                     {handles.map(h => {
                       const cx = h.nx * canvasSize.width;
                       const cy = h.ny * canvasSize.height;
+                      const isCalloutArrowTip = selectedAnn.toolType === 'callout' && !h.isMoveHandle && h.index === 0;
+                      const handleFill = h.isMoveHandle ? '#6366f1' : isCalloutArrowTip ? '#f59e0b' : '#3b82f6';
+                      const handleTitle = h.isMoveHandle
+                        ? 'Move annotation'
+                        : selectedAnn.toolType === 'callout'
+                          ? h.index === 0 ? 'Arrow tip — drag to repoint' : 'Text box — drag to reposition'
+                          : selectedAnn.toolType === 'arrow' || selectedAnn.toolType === 'double_arrow'
+                            ? h.index === 0 ? 'Line start — drag to adjust' : 'Arrow head — drag to adjust'
+                            : `Endpoint ${h.index + 1} — drag to reshape`;
                       return (
                         <g key={`handle-${h.index}`}>
                           {/* Hit-area circle (invisible, larger) */}
                           <circle cx={cx} cy={cy} r="18" fill="transparent">
-                            <title>{h.isMoveHandle ? 'Move annotation' : `Endpoint ${h.index + 1} — drag to reshape`}</title>
+                            <title>{handleTitle}</title>
                           </circle>
                           {/* Outer white ring */}
                           <circle cx={cx} cy={cy} r={h.isMoveHandle ? 9 : 8}
-                            fill={h.isMoveHandle ? '#6366f1' : '#3b82f6'} stroke="white" strokeWidth="2.5" />
+                            fill={handleFill} stroke="white" strokeWidth="2.5" />
                           {/* Move handle shows a cross icon */}
                           {h.isMoveHandle && (
                             <g stroke="white" strokeWidth="1.5" strokeLinecap="round">
@@ -1616,6 +1629,51 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
                 renderAnnotationSvg({ toolType: currentTool, color: currentColor, strokeWidth, data: previewData },
                   canvasSize.width, canvasSize.height, 'preview')
               }
+
+              {/* Start-point crosshair while drawing lines / callout / shapes */}
+              {isDrawing && drawStart && !['pen', 'highlighter', 'text', 'stamp', 'select', 'pan'].includes(currentTool) && (
+                <g>
+                  <circle cx={drawStart.x * canvasSize.width} cy={drawStart.y * canvasSize.height}
+                    r="5" fill={currentColor} stroke="white" strokeWidth="2" opacity="0.9" />
+                  <line x1={drawStart.x * canvasSize.width - 10} y1={drawStart.y * canvasSize.height}
+                    x2={drawStart.x * canvasSize.width + 10} y2={drawStart.y * canvasSize.height}
+                    stroke="white" strokeWidth="1.5" strokeLinecap="round" opacity="0.6" />
+                  <line x1={drawStart.x * canvasSize.width} y1={drawStart.y * canvasSize.height - 10}
+                    x2={drawStart.x * canvasSize.width} y2={drawStart.y * canvasSize.height + 10}
+                    stroke="white" strokeWidth="1.5" strokeLinecap="round" opacity="0.6" />
+                </g>
+              )}
+
+              {/* Angle badge for line-type tools while drawing */}
+              {isDrawing && previewData && (
+                currentTool === 'line' || currentTool === 'dashed_line' ||
+                currentTool === 'arrow' || currentTool === 'double_arrow' ||
+                currentTool === 'dimension' || currentTool === 'callout'
+              ) && (() => {
+                const x2px = (previewData.x2 ?? 0) * canvasSize.width;
+                const y2px = (previewData.y2 ?? 0) * canvasSize.height;
+                const dx = ((previewData.x2 ?? 0) - (previewData.x1 ?? 0)) * canvasSize.width;
+                const dy = ((previewData.y2 ?? 0) - (previewData.y1 ?? 0)) * canvasSize.height;
+                const angleDeg = ((Math.round(Math.atan2(dy, dx) * 180 / Math.PI) % 360) + 360) % 360;
+                const bx = Math.min(x2px + 12, canvasSize.width - 52);
+                const by = y2px > 20 ? y2px - 8 : y2px + 26;
+                return (
+                  <g opacity="0.92">
+                    <rect x={bx} y={by - 13} width={44} height={16} rx="4" fill="rgba(0,0,0,0.72)" />
+                    <text x={bx + 5} y={by - 1} fontSize="11" fill="white" fontFamily="monospace" fontWeight="bold">
+                      {angleDeg}°
+                    </text>
+                  </g>
+                );
+              })()}
+
+              {/* Ghost callout preview while the text input is open */}
+              {textInput && textInput.calloutData && (
+                renderAnnotationSvg({
+                  toolType: 'callout', color: currentColor, strokeWidth,
+                  data: { ...textInput.calloutData, text: textValue.trim() || '\u00a0', fontSize },
+                }, canvasSize.width, canvasSize.height, 'callout-ghost')
+              )}
             </svg>
 
             {textInput && (
@@ -1630,8 +1688,16 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
                   if (e.key === 'Escape') { setTextInput(null); setTextValue(''); }
                 }}
                 className="absolute bg-black/50 backdrop-blur rounded px-2 py-1 border border-dashed outline-none z-10 font-bold"
-                style={{ left: textInput.px, top: textInput.py - 16, color: currentColor, borderColor: currentColor, fontSize: fontSize + 'px', minWidth: '160px' }}
-                placeholder="Type, then Enter…"
+                style={{
+                  left: textInput.calloutData
+                    ? Math.min(canvasSize.width - 172, Math.max(4, textInput.rx * canvasSize.width - 80))
+                    : textInput.px,
+                  top: textInput.calloutData
+                    ? Math.min(canvasSize.height - 40, Math.max(4, textInput.ry * canvasSize.height - fontSize - 14))
+                    : textInput.py - 16,
+                  color: currentColor, borderColor: currentColor, fontSize: fontSize + 'px', minWidth: '160px',
+                }}
+                placeholder={textInput.calloutData ? 'Callout text, then Enter…' : 'Type, then Enter…'}
               />
             )}
           </div>
