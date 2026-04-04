@@ -62,6 +62,7 @@ const MAX_UNDO_STACK_SIZE       = 50;
 const SELECTION_RADIUS_NORM     = 0.06;  // max distance to hit an annotation badge
 const TAP_DISTANCE_NORM         = 0.015; // max movement to be treated as a tap (stamp)
 const MIN_SHAPE_SIZE_NORM       = 0.005; // min drag distance to commit a shape
+const HANDLE_HIT_RADIUS_NORM    = 0.04;  // tap radius to grab a control-point handle
 
 const generateTempId    = () => 'tmp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
 const isPendingAnnotation = (id: string) => id.startsWith('tmp-');
@@ -358,6 +359,66 @@ const getAnnotationAnchor = (ann: PdfAnnotation): { x: number; y: number } | nul
   return d.x1 !== undefined ? { x: d.x1 ?? 0, y: d.y1 ?? 0 } : null;
 };
 
+// Returns normalized (0–1) control-point handles for a placed annotation.
+// Handles are used for interactive drag-to-reshape in Select mode.
+type HandleDef = { nx: number; ny: number; index: number; isMoveHandle?: boolean };
+const getHandlesNorm = (ann: PdfAnnotation): HandleDef[] => {
+  const d = ann.data as AnyAnnotationData;
+  const t = ann.toolType as ToolType;
+  if (t === 'line' || t === 'dashed_line' || t === 'arrow' || t === 'double_arrow' || t === 'dimension' || t === 'callout') {
+    if (d.x1 === undefined) return [];
+    return [
+      { nx: d.x1 ?? 0, ny: d.y1 ?? 0, index: 0 },
+      { nx: d.x2 ?? 0, ny: d.y2 ?? 0, index: 1 },
+    ];
+  }
+  if (t === 'rectangle' || t === 'filled_rectangle' || t === 'circle' || t === 'filled_circle' || t === 'cloud') {
+    if (d.x1 === undefined) return [];
+    return [
+      { nx: d.x1 ?? 0, ny: d.y1 ?? 0, index: 0 },
+      { nx: d.x2 ?? 0, ny: d.y1 ?? 0, index: 1 },
+      { nx: d.x2 ?? 0, ny: d.y2 ?? 0, index: 2 },
+      { nx: d.x1 ?? 0, ny: d.y2 ?? 0, index: 3 },
+      { nx: ((d.x1 ?? 0) + (d.x2 ?? 0)) / 2, ny: ((d.y1 ?? 0) + (d.y2 ?? 0)) / 2, index: 4, isMoveHandle: true },
+    ];
+  }
+  if (t === 'text' || t === 'stamp') {
+    if (d.x === undefined) return [];
+    return [{ nx: d.x ?? 0, ny: d.y ?? 0, index: 0, isMoveHandle: true }];
+  }
+  return [];
+};
+
+// Applies a handle drag to annotation data and returns updated data.
+const applyHandleDrag = (
+  origData: AnyAnnotationData,
+  toolType: ToolType,
+  handleIndex: number,
+  curNorm: { x: number; y: number },
+  dragStartNorm: { x: number; y: number },
+): AnyAnnotationData => {
+  if (toolType === 'line' || toolType === 'dashed_line' || toolType === 'arrow' || toolType === 'double_arrow' || toolType === 'dimension' || toolType === 'callout') {
+    return handleIndex === 0
+      ? { ...origData, x1: curNorm.x, y1: curNorm.y }
+      : { ...origData, x2: curNorm.x, y2: curNorm.y };
+  }
+  if (toolType === 'rectangle' || toolType === 'filled_rectangle' || toolType === 'circle' || toolType === 'filled_circle' || toolType === 'cloud') {
+    if (handleIndex === 4) {
+      const dx = curNorm.x - dragStartNorm.x;
+      const dy = curNorm.y - dragStartNorm.y;
+      return { ...origData, x1: (origData.x1 ?? 0) + dx, y1: (origData.y1 ?? 0) + dy, x2: (origData.x2 ?? 0) + dx, y2: (origData.y2 ?? 0) + dy };
+    }
+    if (handleIndex === 0) return { ...origData, x1: curNorm.x, y1: curNorm.y };
+    if (handleIndex === 1) return { ...origData, x2: curNorm.x, y1: curNorm.y };
+    if (handleIndex === 2) return { ...origData, x2: curNorm.x, y2: curNorm.y };
+    return { ...origData, x1: curNorm.x, y2: curNorm.y };
+  }
+  if (toolType === 'text' || toolType === 'stamp') {
+    return { ...origData, x: curNorm.x, y: curNorm.y };
+  }
+  return origData;
+};
+
 // ─────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────
@@ -394,7 +455,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   const [canUndo, setCanUndo]           = useState(false);
   const [canRedo, setCanRedo]           = useState(false);
   const [inputDevice, setInputDevice]   = useState('');
-  // Staged annotations are drawn locally but not yet persisted; saved on explicit Save
+  const [liveEditData, setLiveEditData]   = useState<AnyAnnotationData | null>(null);
   const [pendingAnnotations, setPendingAnnotations] = useState<Array<PdfAnnotation>>([]);
   const [filterAuthorId, setFilterAuthorId] = useState<string | null>(null);
 
@@ -412,6 +473,11 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   const panStartRef   = useRef<{ x: number; y: number; sl: number; st: number } | null>(null);
   const undoStackRef  = useRef<PdfAnnotation[]>([]);
   const redoStackRef  = useRef<Omit<PdfAnnotation, 'id' | 'createdAt'>[]>([]);
+  // Ref for active handle drag (doesn't need to trigger renders by itself)
+  const dragHandleRef = useRef<{ handleIndex: number; origData: AnyAnnotationData; dragStartNorm: { x: number; y: number } } | null>(null);
+  // Stable ref to annotations list for use in callbacks without stale closures
+  const annotationsRef = useRef<PdfAnnotation[]>([]);
+  useEffect(() => { annotationsRef.current = annotations; }, [annotations]);
 
   // Load annotations
   useEffect(() => {
@@ -558,6 +624,31 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     }
   }, []);
 
+  // Update annotation geometry after a handle drag.
+  // Pending annotations are updated in-place; saved annotations are promoted to pending.
+  const updateAnnotation = useCallback((id: string, newData: AnyAnnotationData) => {
+    if (isPendingAnnotation(id)) {
+      setPendingAnnotations(prev => prev.map(a =>
+        a.id === id ? { ...a, data: newData as Record<string, unknown> } : a
+      ));
+      undoStackRef.current = undoStackRef.current.map(e =>
+        e.id === id ? { ...e, data: newData as Record<string, unknown> } : e
+      );
+    } else {
+      const target = annotationsRef.current.find(a => a.id === id);
+      if (!target) return;
+      const newId = generateTempId();
+      const promoted: PdfAnnotation = { ...target, id: newId, data: newData as Record<string, unknown> };
+      setAnnotations(prev => prev.filter(a => a.id !== id));
+      setPendingAnnotations(prev => [...prev, promoted]);
+      undoStackRef.current.push(promoted);
+      if (undoStackRef.current.length > MAX_UNDO_STACK_SIZE) undoStackRef.current.shift();
+      redoStackRef.current = [];
+      setCanUndo(true); setCanRedo(false);
+      setSelectedAnnId(newId);
+    }
+  }, []);
+
   // Persist all staged annotations to DB in parallel
   const handleSave = useCallback(async () => {
     if (pendingAnnotations.length === 0) return;
@@ -626,6 +717,20 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
 
     if (currentTool === 'select') {
       const pageAnns = [...annotations, ...pendingAnnotations].filter(a => a.pageNumber === pageNumber);
+      // 1. Check if tapping a control-point handle on the selected annotation
+      if (selectedAnnId) {
+        const currentSelected = pageAnns.find(a => a.id === selectedAnnId);
+        if (currentSelected) {
+          for (const h of getHandlesNorm(currentSelected)) {
+            if (Math.hypot(h.nx - coords.x, h.ny - coords.y) < HANDLE_HIT_RADIUS_NORM) {
+              dragHandleRef.current = { handleIndex: h.index, origData: currentSelected.data as AnyAnnotationData, dragStartNorm: coords };
+              setLiveEditData(currentSelected.data as AnyAnnotationData);
+              return;
+            }
+          }
+        }
+      }
+      // 2. Try to select a different annotation by its anchor badge
       let nearest: PdfAnnotation | null = null;
       let nearestD = SELECTION_RADIUS_NORM;
       for (const ann of pageAnns) {
@@ -635,6 +740,8 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
         if (dist < nearestD) { nearestD = dist; nearest = ann; }
       }
       setSelectedAnnId(nearest?.id ?? null);
+      setLiveEditData(null);
+      dragHandleRef.current = null;
       return;
     }
 
@@ -670,6 +777,21 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     }
     isPinchRef.current = false;
 
+    // Handle drag: update annotation geometry live while dragging a control point
+    if (dragHandleRef.current && drawingPtrRef.current === e.pointerId && selectedAnnId) {
+      const allAnns = [...annotations, ...pendingAnnotations];
+      const ann = allAnns.find(a => a.id === selectedAnnId);
+      if (ann) {
+        const coords = getCoords(e.clientX, e.clientY);
+        const newData = applyHandleDrag(
+          dragHandleRef.current.origData, ann.toolType as ToolType,
+          dragHandleRef.current.handleIndex, coords, dragHandleRef.current.dragStartNorm,
+        );
+        setLiveEditData(newData);
+      }
+      return;
+    }
+
     // Pan
     if (currentTool === 'pan' && panStartRef.current && drawingPtrRef.current === e.pointerId) {
       const m = mainRef.current;
@@ -688,13 +810,22 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     } else if (currentTool !== 'stamp' && currentTool !== 'select' && currentTool !== 'text') {
       setPreviewData({ x1: drawStart.x, y1: drawStart.y, x2: coords.x, y2: coords.y });
     }
-  }, [currentTool, isDrawing, drawStart, getCoords, zoomLevel]);
+  }, [currentTool, isDrawing, drawStart, getCoords, zoomLevel, selectedAnnId, annotations, pendingAnnotations]);
 
   const handlePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     touchPtsRef.current.delete(e.pointerId);
     isPinchRef.current = false;
     if (drawingPtrRef.current !== e.pointerId) return;
     drawingPtrRef.current = null; panStartRef.current = null;
+
+    // Commit handle drag
+    if (dragHandleRef.current) {
+      if (liveEditData && selectedAnnId) updateAnnotation(selectedAnnId, liveEditData);
+      dragHandleRef.current = null;
+      setLiveEditData(null);
+      return;
+    }
+
     if (!isDrawing || !drawStart) return;
     setIsDrawing(false);
     const coords = getCoords(e.clientX, e.clientY);
@@ -733,7 +864,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     }
     setDrawStart(null);
     commitAnnotation(data);
-  }, [isDrawing, drawStart, currentTool, penPoints, getCoords, commitAnnotation, stampType]);
+  }, [isDrawing, drawStart, currentTool, penPoints, getCoords, commitAnnotation, stampType, liveEditData, selectedAnnId, updateAnnotation]);
 
   const handlePointerCancel = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     touchPtsRef.current.delete(e.pointerId);
@@ -741,6 +872,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       drawingPtrRef.current = null;
       setIsDrawing(false); setPenPoints([]); setPreviewData(null); setDrawStart(null);
       isPinchRef.current = false; panStartRef.current = null;
+      dragHandleRef.current = null; setLiveEditData(null);
     }
   }, []);
 
@@ -792,7 +924,8 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   const canDeleteAnn = (ann: PdfAnnotation) =>
     ann.authorId === sessionUser.id || sessionUser.role === UserRole.ADMIN || sessionUser.role === UserRole.SUPER_ADMIN;
   const isNavTool  = currentTool === 'select' || currentTool === 'pan';
-  const toolCursor = currentTool === 'text' || currentTool === 'callout' ? 'cursor-text'
+  const toolCursor = liveEditData !== null ? 'cursor-grabbing'
+    : currentTool === 'text' || currentTool === 'callout' ? 'cursor-text'
     : currentTool === 'pan'    ? 'cursor-grab'
     : currentTool === 'select' ? 'cursor-pointer'
     : 'cursor-crosshair';
@@ -1022,15 +1155,31 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       )}
 
       {/* ── Row 3b: Select actions ── */}
-      {currentTool === 'select' && selectedAnn && canDeleteAnn(selectedAnn) && (
+      {currentTool === 'select' && (
         <div className="flex items-center gap-3 px-3 py-2 border-b border-white/10 bg-slate-900/40 shrink-0 min-h-[52px]">
-          <button onClick={() => handleDeleteAnnotation(selectedAnn.id)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-rose-500 transition-all min-h-[36px]">
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
-            Delete Selected
-          </button>
+          {selectedAnn ? (
+            <>
+              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">
+                {selectedAnn.toolType.replace(/_/g, ' ')} selected
+                {getHandlesNorm(selectedAnn).length > 0 && getHandlesNorm(selectedAnn).some(h => !h.isMoveHandle)
+                  ? ' — drag blue dots to reshape, purple dot to move'
+                  : getHandlesNorm(selectedAnn).length > 0
+                    ? ' — drag purple dot to move'
+                    : ''}
+              </span>
+              {canDeleteAnn(selectedAnn) && (
+                <button onClick={() => handleDeleteAnnotation(selectedAnn.id)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-rose-500 transition-all min-h-[36px]">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  Delete
+                </button>
+              )}
+            </>
+          ) : (
+            <span className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Tap an annotation badge to select it</span>
+          )}
         </div>
       )}
 
@@ -1095,17 +1244,48 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
               width={canvasSize.width} height={canvasSize.height}
               viewBox={`0 0 ${canvasSize.width} ${canvasSize.height}`}>
 
-              {pageAnnotations.map(ann =>
-                renderAnnotationSvg({ ...ann, data: ann.data as AnyAnnotationData },
-                  canvasSize.width, canvasSize.height, ann.id)
-              )}
+              {pageAnnotations.map(ann => {
+                const data = (ann.id === selectedAnnId && liveEditData !== null)
+                  ? liveEditData
+                  : ann.data as AnyAnnotationData;
+                return renderAnnotationSvg({ ...ann, data }, canvasSize.width, canvasSize.height, ann.id);
+              })}
 
-              {selectedAnn && (() => {
-                const anchor = getAnnotationAnchor(selectedAnn);
-                if (!anchor) return null;
+              {selectedAnn && currentTool === 'select' && (() => {
+                const displayData = liveEditData ?? selectedAnn.data as AnyAnnotationData;
+                const handles = getHandlesNorm({ ...selectedAnn, data: displayData });
                 return (
-                  <circle cx={anchor.x * canvasSize.width} cy={anchor.y * canvasSize.height}
-                    r="22" fill="none" stroke="#fff" strokeWidth="2" strokeDasharray="4 3" opacity="0.85" />
+                  <g>
+                    {handles.map(h => {
+                      const cx = h.nx * canvasSize.width;
+                      const cy = h.ny * canvasSize.height;
+                      return (
+                        <g key={`handle-${h.index}`}>
+                          {/* Hit-area circle (invisible, larger) */}
+                          <circle cx={cx} cy={cy} r="18" fill="transparent">
+                            <title>{h.isMoveHandle ? 'Move annotation' : `Endpoint ${h.index + 1} — drag to reshape`}</title>
+                          </circle>
+                          {/* Outer white ring */}
+                          <circle cx={cx} cy={cy} r={h.isMoveHandle ? 9 : 8}
+                            fill={h.isMoveHandle ? '#6366f1' : '#3b82f6'} stroke="white" strokeWidth="2.5" />
+                          {/* Move handle shows a cross icon */}
+                          {h.isMoveHandle && (
+                            <g stroke="white" strokeWidth="1.5" strokeLinecap="round">
+                              <line x1={cx - 4} y1={cy} x2={cx + 4} y2={cy} />
+                              <line x1={cx} y1={cy - 4} x2={cx} y2={cy + 4} />
+                            </g>
+                          )}
+                        </g>
+                      );
+                    })}
+                    {/* If no handles (pen/highlighter), fall back to selection ring */}
+                    {handles.length === 0 && (() => {
+                      const anchor = getAnnotationAnchor(selectedAnn);
+                      if (!anchor) return null;
+                      return <circle cx={anchor.x * canvasSize.width} cy={anchor.y * canvasSize.height}
+                        r="22" fill="none" stroke="#fff" strokeWidth="2" strokeDasharray="4 3" opacity="0.85" />;
+                    })()}
+                  </g>
                 );
               })()}
 
