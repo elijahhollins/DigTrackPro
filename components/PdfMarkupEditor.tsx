@@ -63,6 +63,7 @@ const SELECTION_RADIUS_NORM     = 0.06;  // max distance to hit an annotation ba
 const TAP_DISTANCE_NORM         = 0.015; // max movement to be treated as a tap (stamp)
 const MIN_SHAPE_SIZE_NORM       = 0.005; // min drag distance to commit a shape
 const HANDLE_HIT_RADIUS_NORM    = 0.06;  // tap radius to grab a control-point handle (larger = easier on touch)
+const DEFAULT_FONT_SIZE         = 18;    // default font size for new text / callout annotations
 
 const generateTempId    = () => 'tmp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
 const isPendingAnnotation = (id: string) => id.startsWith('tmp-');
@@ -204,7 +205,7 @@ const renderAnnotationSvg = (
       if (!d.text) return null;
       return (
         <text key={key} x={(d.x ?? 0) * w} y={(d.y ?? 0) * h}
-          fill={c} fontSize={d.fontSize ?? 18} fontFamily="Arial, sans-serif"
+          fill={c} fontSize={d.fontSize ?? DEFAULT_FONT_SIZE} fontFamily="Arial, sans-serif"
           fontWeight="bold" opacity={op} style={{ userSelect: 'none' }}>
           {d.text as string}
         </text>
@@ -476,7 +477,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   const [currentColor, setCurrentColor] = useState('#ef4444');
   const [strokeWidth, setStrokeWidth]   = useState(4);
   const [opacity, setOpacity]           = useState(1.0);
-  const [fontSize, setFontSize]         = useState(18);
+  const [fontSize, setFontSize]         = useState(DEFAULT_FONT_SIZE);
   const [stampType, setStampType]       = useState<StampType>('APPROVED');
   const [pageNumber, setPageNumber]     = useState(1);
   const [numPages, setNumPages]         = useState(0);
@@ -816,14 +817,16 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
         }
       }
       // 2. Hit-test all annotations via bounding-box: tap anywhere on/near a shape to select it.
-      //    Iterate in reverse so the most recently placed annotation wins when shapes overlap.
-      //    Score = 0 means inside the padded bbox; score > 0 means outside (distance to edge).
+      //    Iterate in reverse so the most recently placed annotation wins when shapes fully overlap
+      //    (both score 0 — inside bbox — the first found in reverse order wins since 0 < 0 is false
+      //    and doesn't overwrite, so the most-recently-placed annotation is kept).
+      //    For outside-bbox matches (score > 0) the loop continues to find the minimum distance.
       const MAX_HIT_DIST_NORM = 0.05; // max distance outside bbox to still register a tap
       let nearest: PdfAnnotation | null = null;
       let nearestScore = MAX_HIT_DIST_NORM + 0.001;
       for (const ann of [...pageAnns].reverse()) {
         const score = hitTestAnnotation(ann, coords);
-        if (score < nearestScore) { nearestScore = score; nearest = ann; break; }
+        if (score < nearestScore) { nearestScore = score; nearest = ann; }
       }
       // Final fallback: if nothing matched via bbox, try legacy anchor-badge proximity
       if (!nearest) {
@@ -1322,7 +1325,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
                   <span className="text-[9px] text-slate-400 font-black uppercase tracking-widest shrink-0">Size</span>
                   <div className="flex items-center gap-1 shrink-0">
                     {FONT_SIZES.map(fs => {
-                      const currentFs = (selectedAnn.data as AnyAnnotationData).fontSize ?? 18;
+                      const currentFs = (selectedAnn.data as AnyAnnotationData).fontSize ?? DEFAULT_FONT_SIZE;
                       return (
                         <button key={fs} onClick={() => {
                           setFontSize(fs);
