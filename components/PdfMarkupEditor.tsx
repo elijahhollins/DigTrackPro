@@ -33,7 +33,7 @@ const STAMP_COLORS: Record<StampType, string> = {
 };
 
 interface AnyAnnotationData extends Record<string, unknown> {
-  points?:    Array<{ x: number; y: number; p?: number }>;
+  points?:    Array<{ x: number; y: number; pressure?: number }>;
   x?:         number;
   y?:         number;
   text?:      string;
@@ -58,6 +58,12 @@ const COLORS = [
 ];
 const STROKE_WIDTHS = [1, 2, 4, 6, 10];
 const FONT_SIZES    = [10, 12, 14, 18, 24, 32, 48];
+
+// Thresholds are in normalized 0–1 canvas coordinates
+const MAX_UNDO_STACK_SIZE       = 50;
+const SELECTION_RADIUS_NORM     = 0.06;  // max distance to hit an annotation badge
+const TAP_DISTANCE_NORM         = 0.015; // max movement to be treated as a tap (stamp)
+const MIN_SHAPE_SIZE_NORM       = 0.005; // min drag distance to commit a shape
 
 type ToolDef   = { id: ToolType; icon: React.ReactNode; title: string };
 type ToolGroup = { label: string; tools: ToolDef[] };
@@ -370,7 +376,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   const [canvasSize, setCanvasSize]     = useState({ width: 0, height: 0 });
   const [isDrawing, setIsDrawing]       = useState(false);
   const [drawStart, setDrawStart]       = useState<{ x: number; y: number } | null>(null);
-  const [penPoints, setPenPoints]       = useState<Array<{ x: number; y: number; p?: number }>>([]);
+  const [penPoints, setPenPoints]       = useState<Array<{ x: number; y: number; pressure?: number }>>([]);
   const [previewData, setPreviewData]   = useState<AnyAnnotationData | null>(null);
   const [textInput, setTextInput]       = useState<{
     px: number; py: number; rx: number; ry: number; calloutData?: AnyAnnotationData;
@@ -391,7 +397,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   const canvasRef     = useRef<HTMLCanvasElement>(null);
   const containerRef  = useRef<HTMLDivElement>(null);
   const mainRef       = useRef<HTMLDivElement>(null);
-  const textInputRef  = useRef<HTMLInputElement>(null);
+  const textFieldRef  = useRef<HTMLInputElement>(null);
   const pdfDocRef     = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
   const renderTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
   const drawingPtrRef = useRef<number | null>(null);
@@ -456,7 +462,9 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     redoStackRef.current.push(rest);
     setCanUndo(undoStackRef.current.length > 0); setCanRedo(true);
     setAnnotations(prev => prev.filter(a => a.id !== id));
-    try { await apiService.deleteAnnotation(id); } catch { /* best effort */ }
+    try { await apiService.deleteAnnotation(id); } catch (e: unknown) {
+      setActionErr('Undo failed: ' + (e instanceof Error ? e.message : 'unknown'));
+    }
   }, []);
 
   // Redo
@@ -504,7 +512,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       const saved = await apiService.saveAnnotation(newAnn);
       setAnnotations(prev => [...prev, saved]);
       undoStackRef.current.push(saved);
-      if (undoStackRef.current.length > 50) undoStackRef.current.shift();
+      if (undoStackRef.current.length > MAX_UNDO_STACK_SIZE) undoStackRef.current.shift();
       redoStackRef.current = [];
       setCanUndo(true); setCanRedo(false);
     } catch (e: unknown) {
@@ -560,7 +568,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     if (currentTool === 'select') {
       const pageAnns = annotations.filter(a => a.pageNumber === pageNumber);
       let nearest: PdfAnnotation | null = null;
-      let nearestD = 0.06;
+      let nearestD = SELECTION_RADIUS_NORM;
       for (const ann of pageAnns) {
         const anchor = getAnnotationAnchor(ann);
         if (!anchor) continue;
@@ -577,14 +585,14 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       const r = container.getBoundingClientRect();
       setTextInput({ px: e.clientX - r.left, py: e.clientY - r.top, rx: coords.x, ry: coords.y });
       setTextValue('');
-      setTimeout(() => textInputRef.current?.focus(), 30);
+      setTimeout(() => textFieldRef.current?.focus(), 30);
       return;
     }
 
     setIsDrawing(true);
     setDrawStart(coords);
     if (currentTool === 'pen' || currentTool === 'highlighter')
-      setPenPoints([{ x: coords.x, y: coords.y, p: e.pressure }]);
+      setPenPoints([{ x: coords.x, y: coords.y, pressure: e.pressure }]);
   }, [currentTool, annotations, pageNumber, getCoords]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -617,7 +625,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     const coords = getCoords(e.clientX, e.clientY);
 
     if (currentTool === 'pen' || currentTool === 'highlighter') {
-      setPenPoints(prev => [...prev, { x: coords.x, y: coords.y, p: e.pressure }]);
+      setPenPoints(prev => [...prev, { x: coords.x, y: coords.y, pressure: e.pressure }]);
     } else if (currentTool !== 'stamp' && currentTool !== 'select' && currentTool !== 'text') {
       setPreviewData({ x1: drawStart.x, y1: drawStart.y, x2: coords.x, y2: coords.y });
     }
@@ -634,7 +642,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
 
     // Stamp: tap to place
     if (currentTool === 'stamp') {
-      if (Math.hypot(coords.x - drawStart.x, coords.y - drawStart.y) < 0.015) {
+      if (Math.hypot(coords.x - drawStart.x, coords.y - drawStart.y) < TAP_DISTANCE_NORM) {
         setPenPoints([]); setPreviewData(null); setDrawStart(null);
         await commitAnnotation({ x: drawStart.x, y: drawStart.y, stampType }, 'stamp');
       } else { setPenPoints([]); setPreviewData(null); setDrawStart(null); }
@@ -643,11 +651,11 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
 
     let data: AnyAnnotationData;
     if (currentTool === 'pen' || currentTool === 'highlighter') {
-      const pts = [...penPoints, { x: coords.x, y: coords.y, p: e.pressure }];
+      const pts = [...penPoints, { x: coords.x, y: coords.y, pressure: e.pressure }];
       if (pts.length < 2) { setPenPoints([]); setPreviewData(null); setDrawStart(null); return; }
       data = { points: pts };
     } else {
-      if (Math.hypot(coords.x - drawStart.x, coords.y - drawStart.y) < 0.005) {
+      if (Math.hypot(coords.x - drawStart.x, coords.y - drawStart.y) < MIN_SHAPE_SIZE_NORM) {
         setPreviewData(null); setDrawStart(null); return;
       }
       data = { x1: drawStart.x, y1: drawStart.y, x2: coords.x, y2: coords.y };
@@ -661,7 +669,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       const r = container.getBoundingClientRect();
       setTextInput({ px: e.clientX - r.left, py: e.clientY - r.top, rx: coords.x, ry: coords.y, calloutData: data });
       setTextValue(''); setDrawStart(null);
-      setTimeout(() => textInputRef.current?.focus(), 30);
+      setTimeout(() => textFieldRef.current?.focus(), 30);
       return;
     }
     setDrawStart(null);
@@ -1014,7 +1022,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
 
             {textInput && (
               <input
-                ref={textInputRef}
+                ref={textFieldRef}
                 type="text"
                 value={textValue}
                 onChange={e => setTextValue(e.target.value)}
