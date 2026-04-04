@@ -62,7 +62,7 @@ const MAX_UNDO_STACK_SIZE       = 50;
 const SELECTION_RADIUS_NORM     = 0.06;  // max distance to hit an annotation badge
 const TAP_DISTANCE_NORM         = 0.015; // max movement to be treated as a tap (stamp)
 const MIN_SHAPE_SIZE_NORM       = 0.005; // min drag distance to commit a shape
-const HANDLE_HIT_RADIUS_NORM    = 0.04;  // tap radius to grab a control-point handle
+const HANDLE_HIT_RADIUS_NORM    = 0.06;  // tap radius to grab a control-point handle (larger = easier on touch)
 
 const generateTempId    = () => 'tmp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
 const isPendingAnnotation = (id: string) => id.startsWith('tmp-');
@@ -778,9 +778,11 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
 
     if (currentTool === 'select') {
       const pageAnns = [...annotations, ...pendingAnnotations].filter(a => a.pageNumber === pageNumber);
-      // 1. Check if tapping a control-point handle on the selected annotation
-      if (selectedAnnId) {
-        const currentSelected = pageAnns.find(a => a.id === selectedAnnId);
+      // 1. Check if tapping a control-point handle on the selected annotation.
+      //    Use selectedAnnIdRef (stable ref) so this callback never reads a stale closure value.
+      const currentSelId = selectedAnnIdRef.current;
+      if (currentSelId) {
+        const currentSelected = pageAnns.find(a => a.id === currentSelId);
         if (currentSelected) {
           for (const h of getHandlesNorm(currentSelected)) {
             if (Math.hypot(h.nx - coords.x, h.ny - coords.y) < HANDLE_HIT_RADIUS_NORM) {
@@ -840,16 +842,19 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     isPinchRef.current = false;
 
     // Handle drag: update annotation geometry live while dragging a control point
-    if (dragHandleRef.current && drawingPtrRef.current === e.pointerId && selectedAnnId) {
-      const allAnns = [...annotations, ...pendingAnnotations];
-      const ann = allAnns.find(a => a.id === selectedAnnId);
-      if (ann) {
-        const coords = getCoords(e.clientX, e.clientY);
-        const newData = applyHandleDrag(
-          dragHandleRef.current.origData, ann.toolType as ToolType,
-          dragHandleRef.current.handleIndex, coords, dragHandleRef.current.dragStartNorm,
-        );
-        setLiveEditData(newData);
+    if (dragHandleRef.current && drawingPtrRef.current === e.pointerId) {
+      const selId = selectedAnnIdRef.current;
+      if (selId) {
+        const allAnns = [...annotations, ...pendingAnnotations];
+        const ann = allAnns.find(a => a.id === selId);
+        if (ann) {
+          const coords = getCoords(e.clientX, e.clientY);
+          const newData = applyHandleDrag(
+            dragHandleRef.current.origData, ann.toolType as ToolType,
+            dragHandleRef.current.handleIndex, coords, dragHandleRef.current.dragStartNorm,
+          );
+          setLiveEditData(newData);
+        }
       }
       return;
     }
@@ -890,7 +895,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     } else if (currentTool !== 'stamp' && currentTool !== 'select' && currentTool !== 'text') {
       setPreviewData({ x1: drawStart.x, y1: drawStart.y, x2: coords.x, y2: coords.y });
     }
-  }, [currentTool, isDrawing, drawStart, getCoords, zoomLevel, selectedAnnId, annotations, pendingAnnotations]);
+  }, [currentTool, isDrawing, drawStart, getCoords, zoomLevel, annotations, pendingAnnotations]);
 
   const handlePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     touchPtsRef.current.delete(e.pointerId);
@@ -898,9 +903,10 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     if (drawingPtrRef.current !== e.pointerId) return;
     drawingPtrRef.current = null; panStartRef.current = null;
 
-    // Commit handle drag
+    // Commit handle drag — use ref for selectedAnnId to avoid stale closure
     if (dragHandleRef.current) {
-      if (liveEditData && selectedAnnId) updateAnnotation(selectedAnnId, liveEditData);
+      const selId = selectedAnnIdRef.current;
+      if (liveEditData && selId) updateAnnotation(selId, liveEditData);
       dragHandleRef.current = null;
       setLiveEditData(null);
       return;
@@ -965,7 +971,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     const placed = commitAnnotation(data);
     // Auto-switch to Select so user can immediately fine-tune via handles
     setCurrentTool('select'); setSelectedAnnId(placed.id);
-  }, [isDrawing, drawStart, currentTool, penPoints, getCoords, commitAnnotation, stampType, liveEditData, selectedAnnId, updateAnnotation]);
+  }, [isDrawing, drawStart, currentTool, penPoints, getCoords, commitAnnotation, stampType, liveEditData, updateAnnotation]);
 
   const handlePointerCancel = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     touchPtsRef.current.delete(e.pointerId);
