@@ -9,6 +9,7 @@ interface AsBuiltViewProps {
   sessionUser: User;
   isAdmin: boolean;
   isDarkMode: boolean;
+  onDeleteJob: (id: string) => Promise<void>;
 }
 
 interface JobPrintsState {
@@ -17,7 +18,7 @@ interface JobPrintsState {
   loaded: boolean;
 }
 
-export const AsBuiltView: React.FC<AsBuiltViewProps> = ({ jobs, sessionUser, isAdmin, isDarkMode }) => {
+export const AsBuiltView: React.FC<AsBuiltViewProps> = ({ jobs, sessionUser, isAdmin, isDarkMode, onDeleteJob }) => {
   const [search, setSearch] = useState('');
   const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
   const [printsMap, setPrintsMap] = useState<Record<string, JobPrintsState>>({});
@@ -179,44 +180,63 @@ export const AsBuiltView: React.FC<AsBuiltViewProps> = ({ jobs, sessionUser, isA
                 }`}
               >
                 {/* Job row */}
-                <button
-                  className="w-full flex items-center gap-4 px-5 py-4 text-left transition-all"
-                  onClick={() => toggleJob(job.jobNumber)}
-                >
-                  {/* Expand chevron */}
-                  <svg
-                    className={`w-4 h-4 shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''} ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}
-                    fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                <div className="flex items-center">
+                  <button
+                    className="flex-1 flex items-center gap-4 px-5 py-4 text-left transition-all min-w-0"
+                    onClick={() => toggleJob(job.jobNumber)}
                   >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" />
-                  </svg>
-
-                  {/* PDF count badge */}
-                  <div className="w-9 h-9 rounded-xl bg-brand/10 border border-brand/20 flex items-center justify-center shrink-0">
-                    <svg className="w-4.5 h-4.5 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    {/* Expand chevron */}
+                    <svg
+                      className={`w-4 h-4 shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''} ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}
+                      fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" />
                     </svg>
-                  </div>
 
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-sm font-black uppercase tracking-widest ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                      Job #{job.jobNumber}
-                    </p>
-                    <p className={`text-xs truncate ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                      {job.customer} — {job.address}, {job.city}
-                    </p>
-                  </div>
+                    {/* PDF icon */}
+                    <div className="w-9 h-9 rounded-xl bg-brand/10 border border-brand/20 flex items-center justify-center shrink-0">
+                      <svg className="w-4.5 h-4.5 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                    </div>
 
-                  {state?.loaded && (
-                    <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full shrink-0 ${
-                      state.prints.length > 0
-                        ? 'bg-brand/10 text-brand'
-                        : isDarkMode ? 'bg-white/[0.05] text-slate-500' : 'bg-slate-100 text-slate-400'
-                    }`}>
-                      {state.prints.length} {state.prints.length === 1 ? 'PDF' : 'PDFs'}
-                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-black uppercase tracking-widest ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                        Job #{job.jobNumber}
+                      </p>
+                      <p className={`text-xs truncate ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                        {job.customer} — {job.address}, {job.city}
+                      </p>
+                    </div>
+
+                    {state?.loaded && (
+                      <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full shrink-0 ${
+                        state.prints.length > 0
+                          ? 'bg-brand/10 text-brand'
+                          : isDarkMode ? 'bg-white/[0.05] text-slate-500' : 'bg-slate-100 text-slate-400'
+                      }`}>
+                        {state.prints.length} {state.prints.length === 1 ? 'PDF' : 'PDFs'}
+                      </span>
+                    )}
+                  </button>
+
+                  {/* Admin delete button */}
+                  {isAdmin && (
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`Delete Job #${job.jobNumber}? This cannot be undone.`)) {
+                          onDeleteJob(job.id);
+                        }
+                      }}
+                      className="p-3 mr-3 text-slate-500 hover:text-rose-500 hover:bg-rose-500/10 rounded-xl transition-all shrink-0"
+                      title="Delete job"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
                   )}
-                </button>
+                </div>
 
                 {/* Expanded content */}
                 {isExpanded && (
