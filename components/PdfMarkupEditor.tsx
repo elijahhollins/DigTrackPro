@@ -1075,17 +1075,13 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     let placed: PdfAnnotation;
     if (textInput.calloutData) {
       placed = commitAnnotation({ ...textInput.calloutData, text: textValue.trim(), fontSize }, 'callout');
-      setTextValue('');
-      setSelectedAnnId(placed.id);
-      // Auto-switch to Select so handles are immediately visible and draggable
-      setCurrentTool('select');
-      return;
     } else {
       placed = commitAnnotation({ x: textInput.rx, y: textInput.ry, text: textValue.trim(), fontSize }, 'text');
     }
     setTextValue('');
-    // Keep the text tool active so the user can place another label.
     setSelectedAnnId(placed.id);
+    // After placing a callout, auto-switch to Select so handles are immediately visible and draggable
+    if (textInput.calloutData) setCurrentTool('select');
   }, [textInput, textValue, fontSize, commitAnnotation]);
 
   // Derived
