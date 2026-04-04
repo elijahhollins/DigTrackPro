@@ -365,7 +365,7 @@ const getAnnotationAnchor = (ann: PdfAnnotation): { x: number; y: number } | nul
 export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   print, sessionUser, onClose,
 }) => {
-  const [currentTool, setCurrentTool]   = useState<ToolType>('pen');
+  const [currentTool, setCurrentTool]   = useState<ToolType>('pan');
   const [currentColor, setCurrentColor] = useState('#ef4444');
   const [strokeWidth, setStrokeWidth]   = useState(4);
   const [opacity, setOpacity]           = useState(1.0);
