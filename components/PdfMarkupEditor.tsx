@@ -214,8 +214,9 @@ const renderAnnotationSvg = (
     }
     case 'callout': {
       if (d.x1 === undefined) return null;
-      const ax = (d.x1 ?? 0) * w,  ay = (d.y1 ?? 0) * h;
-      const bx = (d.x2 ?? 0) * w,  by = (d.y2 ?? 0) * h;
+      // x1,y1 = text-box center (draw start); x2,y2 = arrow tip (drag end)
+      const bx = (d.x1 ?? 0) * w,  by = (d.y1 ?? 0) * h;
+      const ax = (d.x2 ?? 0) * w,  ay = (d.y2 ?? 0) * h;
       const fs   = (d.fontSize as number | undefined) ?? 14;
       const txt  = (d.text as string | undefined) ?? '';
       const estW = Math.max(80, txt.length * (fs * 0.62) + 24);
@@ -227,7 +228,7 @@ const renderAnnotationSvg = (
               <polygon points="0 0, 8 3, 0 6" fill={c} />
             </marker>
           </defs>
-          <line x1={ax} y1={ay} x2={bx} y2={by2 - 2}
+          <line x1={bx} y1={by2 - 2} x2={ax} y2={ay}
             stroke={c} strokeWidth={sw} markerEnd={`url(#${aid})`} />
           <rect x={bx1} y={by1} width={estW} height={by2 - by1}
             stroke={c} strokeWidth={sw} fill={c} fillOpacity={0.1} rx="4" />
@@ -377,7 +378,7 @@ const getAnnotationAnchor = (ann: PdfAnnotation): { x: number; y: number } | nul
   if (ann.toolType === 'text' || ann.toolType === 'stamp')
     return d.x !== undefined ? { x: d.x ?? 0, y: d.y ?? 0 } : null;
   if (ann.toolType === 'callout')
-    return d.x2 !== undefined ? { x: d.x2 ?? 0, y: d.y2 ?? 0 } : null;
+    return d.x1 !== undefined ? { x: d.x1 ?? 0, y: d.y1 ?? 0 } : null;
   return d.x1 !== undefined ? { x: d.x1 ?? 0, y: d.y1 ?? 0 } : null;
 };
 
@@ -1032,12 +1033,12 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     }
     setPenPoints([]); setPreviewData(null);
 
-    // Callout: show text input at endpoint
+    // Callout: show text input at the text-box location (draw start = x1,y1)
     if (currentTool === 'callout') {
       const container = containerRef.current;
       if (!container) { setDrawStart(null); return; }
       const r = container.getBoundingClientRect();
-      setTextInput({ px: e.clientX - r.left, py: e.clientY - r.top, rx: coords.x, ry: coords.y, calloutData: data });
+      setTextInput({ px: e.clientX - r.left, py: e.clientY - r.top, rx: drawStart.x, ry: drawStart.y, calloutData: data });
       setTextValue(''); setDrawStart(null);
       setTimeout(() => textFieldRef.current?.focus(), 30);
       return;
@@ -1074,11 +1075,16 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     let placed: PdfAnnotation;
     if (textInput.calloutData) {
       placed = commitAnnotation({ ...textInput.calloutData, text: textValue.trim(), fontSize }, 'callout');
+      setTextValue('');
+      setSelectedAnnId(placed.id);
+      // Auto-switch to Select so handles are immediately visible and draggable
+      setCurrentTool('select');
+      return;
     } else {
       placed = commitAnnotation({ x: textInput.rx, y: textInput.ry, text: textValue.trim(), fontSize }, 'text');
     }
     setTextValue('');
-    // Keep the text/callout tool active so the user can place another label.
+    // Keep the text tool active so the user can place another label.
     setSelectedAnnId(placed.id);
   }, [textInput, textValue, fontSize, commitAnnotation]);
 
@@ -1558,12 +1564,12 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
                     {handles.map(h => {
                       const cx = h.nx * canvasSize.width;
                       const cy = h.ny * canvasSize.height;
-                      const isCalloutArrowTip = selectedAnn.toolType === 'callout' && !h.isMoveHandle && h.index === 0;
+                      const isCalloutArrowTip = selectedAnn.toolType === 'callout' && !h.isMoveHandle && h.index === 1;
                       const handleFill = h.isMoveHandle ? '#6366f1' : isCalloutArrowTip ? '#f59e0b' : '#3b82f6';
                       const handleTitle = h.isMoveHandle
                         ? 'Move annotation'
                         : selectedAnn.toolType === 'callout'
-                          ? h.index === 0 ? 'Arrow tip — drag to repoint' : 'Text box — drag to reposition'
+                          ? h.index === 0 ? 'Text box — drag to reposition' : 'Arrow tip — drag to repoint'
                           : selectedAnn.toolType === 'arrow' || selectedAnn.toolType === 'double_arrow'
                             ? h.index === 0 ? 'Line start — drag to adjust' : 'Arrow head — drag to adjust'
                             : `Endpoint ${h.index + 1} — drag to reshape`;
