@@ -1,5 +1,5 @@
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Job, JobPrint, User } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
 import PdfMarkupEditor from './PdfMarkupEditor.tsx';
@@ -20,6 +20,7 @@ interface JobPrintsState {
 
 export const AsBuiltView: React.FC<AsBuiltViewProps> = ({ jobs, sessionUser, isAdmin, isDarkMode, onDeleteJob }) => {
   const [search, setSearch] = useState('');
+  const [hideNoPdfs, setHideNoPdfs] = useState(true);
   const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
   const [printsMap, setPrintsMap] = useState<Record<string, JobPrintsState>>({});
   const [markupPrint, setMarkupPrint] = useState<JobPrint | null>(null);
@@ -29,11 +30,16 @@ export const AsBuiltView: React.FC<AsBuiltViewProps> = ({ jobs, sessionUser, isA
 
   const filteredJobs = jobs.filter((job) => {
     const q = search.toLowerCase();
-    return (
+    const matchesSearch =
       job.jobNumber.toLowerCase().includes(q) ||
       job.customer.toLowerCase().includes(q) ||
-      job.address.toLowerCase().includes(q)
-    );
+      job.address.toLowerCase().includes(q);
+    if (!matchesSearch) return false;
+    if (hideNoPdfs) {
+      const state = printsMap[job.jobNumber];
+      if (state?.loaded && state.prints.length === 0) return false;
+    }
+    return true;
   });
 
   const loadPrints = useCallback(async (jobNumber: string) => {
@@ -54,6 +60,15 @@ export const AsBuiltView: React.FC<AsBuiltViewProps> = ({ jobs, sessionUser, isA
       }));
     }
   }, []);
+
+  useEffect(() => {
+    jobs.forEach((job) => {
+      if (!printsMap[job.jobNumber]?.loaded && !printsMap[job.jobNumber]?.isLoading) {
+        loadPrints(job.jobNumber);
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobs]);
 
   const toggleJob = (jobNumber: string) => {
     setExpandedJobs((prev) => {
@@ -136,22 +151,41 @@ export const AsBuiltView: React.FC<AsBuiltViewProps> = ({ jobs, sessionUser, isA
             Browse jobs and manage PDF prints
           </p>
         </div>
-        {/* Search */}
-        <div className="relative sm:w-72">
-          <svg className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search jobs…"
-            className={`w-full pl-9 pr-4 py-2.5 rounded-xl text-sm font-medium border outline-none transition-all ${
-              isDarkMode
-                ? 'bg-white/[0.05] border-white/10 text-white placeholder-slate-500 focus:border-brand/40 focus:bg-white/[0.08]'
-                : 'bg-white border-slate-200 text-slate-800 placeholder-slate-400 focus:border-brand/50 focus:ring-1 focus:ring-brand/20'
+        <div className="flex items-center gap-3 sm:w-auto">
+          {/* Hide/show jobs without PDFs toggle */}
+          <button
+            onClick={() => setHideNoPdfs((v) => !v)}
+            className={`flex items-center gap-2 px-3 py-2 rounded-xl font-black text-xs uppercase tracking-widest border transition-all shrink-0 ${
+              hideNoPdfs
+                ? 'bg-brand text-slate-900 border-brand shadow-md shadow-brand/20'
+                : isDarkMode
+                  ? 'bg-white/[0.05] text-slate-400 border-white/10 hover:border-brand/30'
+                  : 'bg-white text-slate-500 border-slate-200 hover:border-brand/30'
             }`}
-          />
+            title={hideNoPdfs ? 'Showing jobs with PDFs only — click to show all' : 'Showing all jobs — click to show only jobs with PDFs'}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d={hideNoPdfs ? 'M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z' : 'M4 6h16M4 12h16M4 18h16'} />
+            </svg>
+            {hideNoPdfs ? 'With PDFs' : 'All Jobs'}
+          </button>
+          {/* Search */}
+          <div className="relative sm:w-64">
+            <svg className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search jobs…"
+              className={`w-full pl-9 pr-4 py-2.5 rounded-xl text-sm font-medium border outline-none transition-all ${
+                isDarkMode
+                  ? 'bg-white/[0.05] border-white/10 text-white placeholder-slate-500 focus:border-brand/40 focus:bg-white/[0.08]'
+                  : 'bg-white border-slate-200 text-slate-800 placeholder-slate-400 focus:border-brand/50 focus:ring-1 focus:ring-brand/20'
+              }`}
+            />
+          </div>
         </div>
       </div>
 
@@ -161,7 +195,17 @@ export const AsBuiltView: React.FC<AsBuiltViewProps> = ({ jobs, sessionUser, isA
           <svg className={`w-12 h-12 mb-4 ${isDarkMode ? 'text-slate-700' : 'text-slate-300'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
-          <p className={`text-sm font-black uppercase tracking-widest ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>No Jobs Found</p>
+          <p className={`text-sm font-black uppercase tracking-widest ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+            {hideNoPdfs ? 'No Jobs With PDFs Found' : 'No Jobs Found'}
+          </p>
+          {hideNoPdfs && (
+            <button
+              onClick={() => setHideNoPdfs(false)}
+              className={`mt-3 text-xs font-black uppercase tracking-widest underline underline-offset-2 ${isDarkMode ? 'text-slate-500 hover:text-slate-300' : 'text-slate-400 hover:text-slate-600'}`}
+            >
+              Show all jobs
+            </button>
+          )}
         </div>
       ) : (
         <div className="space-y-2">
