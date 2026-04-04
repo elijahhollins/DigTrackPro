@@ -416,15 +416,33 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       .catch((e: Error) => setAnnLoadErr(e.message || 'Failed to load annotations'));
   }, [print.id]);
 
-  // Load PDF
+  // Load PDF — pre-fetch binary data via fetch() so that pdfjs-dist receives a
+  // Uint8Array rather than a URL string.  Passing a raw URL to getDocument()
+  // triggers pdfjs-dist's internal XHR which is often blocked by CORS on
+  // Supabase Storage (and similar object-storage CDNs) even when the same URL
+  // is accessible from fetch().  Fetching ourselves and handing off the bytes
+  // bypasses that entirely.
   useEffect(() => {
     if (!print.url) return;
     setIsLoadingPdf(true); setPdfError(null);
     let cancelled = false;
-    pdfjsLib.getDocument(print.url).promise
-      .then(pdf => { if (!cancelled) { pdfDocRef.current = pdf; setNumPages(pdf.numPages); setPageNumber(1); } })
-      .catch((e: Error) => { if (!cancelled) setPdfError(e.message || 'Failed to load PDF'); })
-      .finally(() => { if (!cancelled) setIsLoadingPdf(false); });
+
+    const loadPdf = async () => {
+      try {
+        const response = await fetch(print.url!);
+        if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
+        const buffer = await response.arrayBuffer();
+        if (cancelled) return;
+        const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
+        if (!cancelled) { pdfDocRef.current = pdf; setNumPages(pdf.numPages); setPageNumber(1); }
+      } catch (e: unknown) {
+        if (!cancelled) setPdfError(e instanceof Error ? e.message : 'Failed to load PDF');
+      } finally {
+        if (!cancelled) setIsLoadingPdf(false);
+      }
+    };
+
+    loadPdf();
     return () => { cancelled = true; };
   }, [print.url]);
 
