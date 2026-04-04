@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { PdfAnnotation, JobPrint, User, UserRole } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
@@ -393,6 +393,9 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   const [canUndo, setCanUndo]           = useState(false);
   const [canRedo, setCanRedo]           = useState(false);
   const [inputDevice, setInputDevice]   = useState('');
+  // Staged annotations are drawn locally but not yet persisted; saved on explicit Save
+  const [pendingAnnotations, setPendingAnnotations] = useState<Array<PdfAnnotation>>([]);
+  const [filterAuthorId, setFilterAuthorId] = useState<string | null>(null);
 
   const canvasRef     = useRef<HTMLCanvasElement>(null);
   const containerRef  = useRef<HTMLDivElement>(null);
@@ -479,25 +482,27 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     const { id, createdAt: _c, ...rest } = entry;
     redoStackRef.current.push(rest);
     setCanUndo(undoStackRef.current.length > 0); setCanRedo(true);
-    setAnnotations(prev => prev.filter(a => a.id !== id));
-    try { await apiService.deleteAnnotation(id); } catch (e: unknown) {
-      setActionErr('Undo failed: ' + (e instanceof Error ? e.message : 'unknown'));
+    if (id.startsWith('tmp-')) {
+      // Still staged — just remove locally, no API call needed
+      setPendingAnnotations(prev => prev.filter(a => a.id !== id));
+    } else {
+      setAnnotations(prev => prev.filter(a => a.id !== id));
+      try { await apiService.deleteAnnotation(id); } catch (e: unknown) {
+        setActionErr('Undo failed: ' + (e instanceof Error ? e.message : 'unknown'));
+      }
     }
   }, []);
 
-  // Redo
-  const handleRedo = useCallback(async () => {
+  // Redo — re-stage instead of saving directly to DB
+  const handleRedo = useCallback(() => {
     const entry = redoStackRef.current.pop();
     if (!entry) return;
     setCanRedo(redoStackRef.current.length > 0);
-    setIsSaving(true);
-    try {
-      const saved = await apiService.saveAnnotation(entry);
-      setAnnotations(prev => [...prev, saved]);
-      undoStackRef.current.push(saved); setCanUndo(true);
-    } catch (e: unknown) {
-      setActionErr('Redo failed: ' + (e instanceof Error ? e.message : 'unknown'));
-    } finally { setIsSaving(false); }
+    const tempId = 'tmp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+    const staged: PdfAnnotation = { ...entry, id: tempId, createdAt: Date.now() };
+    setPendingAnnotations(prev => [...prev, staged]);
+    undoStackRef.current.push(staged);
+    setCanUndo(true);
   }, []);
 
   // Keyboard shortcuts
@@ -515,31 +520,34 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     return getRelativeCoords(clientX, clientY, containerRef.current);
   }, []);
 
-  // Commit annotation to DB
-  const commitAnnotation = useCallback(async (data: AnyAnnotationData, toolOverride?: ToolType) => {
+  // Stage annotation locally; persisted to DB only when the user clicks Save
+  const commitAnnotation = useCallback((data: AnyAnnotationData, toolOverride?: ToolType) => {
     const tool      = toolOverride ?? currentTool;
     const finalData = opacity < 1 ? { ...data, opacity } : data;
-    const newAnn: Omit<PdfAnnotation, 'id' | 'createdAt'> = {
+    const tempId    = 'tmp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+    const staged: PdfAnnotation = {
+      id: tempId, createdAt: Date.now(),
       printId: print.id, companyId: sessionUser.companyId,
       authorId: sessionUser.id, authorName: sessionUser.name,
       pageNumber, toolType: tool, color: currentColor, strokeWidth,
       data: finalData as Record<string, unknown>,
     };
-    setIsSaving(true);
-    try {
-      const saved = await apiService.saveAnnotation(newAnn);
-      setAnnotations(prev => [...prev, saved]);
-      undoStackRef.current.push(saved);
-      if (undoStackRef.current.length > MAX_UNDO_STACK_SIZE) undoStackRef.current.shift();
-      redoStackRef.current = [];
-      setCanUndo(true); setCanRedo(false);
-    } catch (e: unknown) {
-      setActionErr('Save failed: ' + (e instanceof Error ? e.message : 'unknown'));
-    } finally { setIsSaving(false); }
+    setPendingAnnotations(prev => [...prev, staged]);
+    undoStackRef.current.push(staged);
+    if (undoStackRef.current.length > MAX_UNDO_STACK_SIZE) undoStackRef.current.shift();
+    redoStackRef.current = [];
+    setCanUndo(true); setCanRedo(false);
   }, [print.id, sessionUser, pageNumber, currentTool, currentColor, strokeWidth, opacity]);
 
-  // Delete annotation
+  // Delete annotation — handle both staged (tmp-) and persisted items
   const handleDeleteAnnotation = useCallback(async (id: string) => {
+    if (id.startsWith('tmp-')) {
+      setPendingAnnotations(prev => prev.filter(a => a.id !== id));
+      setSelectedAnnId(prev => prev === id ? null : prev);
+      undoStackRef.current = undoStackRef.current.filter(a => a.id !== id);
+      setCanUndo(undoStackRef.current.length > 0);
+      return;
+    }
     try {
       await apiService.deleteAnnotation(id);
       setAnnotations(prev => prev.filter(a => a.id !== id));
@@ -550,6 +558,32 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       setActionErr('Delete failed: ' + (e instanceof Error ? e.message : 'unknown'));
     }
   }, []);
+
+  // Persist all staged annotations to DB
+  const handleSave = useCallback(async () => {
+    if (pendingAnnotations.length === 0) return;
+    setIsSaving(true);
+    const toSave = [...pendingAnnotations];
+    const savedItems: PdfAnnotation[] = [];
+    const errors: string[] = [];
+    for (const p of toSave) {
+      const { id: _tid, createdAt: _c, ...rest } = p;
+      try {
+        const result = await apiService.saveAnnotation(rest);
+        savedItems.push(result);
+      } catch (e: unknown) {
+        errors.push(e instanceof Error ? e.message : 'unknown');
+      }
+    }
+    setPendingAnnotations([]);
+    setAnnotations(prev => [...prev, ...savedItems]);
+    // Clear undo/redo stacks — temp IDs are no longer valid after save
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+    setCanUndo(false); setCanRedo(false);
+    if (errors.length > 0) setActionErr(`${errors.length} annotation(s) failed to save`);
+    setIsSaving(false);
+  }, [pendingAnnotations]);
 
   // ── Pointer Events (Apple Pencil + palm rejection + pinch-to-zoom) ──
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -584,7 +618,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     }
 
     if (currentTool === 'select') {
-      const pageAnns = annotations.filter(a => a.pageNumber === pageNumber);
+      const pageAnns = [...annotations, ...pendingAnnotations].filter(a => a.pageNumber === pageNumber);
       let nearest: PdfAnnotation | null = null;
       let nearestD = SELECTION_RADIUS_NORM;
       for (const ann of pageAnns) {
@@ -611,7 +645,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     setDrawStart(coords);
     if (currentTool === 'pen' || currentTool === 'highlighter')
       setPenPoints([{ x: coords.x, y: coords.y, pressure: e.pressure }]);
-  }, [currentTool, annotations, pageNumber, getCoords]);
+  }, [currentTool, annotations, pendingAnnotations, pageNumber, getCoords]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     touchPtsRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -649,7 +683,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     }
   }, [currentTool, isDrawing, drawStart, getCoords, zoomLevel]);
 
-  const handlePointerUp = useCallback(async (e: React.PointerEvent<HTMLDivElement>) => {
+  const handlePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     touchPtsRef.current.delete(e.pointerId);
     isPinchRef.current = false;
     if (drawingPtrRef.current !== e.pointerId) return;
@@ -662,7 +696,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     if (currentTool === 'stamp') {
       if (Math.hypot(coords.x - drawStart.x, coords.y - drawStart.y) < TAP_DISTANCE_NORM) {
         setPenPoints([]); setPreviewData(null); setDrawStart(null);
-        await commitAnnotation({ x: drawStart.x, y: drawStart.y, stampType }, 'stamp');
+        commitAnnotation({ x: drawStart.x, y: drawStart.y, stampType }, 'stamp');
       } else { setPenPoints([]); setPreviewData(null); setDrawStart(null); }
       return;
     }
@@ -691,7 +725,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       return;
     }
     setDrawStart(null);
-    await commitAnnotation(data);
+    commitAnnotation(data);
   }, [isDrawing, drawStart, currentTool, penPoints, getCoords, commitAnnotation, stampType]);
 
   const handlePointerCancel = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -711,20 +745,31 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   }, []);
 
   // Text / callout submit
-  const handleTextSubmit = useCallback(async () => {
+  const handleTextSubmit = useCallback(() => {
     if (!textInput) return;
     setTextInput(null);
     if (!textValue.trim()) { setTextValue(''); return; }
     if (textInput.calloutData) {
-      await commitAnnotation({ ...textInput.calloutData, text: textValue.trim(), fontSize }, 'callout');
+      commitAnnotation({ ...textInput.calloutData, text: textValue.trim(), fontSize }, 'callout');
     } else {
-      await commitAnnotation({ x: textInput.rx, y: textInput.ry, text: textValue.trim(), fontSize }, 'text');
+      commitAnnotation({ x: textInput.rx, y: textInput.ry, text: textValue.trim(), fontSize }, 'text');
     }
     setTextValue('');
   }, [textInput, textValue, fontSize, commitAnnotation]);
 
   // Derived
-  const pageAnnotations = annotations.filter(a => a.pageNumber === pageNumber);
+  const allDisplayAnnotations = useMemo(
+    () => [...annotations, ...pendingAnnotations],
+    [annotations, pendingAnnotations]
+  );
+  const allAuthors = useMemo(
+    () => Array.from(new Map(allDisplayAnnotations.map(a => [a.authorId, a.authorName])).entries())
+      .map(([id, name]) => ({ id, name })),
+    [allDisplayAnnotations]
+  );
+  const pageAnnotations = allDisplayAnnotations.filter(
+    a => a.pageNumber === pageNumber && (filterAuthorId === null || a.authorId === filterAuthorId)
+  );
   const selectedAnn     = pageAnnotations.find(a => a.id === selectedAnnId) ?? null;
   const penPreviewPath  = (currentTool === 'pen' || currentTool === 'highlighter') && penPoints.length > 1 && isDrawing
     ? penPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x * canvasSize.width} ${p.y * canvasSize.height}`).join(' ')
@@ -816,6 +861,23 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
         )}
 
         {isSaving && <span className="text-xs text-slate-400 font-bold uppercase tracking-widest animate-pulse shrink-0">Saving…</span>}
+        {!isSaving && pendingAnnotations.length > 0 && (
+          <span className="text-[10px] text-amber-400 font-black uppercase tracking-widest shrink-0">
+            {pendingAnnotations.length} unsaved
+          </span>
+        )}
+
+        {/* Save button */}
+        <button onClick={handleSave}
+          disabled={isSaving || pendingAnnotations.length === 0}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shrink-0 min-h-[44px] bg-emerald-600 text-white hover:bg-emerald-500 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+          title="Save all unsaved annotations to the database">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+          </svg>
+          {pendingAnnotations.length > 0 ? `Save (${pendingAnnotations.length})` : 'Save'}
+        </button>
+
         {inputDevice === 'pen' && (
           <span className="text-[10px] text-brand font-black uppercase tracking-widest shrink-0 bg-brand/10 px-2 py-1 rounded-lg">
             ✐ Pencil
@@ -823,8 +885,33 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
         )}
         <button onClick={() => setShowLog(v => !v)}
           className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shrink-0 min-h-[44px] ${showLog ? 'bg-brand text-slate-900' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
-          Log ({annotations.length})
+          Log ({allDisplayAnnotations.length})
         </button>
+
+        {/* Foreman filter */}
+        {allAuthors.length > 1 && (
+          <div className="flex items-center gap-1 shrink-0">
+            <span className="text-[8px] text-slate-500 font-black uppercase tracking-widest hidden sm:block">Filter</span>
+            <button
+              onClick={() => setFilterAuthorId(null)}
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-black min-h-[36px] transition-all ${filterAuthorId === null ? 'bg-brand text-slate-900' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+              title="Show all foremen">
+              All
+            </button>
+            {allAuthors.map(a => {
+              const color = allDisplayAnnotations.find(ann => ann.authorId === a.id)?.color ?? '#6b7280';
+              return (
+                <button key={a.id}
+                  onClick={() => setFilterAuthorId(prev => prev === a.id ? null : a.id)}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-black min-h-[36px] transition-all border ${filterAuthorId === a.id ? 'ring-2 ring-white/60' : 'opacity-70 hover:opacity-100'}`}
+                  style={{ backgroundColor: color + '33', color, borderColor: color + '66' }}
+                  title={`Filter: ${a.name}`}>
+                  {getInitials(a.name)}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* ── Row 2: Tool groups ── */}
@@ -916,20 +1003,19 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
               </div>
             </>
           )}
+        </div>
+      )}
 
-          {/* Select delete */}
-          {currentTool === 'select' && selectedAnn && canDeleteAnn(selectedAnn) && (
-            <>
-              <div className="w-px h-6 bg-white/10 shrink-0" />
-              <button onClick={() => handleDeleteAnnotation(selectedAnn.id)}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-rose-500 transition-all min-h-[36px]">
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-                Delete Selected
-              </button>
-            </>
-          )}
+      {/* ── Row 3b: Select actions ── */}
+      {currentTool === 'select' && selectedAnn && canDeleteAnn(selectedAnn) && (
+        <div className="flex items-center gap-3 px-3 py-2 border-b border-white/10 bg-slate-900/40 shrink-0 min-h-[52px]">
+          <button onClick={() => handleDeleteAnnotation(selectedAnn.id)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-rose-500 transition-all min-h-[36px]">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+            Delete Selected
+          </button>
         </div>
       )}
 
@@ -1011,13 +1097,17 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
               {pageAnnotations.map(ann => {
                 const anchor = getAnnotationAnchor(ann);
                 if (!anchor) return null;
-                const initials = getInitials(ann.authorName);
-                const bw = initials.length * 7 + 10;
-                const bx = anchor.x * canvasSize.width;
-                const by = anchor.y * canvasSize.height;
+                const initials  = getInitials(ann.authorName);
+                const bw        = initials.length * 7 + 10;
+                const bx        = anchor.x * canvasSize.width;
+                const by        = anchor.y * canvasSize.height;
+                const isPending = ann.id.startsWith('tmp-');
                 return (
                   <g key={`badge-${ann.id}`}>
-                    <rect x={bx} y={by - 17} width={bw} height={17} rx="3" fill={ann.color} opacity="0.88" />
+                    <rect x={bx} y={by - 17} width={bw} height={17} rx="3"
+                      fill={ann.color} opacity={isPending ? 0.5 : 0.88}
+                      stroke={isPending ? 'white' : 'none'} strokeWidth={isPending ? 1 : 0}
+                      strokeDasharray={isPending ? '3 2' : undefined} />
                     <text x={bx + 5} y={by - 3} fontSize="11" fontFamily="monospace" fontWeight="bold" fill="white">
                       {initials}
                     </text>
@@ -1060,38 +1150,46 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
         {showLog && (
           <div className="w-full max-w-3xl bg-slate-900/80 border border-white/10 rounded-2xl p-4 shrink-0">
             <h3 className="text-white text-xs font-black uppercase tracking-widest mb-3">Markup Log — All Pages</h3>
-            {annotations.length === 0 ? (
+            {allDisplayAnnotations.length === 0 ? (
               <p className="text-slate-500 text-xs">No annotations yet.</p>
             ) : (
               <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
-                {[...annotations].reverse().map(ann => (
-                  <div key={ann.id}
-                    className={`flex items-center gap-3 p-2.5 rounded-xl group transition-all ${ann.id === selectedAnnId ? 'bg-brand/15 border border-brand/30' : 'bg-slate-800/60'}`}>
-                    <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: ann.color }} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-white text-xs font-bold truncate">{ann.authorName}</p>
-                      <p className="text-slate-400 text-[10px] capitalize">
-                        {ann.toolType.replace(/_/g, ' ')} · Pg {ann.pageNumber} · {new Date(ann.createdAt).toLocaleString()}
-                        {(ann.toolType === 'text' || ann.toolType === 'callout') && (ann.data as AnyAnnotationData).text && (
-                          <> · &quot;<span className="text-slate-300">{(ann.data as AnyAnnotationData).text as string}</span>&quot;</>
-                        )}
-                        {ann.toolType === 'stamp' && (ann.data as AnyAnnotationData).stampType && (
-                          <> · <span className="text-slate-300">{(ann.data as AnyAnnotationData).stampType as string}</span></>
-                        )}
-                      </p>
+                {[...allDisplayAnnotations].reverse().map(ann => {
+                  const isPending = ann.id.startsWith('tmp-');
+                  return (
+                    <div key={ann.id}
+                      className={`flex items-center gap-3 p-2.5 rounded-xl group transition-all ${ann.id === selectedAnnId ? 'bg-brand/15 border border-brand/30' : isPending ? 'bg-amber-500/10 border border-amber-500/20' : 'bg-slate-800/60'}`}>
+                      <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: ann.color }} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-white text-xs font-bold truncate">{ann.authorName}</p>
+                          {isPending && (
+                            <span className="text-[8px] text-amber-400 font-black uppercase tracking-widest bg-amber-500/15 px-1 py-0.5 rounded shrink-0">Unsaved</span>
+                          )}
+                        </div>
+                        <p className="text-slate-400 text-[10px] capitalize">
+                          {ann.toolType.replace(/_/g, ' ')} · Pg {ann.pageNumber} · {new Date(ann.createdAt).toLocaleString()}
+                          {(ann.toolType === 'text' || ann.toolType === 'callout') && (ann.data as AnyAnnotationData).text && (
+                            <> · &quot;<span className="text-slate-300">{(ann.data as AnyAnnotationData).text as string}</span>&quot;</>
+                          )}
+                          {ann.toolType === 'stamp' && (ann.data as AnyAnnotationData).stampType && (
+                            <> · <span className="text-slate-300">{(ann.data as AnyAnnotationData).stampType as string}</span></>
+                          )}
+                        </p>
+                      </div>
+                      {canDeleteAnn(ann) && (
+                        <button onClick={() => handleDeleteAnnotation(ann.id)}
+                          title="Delete annotation"
+                          className="p-1.5 rounded-lg text-rose-400 opacity-0 group-hover:opacity-100 hover:bg-rose-500/20 transition-all">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5"
+                              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      )}
                     </div>
-                    {canDeleteAnn(ann) && (
-                      <button onClick={() => handleDeleteAnnotation(ann.id)}
-                        title="Delete annotation"
-                        className="p-1.5 rounded-lg text-rose-400 opacity-0 group-hover:opacity-100 hover:bg-rose-500/20 transition-all">
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5"
-                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
