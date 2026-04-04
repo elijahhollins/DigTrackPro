@@ -698,6 +698,25 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     }
   }, []);
 
+  const updateStrokeWidth = useCallback((id: string, sw: number) => {
+    if (isPendingAnnotation(id)) {
+      setPendingAnnotations(prev => prev.map(a => a.id === id ? { ...a, strokeWidth: sw } : a));
+      undoStackRef.current = undoStackRef.current.map(e => e.id === id ? { ...e, strokeWidth: sw } : e);
+    } else {
+      const target = annotationsRef.current.find(a => a.id === id);
+      if (!target) return;
+      const newId = generateTempId();
+      const promoted: PdfAnnotation = { ...target, id: newId, strokeWidth: sw };
+      setAnnotations(prev => prev.filter(a => a.id !== id));
+      setPendingAnnotations(prev => [...prev, promoted]);
+      undoStackRef.current.push(promoted);
+      if (undoStackRef.current.length > MAX_UNDO_STACK_SIZE) undoStackRef.current.shift();
+      redoStackRef.current = [];
+      setCanUndo(true); setCanRedo(false);
+      setSelectedAnnId(newId);
+    }
+  }, []);
+
   // Persist all staged annotations to DB in parallel
   const handleSave = useCallback(async () => {
     if (pendingAnnotations.length === 0) return;
@@ -975,7 +994,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       if (Math.hypot(coords.x - drawStart.x, coords.y - drawStart.y) < TAP_DISTANCE_NORM) {
         setPenPoints([]); setPreviewData(null); setDrawStart(null);
         const placed = commitAnnotation({ x: drawStart.x, y: drawStart.y, stampType }, 'stamp');
-        setCurrentTool('select'); setSelectedAnnId(placed.id);
+        setSelectedAnnId(placed.id);
       } else { setPenPoints([]); setPreviewData(null); setDrawStart(null); }
       return;
     }
@@ -1005,8 +1024,9 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     }
     setDrawStart(null);
     const placed = commitAnnotation(data);
-    // Auto-switch to Select so user can immediately fine-tune via handles
-    setCurrentTool('select'); setSelectedAnnId(placed.id);
+    // Keep the current drawing tool active so the user can draw another annotation.
+    // Only select the just-placed item so its bounding box is visible.
+    setSelectedAnnId(placed.id);
   }, [isDrawing, drawStart, currentTool, penPoints, getCoords, commitAnnotation, stampType, liveEditData, updateAnnotation]);
 
   const handlePointerCancel = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -1038,8 +1058,8 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       placed = commitAnnotation({ x: textInput.rx, y: textInput.ry, text: textValue.trim(), fontSize }, 'text');
     }
     setTextValue('');
-    // Auto-switch to Select so user can immediately move the text
-    setCurrentTool('select'); setSelectedAnnId(placed.id);
+    // Keep the text/callout tool active so the user can place another label.
+    setSelectedAnnId(placed.id);
   }, [textInput, textValue, fontSize, commitAnnotation]);
 
   // Derived
@@ -1075,7 +1095,15 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     : currentTool === 'pan'    ? 'cursor-grab'
     : currentTool === 'select' ? 'cursor-pointer'
     : 'cursor-crosshair';
-  const selectTool = (id: ToolType) => { setCurrentTool(id); setTextInput(null); setSelectedAnnId(null); };
+  const selectTool = (id: ToolType) => {
+    // Tapping the active drawing tool again deactivates it and returns to Pan.
+    // Nav tools (select, pan) always activate directly.
+    if (id !== 'select' && id !== 'pan' && id === currentTool) {
+      setCurrentTool('pan'); setTextInput(null); setSelectedAnnId(null);
+    } else {
+      setCurrentTool(id); setTextInput(null); setSelectedAnnId(null);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-[300] bg-slate-950 flex flex-col select-none" onWheel={handleWheel}>
@@ -1322,7 +1350,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
               {(selectedAnn.toolType === 'text' || selectedAnn.toolType === 'callout') && (
                 <>
                   <div className="w-px h-6 bg-white/10 shrink-0" />
-                  <span className="text-[9px] text-slate-400 font-black uppercase tracking-widest shrink-0">Size</span>
+                  <span className="text-[9px] text-slate-400 font-black uppercase tracking-widest shrink-0">Font Size</span>
                   <div className="flex items-center gap-1 shrink-0">
                     {FONT_SIZES.map(fs => {
                       const currentFs = (selectedAnn.data as AnyAnnotationData).fontSize ?? DEFAULT_FONT_SIZE;
@@ -1340,6 +1368,28 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
                 </>
               )}
 
+              {/* Stroke width picker for selected line / shape / freehand annotations */}
+              {selectedAnn.toolType !== 'text' && selectedAnn.toolType !== 'callout' && selectedAnn.toolType !== 'stamp' && (
+                <>
+                  <div className="w-px h-6 bg-white/10 shrink-0" />
+                  <span className="text-[9px] text-slate-400 font-black uppercase tracking-widest shrink-0">Width</span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {STROKE_WIDTHS.map(sw => (
+                      <button key={sw}
+                      onClick={() => {
+                          // setStrokeWidth updates the toolbar default for the next new annotation.
+                          // updateStrokeWidth patches the already-placed annotation's stored value.
+                          setStrokeWidth(sw); updateStrokeWidth(selectedAnn.id, sw);
+                        }}
+                        title={`Stroke ${sw}px`}
+                        className={`w-9 h-9 rounded-lg flex items-center justify-center transition-all shrink-0 ${selectedAnn.strokeWidth === sw ? 'bg-brand' : 'bg-slate-800 hover:bg-slate-700'}`}>
+                        <div className="rounded-full bg-white" style={{ width: sw + 2, height: sw + 2 }} />
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+
               {canDeleteAnn(selectedAnn) && (
                 <button onClick={() => handleDeleteAnnotation(selectedAnn.id)}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-rose-500 transition-all min-h-[36px] shrink-0">
@@ -1351,17 +1401,19 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
               )}
             </>
           ) : (
-            <span className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Tap an annotation badge to select it · Esc to deselect</span>
+            <span className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Tap any annotation to select it · Switch to Select to adjust handles · Esc to deselect</span>
           )}
         </div>
       )}
 
-      {/* Shift-constrain hint when drawing line/shape tools */}
-      {!isNavTool && currentTool !== 'pen' && currentTool !== 'highlighter' &&
-       currentTool !== 'text' && currentTool !== 'callout' && currentTool !== 'stamp' && (
+      {/* Hint bar when drawing line/shape tools */}
+      {!isNavTool && (
         <div className="flex items-center gap-2 px-3 py-1 border-b border-white/5 bg-slate-950/40 shrink-0">
           <span className="text-[8px] text-slate-600 font-black uppercase tracking-widest">
-            Hold <kbd className="text-slate-500 font-mono">⇧ Shift</kbd> while drawing to constrain proportions / snap to 45°
+            {currentTool !== 'pen' && currentTool !== 'highlighter' && currentTool !== 'text' && currentTool !== 'callout' && currentTool !== 'stamp'
+              ? <>Tap again to deactivate · Hold <kbd className="text-slate-500 font-mono">⇧ Shift</kbd> to constrain / snap to 45°</>
+              : <>Tap the tool icon again to stop drawing</>
+            }
           </span>
         </div>
       )}
