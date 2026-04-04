@@ -217,10 +217,13 @@ const renderAnnotationSvg = (
       // x1,y1 = text-box center (draw start); x2,y2 = arrow tip (drag end)
       const bx = (d.x1 ?? 0) * w,  by = (d.y1 ?? 0) * h;
       const ax = (d.x2 ?? 0) * w,  ay = (d.y2 ?? 0) * h;
-      const fs   = (d.fontSize as number | undefined) ?? 14;
+      // Scale box dimensions proportionally with canvas width so the callout looks
+      // consistent at any zoom level (600 ≈ typical PDF page width at base zoom).
+      const sf   = w / 600;
+      const fs   = ((d.fontSize as number | undefined) ?? 14) * sf;
       const txt  = (d.text as string | undefined) ?? '';
-      const estW = Math.max(80, txt.length * (fs * 0.62) + 24);
-      const bx1  = bx - estW / 2, by1 = by - fs - 14, by2 = by + 10;
+      const estW = Math.max(80 * sf, txt.length * (fs * 0.62) + 24 * sf);
+      const bx1  = bx - estW / 2, by1 = by - fs - 14 * sf, by2 = by + 10 * sf;
       return (
         <g key={key} opacity={op}>
           <defs>
@@ -233,7 +236,7 @@ const renderAnnotationSvg = (
           <rect x={bx1} y={by1} width={estW} height={by2 - by1}
             stroke={c} strokeWidth={sw} fill={c} fillOpacity={0.1} rx="4" />
           {txt && (
-            <text x={bx1 + 10} y={by - 2} fill={c} fontSize={fs}
+            <text x={bx1 + 10 * sf} y={by - 2} fill={c} fontSize={fs}
               fontFamily="Arial, sans-serif" fontWeight="bold">{txt}</text>
           )}
         </g>
