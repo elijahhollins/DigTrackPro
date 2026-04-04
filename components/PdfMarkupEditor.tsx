@@ -975,7 +975,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
 
     const onTouchEnd = () => { panning = false; };
 
-    container.addEventListener('touchstart',  onTouchStart, { passive: true });
+    container.addEventListener('touchstart',  onTouchStart, { passive: false });
     container.addEventListener('touchmove',   onTouchMove,  { passive: false });
     container.addEventListener('touchend',    onTouchEnd,   { passive: true });
     container.addEventListener('touchcancel', onTouchEnd,   { passive: true });
