@@ -150,7 +150,27 @@ const getCloudPath = (x: number, y: number, w: number, h: number): string => {
 
 const getRelativeCoords = (clientX: number, clientY: number, el: HTMLElement) => {
   const r = el.getBoundingClientRect();
+  if (r.width === 0 || r.height === 0) return { x: 0, y: 0 };
   return { x: (clientX - r.left) / r.width, y: (clientY - r.top) / r.height };
+};
+
+// Hit-test an annotation at normalized coordinates.
+// Returns 0 when the tap is inside the padded bounding box, or the distance
+// to the nearest edge when outside. Returns Infinity when no geometry is found.
+const HIT_PAD_NORM = 0.03; // extra touch padding around annotation bounding box
+const hitTestAnnotation = (ann: PdfAnnotation, coords: { x: number; y: number }): number => {
+  const t = ann.toolType as ToolType;
+  if (t === 'pen' || t === 'highlighter') {
+    const anchor = getAnnotationAnchor(ann);
+    return anchor ? Math.hypot(anchor.x - coords.x, anchor.y - coords.y) : Infinity;
+  }
+  const bbox = getAnnotationBBox(ann);
+  if (!bbox) return Infinity;
+  const x1 = bbox.x - HIT_PAD_NORM, y1 = bbox.y - HIT_PAD_NORM;
+  const x2 = bbox.x + bbox.w + HIT_PAD_NORM, y2 = bbox.y + bbox.h + HIT_PAD_NORM;
+  const dx = Math.max(x1 - coords.x, 0, coords.x - x2);
+  const dy = Math.max(y1 - coords.y, 0, coords.y - y2);
+  return Math.hypot(dx, dy);
 };
 
 const getInitials = (name: string) =>
@@ -606,8 +626,10 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   }, []);
 
   const getCoords = useCallback((clientX: number, clientY: number) => {
-    if (!containerRef.current) return { x: 0, y: 0 };
-    return getRelativeCoords(clientX, clientY, containerRef.current);
+    // Use the canvas element directly so coordinates map exactly to the
+    // rendered surface — avoids any potential size mismatch with the wrapper div.
+    if (!canvasRef.current) return { x: 0, y: 0 };
+    return getRelativeCoords(clientX, clientY, canvasRef.current);
   }, []);
 
   // Stage annotation locally; persisted to DB only when the user clicks Save.
@@ -793,14 +815,25 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
           }
         }
       }
-      // 2. Try to select a different annotation by its anchor badge
+      // 2. Hit-test all annotations via bounding-box: tap anywhere on/near a shape to select it.
+      //    Iterate in reverse so the most recently placed annotation wins when shapes overlap.
+      //    Score = 0 means inside the padded bbox; score > 0 means outside (distance to edge).
+      const MAX_HIT_DIST_NORM = 0.05; // max distance outside bbox to still register a tap
       let nearest: PdfAnnotation | null = null;
-      let nearestD = SELECTION_RADIUS_NORM;
-      for (const ann of pageAnns) {
-        const anchor = getAnnotationAnchor(ann);
-        if (!anchor) continue;
-        const dist = Math.hypot(anchor.x - coords.x, anchor.y - coords.y);
-        if (dist < nearestD) { nearestD = dist; nearest = ann; }
+      let nearestScore = MAX_HIT_DIST_NORM + 0.001;
+      for (const ann of [...pageAnns].reverse()) {
+        const score = hitTestAnnotation(ann, coords);
+        if (score < nearestScore) { nearestScore = score; nearest = ann; break; }
+      }
+      // Final fallback: if nothing matched via bbox, try legacy anchor-badge proximity
+      if (!nearest) {
+        let legacyD = SELECTION_RADIUS_NORM;
+        for (const ann of pageAnns) {
+          const anchor = getAnnotationAnchor(ann);
+          if (!anchor) continue;
+          const dist = Math.hypot(anchor.x - coords.x, anchor.y - coords.y);
+          if (dist < legacyD) { legacyD = dist; nearest = ann; }
+        }
       }
       setSelectedAnnId(nearest?.id ?? null);
       setLiveEditData(null);
@@ -1270,10 +1303,10 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
 
       {/* ── Row 3b: Select actions ── */}
       {currentTool === 'select' && (
-        <div className="flex items-center gap-3 px-3 py-2 border-b border-white/10 bg-slate-900/40 shrink-0 min-h-[52px]">
+        <div className="flex items-center gap-3 px-3 py-2 border-b border-white/10 bg-slate-900/40 shrink-0 min-h-[52px] overflow-x-auto">
           {selectedAnn ? (
             <>
-              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">
+              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest shrink-0">
                 {selectedAnn.toolType.replace(/_/g, ' ')} selected
                 {getHandlesNorm(selectedAnn).length > 0 && getHandlesNorm(selectedAnn).some(h => !h.isMoveHandle)
                   ? ' — drag blue dots to reshape, purple dot to move'
@@ -1281,9 +1314,32 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
                     ? ' — drag purple dot to move'
                     : ''}
               </span>
+
+              {/* Font size picker for selected text / callout annotations */}
+              {(selectedAnn.toolType === 'text' || selectedAnn.toolType === 'callout') && (
+                <>
+                  <div className="w-px h-6 bg-white/10 shrink-0" />
+                  <span className="text-[9px] text-slate-400 font-black uppercase tracking-widest shrink-0">Size</span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {FONT_SIZES.map(fs => {
+                      const currentFs = (selectedAnn.data as AnyAnnotationData).fontSize ?? 18;
+                      return (
+                        <button key={fs} onClick={() => {
+                          setFontSize(fs);
+                          updateAnnotation(selectedAnn.id, { ...(selectedAnn.data as AnyAnnotationData), fontSize: fs });
+                        }}
+                          className={`px-2 py-1 rounded-lg text-[10px] font-black transition-all min-w-[30px] ${currentFs === fs ? 'bg-brand text-slate-900' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
+                          {fs}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+
               {canDeleteAnn(selectedAnn) && (
                 <button onClick={() => handleDeleteAnnotation(selectedAnn.id)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-rose-500 transition-all min-h-[36px]">
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-rose-500 transition-all min-h-[36px] shrink-0">
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                   </svg>
