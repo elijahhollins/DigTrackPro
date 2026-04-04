@@ -8,6 +8,9 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    worker: {
+      format: 'iife',
+    },
     define: {
       // Literal string replacement for process.env.API_KEY
       ...(env.VITE_API_KEY || env.API_KEY ? { 'process.env.API_KEY': JSON.stringify(env.VITE_API_KEY || env.API_KEY) } : {}),

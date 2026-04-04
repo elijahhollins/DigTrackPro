@@ -1,0 +1,8 @@
+{
+  "headers": [
+    {
+      "source": "/(.*)\\.mjs",
+      "headers": [{ "key": "Content-Type", "value": "text/javascript" }]
+    }
+  ]
+}
