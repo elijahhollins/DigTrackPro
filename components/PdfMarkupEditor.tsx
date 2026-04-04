@@ -359,8 +359,34 @@ const getAnnotationAnchor = (ann: PdfAnnotation): { x: number; y: number } | nul
   return d.x1 !== undefined ? { x: d.x1 ?? 0, y: d.y1 ?? 0 } : null;
 };
 
-// Returns normalized (0–1) control-point handles for a placed annotation.
-// Handles are used for interactive drag-to-reshape in Select mode.
+// Returns the bounding box of an annotation in normalized (0–1) coordinates.
+// Used to draw a selection rectangle around the selected annotation.
+const BBOX_TEXT_HALF_W   = 0.09;  // estimated half-width for a text/stamp label
+const BBOX_TEXT_HALF_H   = 0.03;  // estimated half-height for a text/stamp label
+const BBOX_TEXT_OFFSET_Y = 0.03;  // offset above the anchor point to account for label baseline
+const getAnnotationBBox = (ann: PdfAnnotation, data?: AnyAnnotationData): { x: number; y: number; w: number; h: number } | null => {
+  const d = (data ?? ann.data) as AnyAnnotationData;
+  const t = ann.toolType as ToolType;
+  if (t === 'pen' || t === 'highlighter') {
+    if (!d.points || d.points.length < 2) return null;
+    const xs = d.points.map(p => p.x), ys = d.points.map(p => p.y);
+    const x1 = Math.min(...xs), y1 = Math.min(...ys);
+    const x2 = Math.max(...xs), y2 = Math.max(...ys);
+    return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
+  }
+  if (t === 'text' || t === 'stamp') {
+    const cx = d.x ?? 0, cy = d.y ?? 0;
+    return { x: cx - BBOX_TEXT_HALF_W, y: cy - BBOX_TEXT_OFFSET_Y - BBOX_TEXT_HALF_H * 2, w: BBOX_TEXT_HALF_W * 2, h: BBOX_TEXT_HALF_H * 2 + BBOX_TEXT_OFFSET_Y };
+  }
+  if (d.x1 !== undefined) {
+    const x1 = Math.min(d.x1 ?? 0, d.x2 ?? 0);
+    const y1 = Math.min(d.y1 ?? 0, d.y2 ?? 0);
+    const x2 = Math.max(d.x1 ?? 0, d.x2 ?? 0);
+    const y2 = Math.max(d.y1 ?? 0, d.y2 ?? 0);
+    return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
+  }
+  return null;
+};
 type HandleDef = { nx: number; ny: number; index: number; isMoveHandle?: boolean };
 const getHandlesNorm = (ann: PdfAnnotation): HandleDef[] => {
   const d = ann.data as AnyAnnotationData;
@@ -478,6 +504,14 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   // Stable ref to annotations list for use in callbacks without stale closures
   const annotationsRef = useRef<PdfAnnotation[]>([]);
   useEffect(() => { annotationsRef.current = annotations; }, [annotations]);
+  // Tracks whether Shift is held during drawing (for constrain behavior)
+  const shiftPressedRef = useRef(false);
+  // Stable ref to selectedAnnId for use in keyboard handler without stale closures
+  const selectedAnnIdRef = useRef<string | null>(null);
+  selectedAnnIdRef.current = selectedAnnId;
+  // Stable ref to pendingAnnotations for use in close guard
+  const pendingAnnotationsRef = useRef<PdfAnnotation[]>([]);
+  pendingAnnotationsRef.current = pendingAnnotations;
 
   // Load annotations
   useEffect(() => {
@@ -571,23 +605,14 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     setCanUndo(true);
   }, []);
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'z') { e.preventDefault(); handleUndo(); }
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) { e.preventDefault(); handleRedo(); }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [handleUndo, handleRedo]);
-
   const getCoords = useCallback((clientX: number, clientY: number) => {
     if (!containerRef.current) return { x: 0, y: 0 };
     return getRelativeCoords(clientX, clientY, containerRef.current);
   }, []);
 
-  // Stage annotation locally; persisted to DB only when the user clicks Save
-  const commitAnnotation = useCallback((data: AnyAnnotationData, toolOverride?: ToolType) => {
+  // Stage annotation locally; persisted to DB only when the user clicks Save.
+  // Returns the staged annotation so callers can auto-select it.
+  const commitAnnotation = useCallback((data: AnyAnnotationData, toolOverride?: ToolType): PdfAnnotation => {
     const tool      = toolOverride ?? currentTool;
     const finalData = opacity < 1 ? { ...data, opacity } : data;
     const staged: PdfAnnotation = {
@@ -602,6 +627,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     if (undoStackRef.current.length > MAX_UNDO_STACK_SIZE) undoStackRef.current.shift();
     redoStackRef.current = [];
     setCanUndo(true); setCanRedo(false);
+    return staged;
   }, [print.id, sessionUser, pageNumber, currentTool, currentColor, strokeWidth, opacity]);
 
   // Delete annotation — handle both staged (tmp-) and persisted items
@@ -683,6 +709,41 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     setIsSaving(false);
   }, [pendingAnnotations]);
 
+  // Keyboard shortcuts — placed after handleDeleteAnnotation to avoid forward reference
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // Track Shift state for draw-constrain (check the specific key, not e.shiftKey on keyup)
+      if (e.type === 'keydown') shiftPressedRef.current = e.shiftKey;
+      if (e.type === 'keyup' && e.key === 'Shift') shiftPressedRef.current = false;
+
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'z') { e.preventDefault(); handleUndo(); return; }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) { e.preventDefault(); handleRedo(); return; }
+
+      // Delete / Backspace → delete selected annotation (only when not typing in an input)
+      if ((e.key === 'Delete' || e.key === 'Backspace') &&
+          !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
+        if (selectedAnnIdRef.current) {
+          e.preventDefault();
+          handleDeleteAnnotation(selectedAnnIdRef.current);
+        }
+        return;
+      }
+
+      // Escape → deselect / stop drawing / cancel text input
+      if (e.key === 'Escape') {
+        setSelectedAnnId(null);
+        setTextInput(null); setTextValue('');
+        setIsDrawing(false); setPenPoints([]); setPreviewData(null); setDrawStart(null);
+        drawingPtrRef.current = null;
+        dragHandleRef.current = null; setLiveEditData(null);
+        return;
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('keyup',   onKey);
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKey); };
+  }, [handleUndo, handleRedo, handleDeleteAnnotation]);
+
   // ── Pointer Events (Apple Pencil + palm rejection + pinch-to-zoom) ──
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     setInputDevice(e.pointerType);
@@ -763,6 +824,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
 
   const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     touchPtsRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    shiftPressedRef.current = e.shiftKey;
 
     // Pinch-to-zoom: two touch points
     if (touchPtsRef.current.size >= 2) {
@@ -803,7 +865,25 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     }
 
     if (drawingPtrRef.current !== e.pointerId || !isDrawing || !drawStart) return;
-    const coords = getCoords(e.clientX, e.clientY);
+    let coords = getCoords(e.clientX, e.clientY);
+
+    // Shift-constrain: snap shapes to square, snap lines to 45° increments
+    if (shiftPressedRef.current) {
+      const dx = coords.x - drawStart.x;
+      const dy = coords.y - drawStart.y;
+      if (currentTool === 'rectangle' || currentTool === 'filled_rectangle' ||
+          currentTool === 'circle'    || currentTool === 'filled_circle') {
+        const side = Math.max(Math.abs(dx), Math.abs(dy));
+        coords = { x: drawStart.x + Math.sign(dx) * side, y: drawStart.y + Math.sign(dy) * side };
+      } else if (currentTool === 'line'   || currentTool === 'dashed_line' ||
+                 currentTool === 'arrow'  || currentTool === 'double_arrow' ||
+                 currentTool === 'dimension') {
+        const angle = Math.atan2(dy, dx);
+        const snapped = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
+        const len = Math.hypot(dx, dy);
+        coords = { x: drawStart.x + len * Math.cos(snapped), y: drawStart.y + len * Math.sin(snapped) };
+      }
+    }
 
     if (currentTool === 'pen' || currentTool === 'highlighter') {
       setPenPoints(prev => [...prev, { x: coords.x, y: coords.y, pressure: e.pressure }]);
@@ -828,13 +908,32 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
 
     if (!isDrawing || !drawStart) return;
     setIsDrawing(false);
-    const coords = getCoords(e.clientX, e.clientY);
+    let coords = getCoords(e.clientX, e.clientY);
+
+    // Apply shift-constrain on final point (same logic as move)
+    if (shiftPressedRef.current) {
+      const dx = coords.x - drawStart.x;
+      const dy = coords.y - drawStart.y;
+      if (currentTool === 'rectangle' || currentTool === 'filled_rectangle' ||
+          currentTool === 'circle'    || currentTool === 'filled_circle') {
+        const side = Math.max(Math.abs(dx), Math.abs(dy));
+        coords = { x: drawStart.x + Math.sign(dx) * side, y: drawStart.y + Math.sign(dy) * side };
+      } else if (currentTool === 'line'   || currentTool === 'dashed_line' ||
+                 currentTool === 'arrow'  || currentTool === 'double_arrow' ||
+                 currentTool === 'dimension') {
+        const angle = Math.atan2(dy, dx);
+        const snapped = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
+        const len = Math.hypot(dx, dy);
+        coords = { x: drawStart.x + len * Math.cos(snapped), y: drawStart.y + len * Math.sin(snapped) };
+      }
+    }
 
     // Stamp: tap to place
     if (currentTool === 'stamp') {
       if (Math.hypot(coords.x - drawStart.x, coords.y - drawStart.y) < TAP_DISTANCE_NORM) {
         setPenPoints([]); setPreviewData(null); setDrawStart(null);
-        commitAnnotation({ x: drawStart.x, y: drawStart.y, stampType }, 'stamp');
+        const placed = commitAnnotation({ x: drawStart.x, y: drawStart.y, stampType }, 'stamp');
+        setCurrentTool('select'); setSelectedAnnId(placed.id);
       } else { setPenPoints([]); setPreviewData(null); setDrawStart(null); }
       return;
     }
@@ -863,7 +962,9 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       return;
     }
     setDrawStart(null);
-    commitAnnotation(data);
+    const placed = commitAnnotation(data);
+    // Auto-switch to Select so user can immediately fine-tune via handles
+    setCurrentTool('select'); setSelectedAnnId(placed.id);
   }, [isDrawing, drawStart, currentTool, penPoints, getCoords, commitAnnotation, stampType, liveEditData, selectedAnnId, updateAnnotation]);
 
   const handlePointerCancel = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -888,12 +989,15 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     if (!textInput) return;
     setTextInput(null);
     if (!textValue.trim()) { setTextValue(''); return; }
+    let placed: PdfAnnotation;
     if (textInput.calloutData) {
-      commitAnnotation({ ...textInput.calloutData, text: textValue.trim(), fontSize }, 'callout');
+      placed = commitAnnotation({ ...textInput.calloutData, text: textValue.trim(), fontSize }, 'callout');
     } else {
-      commitAnnotation({ x: textInput.rx, y: textInput.ry, text: textValue.trim(), fontSize }, 'text');
+      placed = commitAnnotation({ x: textInput.rx, y: textInput.ry, text: textValue.trim(), fontSize }, 'text');
     }
     setTextValue('');
+    // Auto-switch to Select so user can immediately move the text
+    setCurrentTool('select'); setSelectedAnnId(placed.id);
   }, [textInput, textValue, fontSize, commitAnnotation]);
 
   // Derived
@@ -936,7 +1040,11 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
 
       {/* ── Row 1: Header ── */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10 bg-slate-900/90 backdrop-blur shrink-0 flex-wrap gap-y-1.5 min-h-[56px]">
-        <button onClick={onClose}
+        <button onClick={() => {
+            if (pendingAnnotationsRef.current.length > 0 &&
+                !window.confirm(`You have ${pendingAnnotationsRef.current.length} unsaved annotation(s). Close without saving?`)) return;
+            onClose();
+          }}
           className="p-2.5 bg-rose-600 text-white rounded-xl hover:scale-105 transition-all active:scale-95 shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center"
           title="Close editor">
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1173,13 +1281,23 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                   </svg>
-                  Delete
+                  Delete <span className="opacity-50 font-normal normal-case">⌫</span>
                 </button>
               )}
             </>
           ) : (
-            <span className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Tap an annotation badge to select it</span>
+            <span className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Tap an annotation badge to select it · Esc to deselect</span>
           )}
+        </div>
+      )}
+
+      {/* Shift-constrain hint when drawing line/shape tools */}
+      {!isNavTool && currentTool !== 'pen' && currentTool !== 'highlighter' &&
+       currentTool !== 'text' && currentTool !== 'callout' && currentTool !== 'stamp' && (
+        <div className="flex items-center gap-2 px-3 py-1 border-b border-white/5 bg-slate-950/40 shrink-0">
+          <span className="text-[8px] text-slate-600 font-black uppercase tracking-widest">
+            Hold <kbd className="text-slate-500 font-mono">⇧ Shift</kbd> while drawing to constrain proportions / snap to 45°
+          </span>
         </div>
       )}
 
@@ -1254,8 +1372,20 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
               {selectedAnn && currentTool === 'select' && (() => {
                 const displayData = liveEditData ?? selectedAnn.data as AnyAnnotationData;
                 const handles = getHandlesNorm({ ...selectedAnn, data: displayData });
+                const bbox = getAnnotationBBox(selectedAnn, displayData);
+                const SELECTION_BOX_PADDING = 8; // px padding around the selection bounding box
                 return (
                   <g>
+                    {/* Dashed bounding box — skip if bbox is too small (e.g. near-zero-size shapes) */}
+                    {bbox && bbox.w > 0.005 && (
+                      <rect
+                        x={bbox.x * canvasSize.width - SELECTION_BOX_PADDING}
+                        y={bbox.y * canvasSize.height - SELECTION_BOX_PADDING}
+                        width={bbox.w * canvasSize.width + SELECTION_BOX_PADDING * 2}
+                        height={bbox.h * canvasSize.height + SELECTION_BOX_PADDING * 2}
+                        fill="none" stroke="white" strokeWidth="1.5"
+                        strokeDasharray="5 3" opacity="0.5" rx="3" />
+                    )}
                     {handles.map(h => {
                       const cx = h.nx * canvasSize.width;
                       const cy = h.ny * canvasSize.height;
