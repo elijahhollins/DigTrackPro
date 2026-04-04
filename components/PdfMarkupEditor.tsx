@@ -40,6 +40,7 @@ interface AnyAnnotationData extends Record<string, unknown> {
   x2?: number; y2?: number;
   opacity?:   number;
   stampType?: StampType;
+  rotation?:  number;  // rotation in degrees (clockwise, 0 = no rotation)
 }
 
 interface PdfMarkupEditorProps {
@@ -65,6 +66,8 @@ const TAP_DISTANCE_NORM         = 0.015; // max movement to be treated as a tap 
 const MIN_SHAPE_SIZE_NORM       = 0.005; // min drag distance to commit a shape
 const HANDLE_HIT_RADIUS_NORM    = 0.06;  // tap radius to grab a control-point handle (larger = easier on touch)
 const DEFAULT_FONT_SIZE         = 18;    // default font size for new text / callout annotations
+const ROTATE_HANDLE_INDEX       = 100;   // reserved handle index for the rotation handle
+const ROTATE_HANDLE_OFFSET_NORM = 0.055; // distance above bbox top (in normalised coords) for rotate handle
 
 const generateTempId    = () => 'tmp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
 const isPendingAnnotation = (id: string) => id.startsWith('tmp-');
@@ -178,7 +181,7 @@ const hitTestAnnotation = (ann: PdfAnnotation, coords: { x: number; y: number })
 const getInitials = (name: string) =>
   name.split(' ').map(w => w[0] ?? '').join('').toUpperCase().slice(0, 2);
 
-const renderAnnotationSvg = (
+const renderAnnotationContent = (
   ann: { toolType: ToolType; color: string; strokeWidth: number; data: AnyAnnotationData },
   w: number, h: number, key: string,
 ): React.ReactElement | null => {
@@ -374,6 +377,24 @@ const renderAnnotationSvg = (
   }
 };
 
+// Wraps renderAnnotationContent with an SVG rotation transform when the
+// annotation's data.rotation field is set.
+const renderAnnotationSvg = (
+  ann: { toolType: ToolType; color: string; strokeWidth: number; data: AnyAnnotationData },
+  w: number, h: number, key: string,
+): React.ReactElement | null => {
+  const rotation = ann.data.rotation ?? 0;
+  const innerKey = rotation ? `${key}-c` : key;
+  const content  = renderAnnotationContent(ann, w, h, innerKey);
+  if (!content) return null;
+  if (!rotation) return content;
+  const bbox = getAnnotationBBox(ann as unknown as PdfAnnotation);
+  if (!bbox) return content;
+  const cx = (bbox.x + bbox.w / 2) * w;
+  const cy = (bbox.y + bbox.h / 2) * h;
+  return <g key={key} transform={`rotate(${rotation}, ${cx}, ${cy})`}>{content}</g>;
+};
+
 const getAnnotationAnchor = (ann: PdfAnnotation): { x: number; y: number } | null => {
   const d = ann.data as AnyAnnotationData;
   if (ann.toolType === 'pen' || ann.toolType === 'highlighter')
@@ -413,32 +434,76 @@ const getAnnotationBBox = (ann: PdfAnnotation, data?: AnyAnnotationData): { x: n
   }
   return null;
 };
-type HandleDef = { nx: number; ny: number; index: number; isMoveHandle?: boolean };
+type HandleDef = { nx: number; ny: number; index: number; isMoveHandle?: boolean; isRotateHandle?: boolean };
 const getHandlesNorm = (ann: PdfAnnotation): HandleDef[] => {
   const d = ann.data as AnyAnnotationData;
   const t = ann.toolType as ToolType;
+  let baseHandles: HandleDef[] = [];
+
   if (t === 'line' || t === 'dashed_line' || t === 'arrow' || t === 'double_arrow' || t === 'dimension' || t === 'callout') {
     if (d.x1 === undefined) return [];
-    return [
+    baseHandles = [
       { nx: d.x1 ?? 0, ny: d.y1 ?? 0, index: 0 },
       { nx: d.x2 ?? 0, ny: d.y2 ?? 0, index: 1 },
     ];
-  }
-  if (t === 'rectangle' || t === 'filled_rectangle' || t === 'circle' || t === 'filled_circle' || t === 'cloud') {
+  } else if (t === 'rectangle' || t === 'filled_rectangle' || t === 'circle' || t === 'filled_circle' || t === 'cloud') {
     if (d.x1 === undefined) return [];
-    return [
+    baseHandles = [
       { nx: d.x1 ?? 0, ny: d.y1 ?? 0, index: 0 },
       { nx: d.x2 ?? 0, ny: d.y1 ?? 0, index: 1 },
       { nx: d.x2 ?? 0, ny: d.y2 ?? 0, index: 2 },
       { nx: d.x1 ?? 0, ny: d.y2 ?? 0, index: 3 },
       { nx: ((d.x1 ?? 0) + (d.x2 ?? 0)) / 2, ny: ((d.y1 ?? 0) + (d.y2 ?? 0)) / 2, index: 4, isMoveHandle: true },
     ];
-  }
-  if (t === 'text' || t === 'stamp') {
+  } else if (t === 'text' || t === 'stamp') {
     if (d.x === undefined) return [];
-    return [{ nx: d.x ?? 0, ny: d.y ?? 0, index: 0, isMoveHandle: true }];
+    baseHandles = [{ nx: d.x ?? 0, ny: d.y ?? 0, index: 0, isMoveHandle: true }];
+  } else if (t === 'pen' || t === 'highlighter') {
+    if (!d.points || d.points.length < 2) return [];
+    const xs = d.points.map(p => p.x);
+    const ys = d.points.map(p => p.y);
+    const bx1 = Math.min(...xs), by1 = Math.min(...ys);
+    const bx2 = Math.max(...xs), by2 = Math.max(...ys);
+    const pcx = (bx1 + bx2) / 2, pcy = (by1 + by2) / 2;
+    baseHandles = [
+      { nx: bx1, ny: by1, index: 0 },
+      { nx: bx2, ny: by1, index: 1 },
+      { nx: bx2, ny: by2, index: 2 },
+      { nx: bx1, ny: by2, index: 3 },
+      { nx: pcx, ny: pcy, index: 4, isMoveHandle: true },
+    ];
   }
-  return [];
+
+  // Add rotation handle above the bounding box centre for all annotation types that have a meaningful bbox
+  const bbox = getAnnotationBBox(ann);
+  if (bbox && bbox.w > 0.005) {
+    const rcx = bbox.x + bbox.w / 2;
+    const rcy = bbox.y - ROTATE_HANDLE_OFFSET_NORM;
+    baseHandles.push({ nx: rcx, ny: rcy, index: ROTATE_HANDLE_INDEX, isRotateHandle: true });
+  }
+
+  // Pre-rotate all handle positions by the annotation's stored rotation angle so that
+  // hit-testing and visual display are both in the same rotated (screen) space.
+  const rotation = d.rotation ?? 0;
+  if (rotation && bbox) {
+    const cx = bbox.x + bbox.w / 2;
+    const cy = bbox.y + bbox.h / 2;
+    const rad = (rotation * Math.PI) / 180;
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    return baseHandles.map(h => {
+      const dx = h.nx - cx, dy = h.ny - cy;
+      return { ...h, nx: cx + dx * cos - dy * sin, ny: cy + dx * sin + dy * cos };
+    });
+  }
+
+  return baseHandles;
+};
+
+// Rotates point (px, py) around (cx, cy) by -angleDeg (i.e. undoes a clockwise rotation).
+const unrotatePoint = (cx: number, cy: number, angleDeg: number, px: number, py: number) => {
+  const rad = (-angleDeg * Math.PI) / 180;
+  const dx = px - cx, dy = py - cy;
+  return { x: cx + dx * Math.cos(rad) - dy * Math.sin(rad), y: cy + dx * Math.sin(rad) + dy * Math.cos(rad) };
 };
 
 // Applies a handle drag to annotation data and returns updated data.
@@ -449,25 +514,92 @@ const applyHandleDrag = (
   curNorm: { x: number; y: number },
   dragStartNorm: { x: number; y: number },
 ): AnyAnnotationData => {
+  const rotation = origData.rotation ?? 0;
+
+  // ── Rotation handle ────────────────────────────────────────────────────────
+  if (handleIndex === ROTATE_HANDLE_INDEX) {
+    const fakeAnn = { toolType, data: origData } as unknown as PdfAnnotation;
+    const bbox = getAnnotationBBox(fakeAnn);
+    if (!bbox) return origData;
+    const cx = bbox.x + bbox.w / 2;
+    const cy = bbox.y + bbox.h / 2;
+    const startAngle = Math.atan2(dragStartNorm.y - cy, dragStartNorm.x - cx);
+    const curAngle   = Math.atan2(curNorm.y - cy, curNorm.x - cx);
+    const delta = (curAngle - startAngle) * 180 / Math.PI;
+    const newRotation = ((rotation + delta) % 360 + 360) % 360;
+    return { ...origData, rotation: Math.round(newRotation) };
+  }
+
+  // For non-rotation handles on a rotated annotation, unrotate the cursor position
+  // into the annotation's local (unrotated) coordinate space before applying geometry.
+  let effectiveCur = curNorm;
+  let effectiveDragStart = dragStartNorm;
+  if (rotation) {
+    const fakeAnn = { toolType, data: origData } as unknown as PdfAnnotation;
+    const bbox = getAnnotationBBox(fakeAnn);
+    if (bbox) {
+      const cx = bbox.x + bbox.w / 2;
+      const cy = bbox.y + bbox.h / 2;
+      effectiveCur       = unrotatePoint(cx, cy, rotation, curNorm.x, curNorm.y);
+      effectiveDragStart = unrotatePoint(cx, cy, rotation, dragStartNorm.x, dragStartNorm.y);
+    }
+  }
+
+  // ── Line / arrow / callout endpoints ──────────────────────────────────────
   if (toolType === 'line' || toolType === 'dashed_line' || toolType === 'arrow' || toolType === 'double_arrow' || toolType === 'dimension' || toolType === 'callout') {
     return handleIndex === 0
-      ? { ...origData, x1: curNorm.x, y1: curNorm.y }
-      : { ...origData, x2: curNorm.x, y2: curNorm.y };
+      ? { ...origData, x1: effectiveCur.x, y1: effectiveCur.y }
+      : { ...origData, x2: effectiveCur.x, y2: effectiveCur.y };
   }
+
+  // ── Shape corner / move handles ───────────────────────────────────────────
   if (toolType === 'rectangle' || toolType === 'filled_rectangle' || toolType === 'circle' || toolType === 'filled_circle' || toolType === 'cloud') {
     if (handleIndex === 4) {
-      const dx = curNorm.x - dragStartNorm.x;
-      const dy = curNorm.y - dragStartNorm.y;
+      const dx = effectiveCur.x - effectiveDragStart.x;
+      const dy = effectiveCur.y - effectiveDragStart.y;
       return { ...origData, x1: (origData.x1 ?? 0) + dx, y1: (origData.y1 ?? 0) + dy, x2: (origData.x2 ?? 0) + dx, y2: (origData.y2 ?? 0) + dy };
     }
-    if (handleIndex === 0) return { ...origData, x1: curNorm.x, y1: curNorm.y };
-    if (handleIndex === 1) return { ...origData, x2: curNorm.x, y1: curNorm.y };
-    if (handleIndex === 2) return { ...origData, x2: curNorm.x, y2: curNorm.y };
-    return { ...origData, x1: curNorm.x, y2: curNorm.y };
+    if (handleIndex === 0) return { ...origData, x1: effectiveCur.x, y1: effectiveCur.y };
+    if (handleIndex === 1) return { ...origData, x2: effectiveCur.x, y1: effectiveCur.y };
+    if (handleIndex === 2) return { ...origData, x2: effectiveCur.x, y2: effectiveCur.y };
+    return { ...origData, x1: effectiveCur.x, y2: effectiveCur.y };
   }
+
+  // ── Text / stamp move handle ───────────────────────────────────────────────
   if (toolType === 'text' || toolType === 'stamp') {
-    return { ...origData, x: curNorm.x, y: curNorm.y };
+    return { ...origData, x: effectiveCur.x, y: effectiveCur.y };
   }
+
+  // ── Pen / highlighter: move or scale corner handles ────────────────────────
+  if (toolType === 'pen' || toolType === 'highlighter') {
+    if (!origData.points || origData.points.length < 2) return origData;
+    const pts = origData.points;
+    const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+    const origX1 = Math.min(...xs), origY1 = Math.min(...ys);
+    const origX2 = Math.max(...xs), origY2 = Math.max(...ys);
+
+    if (handleIndex === 4) {
+      // Move: translate all points by the delta
+      const dx = effectiveCur.x - effectiveDragStart.x;
+      const dy = effectiveCur.y - effectiveDragStart.y;
+      return { ...origData, points: pts.map(p => ({ ...p, x: p.x + dx, y: p.y + dy })) };
+    }
+
+    // Corner scale: compute anchor (opposite corner) and scale all points from it
+    let anchorX: number, anchorY: number, origCornerX: number, origCornerY: number;
+    if (handleIndex === 0) { anchorX = origX2; anchorY = origY2; origCornerX = origX1; origCornerY = origY1; }
+    else if (handleIndex === 1) { anchorX = origX1; anchorY = origY2; origCornerX = origX2; origCornerY = origY1; }
+    else if (handleIndex === 2) { anchorX = origX1; anchorY = origY1; origCornerX = origX2; origCornerY = origY2; }
+    else if (handleIndex === 3) { anchorX = origX2; anchorY = origY1; origCornerX = origX1; origCornerY = origY2; }
+    else return origData;
+
+    const dOrigX = origCornerX - anchorX;
+    const dOrigY = origCornerY - anchorY;
+    const scaleX = dOrigX !== 0 ? (effectiveCur.x - anchorX) / dOrigX : 1;
+    const scaleY = dOrigY !== 0 ? (effectiveCur.y - anchorY) / dOrigY : 1;
+    return { ...origData, points: pts.map(p => ({ ...p, x: anchorX + (p.x - anchorX) * scaleX, y: anchorY + (p.y - anchorY) * scaleY })) };
+  }
+
   return origData;
 };
 
@@ -1372,11 +1504,11 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
               <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest shrink-0">
                 {selectedAnn.toolType.replace(/_/g, ' ')} selected
                 {selectedAnn.toolType === 'callout' && getHandlesNorm(selectedAnn).length >= 2
-                  ? ' — drag amber dot to repoint arrow · blue dot to move text box'
-                  : getHandlesNorm(selectedAnn).length > 0 && getHandlesNorm(selectedAnn).some(h => !h.isMoveHandle)
-                    ? ' — drag blue dots to reshape, purple dot to move'
-                    : getHandlesNorm(selectedAnn).length > 0
-                      ? ' — drag purple dot to move'
+                  ? ' — drag amber dot to repoint arrow · blue dot to move text box · green dot to rotate'
+                  : getHandlesNorm(selectedAnn).some(h => h.isRotateHandle) && getHandlesNorm(selectedAnn).some(h => !h.isMoveHandle && !h.isRotateHandle)
+                    ? ' — drag blue dots to resize · purple dot to move · green dot to rotate'
+                    : getHandlesNorm(selectedAnn).some(h => h.isRotateHandle)
+                      ? ' — drag purple dot to move · green dot to rotate'
                       : ''}
               </span>
 
@@ -1439,6 +1571,62 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
                         <div className="rounded-full bg-white" style={{ width: sw + 2, height: sw + 2 }} />
                       </button>
                     ))}
+                  </div>
+                </>
+              )}
+
+              {/* Rotation control for all annotations that have a bbox */}
+              {getHandlesNorm(selectedAnn).some(h => h.isRotateHandle) && (
+                <>
+                  <div className="w-px h-6 bg-white/10 shrink-0" />
+                  <span className="text-[9px] text-slate-400 font-black uppercase tracking-widest shrink-0">Rotate</span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={() => {
+                        const d = selectedAnn.data as AnyAnnotationData;
+                        const newR = (((d.rotation ?? 0) - 90) % 360 + 360) % 360;
+                        updateAnnotation(selectedAnn.id, { ...d, rotation: newR });
+                      }}
+                      title="Rotate -90°"
+                      className="w-8 h-8 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-[10px] font-black transition-all shrink-0 flex items-center justify-center">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14l-4-4m0 0l4-4m-4 4h12a4 4 0 000-8h-1" />
+                      </svg>
+                    </button>
+                    <input
+                      type="number" step="1"
+                      value={Math.round((selectedAnn.data as AnyAnnotationData).rotation ?? 0)}
+                      onChange={e => {
+                        const parsed = parseInt(e.target.value, 10);
+                        const v = ((( isNaN(parsed) ? 0 : parsed) % 360) + 360) % 360;
+                        updateAnnotation(selectedAnn.id, { ...(selectedAnn.data as AnyAnnotationData), rotation: v });
+                      }}
+                      onBlur={e => {
+                        const parsed = parseInt(e.target.value, 10);
+                        const v = (((isNaN(parsed) ? 0 : parsed) % 360) + 360) % 360;
+                        updateAnnotation(selectedAnn.id, { ...(selectedAnn.data as AnyAnnotationData), rotation: v });
+                      }}
+                      className="w-12 h-8 bg-slate-800 text-white rounded-lg text-center text-[11px] font-black border border-white/10 outline-none focus:border-emerald-500 shrink-0"
+                      title="Rotation in degrees"
+                    />
+                    <span className="text-[9px] text-slate-500 font-black shrink-0">°</span>
+                    <button onClick={() => {
+                        const d = selectedAnn.data as AnyAnnotationData;
+                        const newR = ((d.rotation ?? 0) + 90) % 360;
+                        updateAnnotation(selectedAnn.id, { ...d, rotation: newR });
+                      }}
+                      title="Rotate +90°"
+                      className="w-8 h-8 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-[10px] font-black transition-all shrink-0 flex items-center justify-center">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 14l4-4m0 0l-4-4m4 4H2a4 4 0 000 8h1" />
+                      </svg>
+                    </button>
+                    {((selectedAnn.data as AnyAnnotationData).rotation ?? 0) !== 0 && (
+                      <button onClick={() => updateAnnotation(selectedAnn.id, { ...(selectedAnn.data as AnyAnnotationData), rotation: 0 })}
+                        title="Reset rotation to 0°"
+                        className="px-2 h-8 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-lg text-[9px] font-black transition-all shrink-0">
+                        Reset
+                      </button>
+                    )}
                   </div>
                 </>
               )}
@@ -1545,43 +1733,79 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
 
               {selectedAnn && currentTool === 'select' && (() => {
                 const displayData = liveEditData ?? selectedAnn.data as AnyAnnotationData;
-                const handles = getHandlesNorm({ ...selectedAnn, data: displayData });
-                const bbox = getAnnotationBBox(selectedAnn, displayData);
-                const SELECTION_BOX_PADDING = 8; // px padding around the selection bounding box
+                const rotation    = (displayData.rotation as number | undefined) ?? 0;
+                const handles     = getHandlesNorm({ ...selectedAnn, data: displayData });
+                const bbox        = getAnnotationBBox(selectedAnn, displayData);
+                const SELECTION_BOX_PADDING = 8;
+                // Pixel coordinates of the bbox centre (used for the rotation transform)
+                const bboxCxPx = bbox ? (bbox.x + bbox.w / 2) * canvasSize.width  : 0;
+                const bboxCyPx = bbox ? (bbox.y + bbox.h / 2) * canvasSize.height : 0;
+                const rotateHandle = handles.find(h => h.isRotateHandle);
                 return (
                   <g>
-                    {/* Dashed bounding box — skip if bbox is too small (e.g. near-zero-size shapes) */}
+                    {/* Dashed bounding box — rotated with the annotation */}
                     {bbox && bbox.w > 0.005 && (
-                      <rect
-                        x={bbox.x * canvasSize.width - SELECTION_BOX_PADDING}
-                        y={bbox.y * canvasSize.height - SELECTION_BOX_PADDING}
-                        width={bbox.w * canvasSize.width + SELECTION_BOX_PADDING * 2}
-                        height={bbox.h * canvasSize.height + SELECTION_BOX_PADDING * 2}
-                        fill="none" stroke="white" strokeWidth="1.5"
-                        strokeDasharray="5 3" opacity="0.5" rx="3" />
+                      <g transform={rotation ? `rotate(${rotation}, ${bboxCxPx}, ${bboxCyPx})` : undefined}>
+                        <rect
+                          x={bbox.x * canvasSize.width - SELECTION_BOX_PADDING}
+                          y={bbox.y * canvasSize.height - SELECTION_BOX_PADDING}
+                          width={bbox.w * canvasSize.width + SELECTION_BOX_PADDING * 2}
+                          height={bbox.h * canvasSize.height + SELECTION_BOX_PADDING * 2}
+                          fill="none" stroke="white" strokeWidth="1.5"
+                          strokeDasharray="5 3" opacity="0.5" rx="3" />
+                      </g>
                     )}
+                    {/* Stem line from bbox top-centre to the rotate handle */}
+                    {bbox && bbox.w > 0.005 && rotateHandle && (() => {
+                      // Compute the rotated top-centre of the bounding box
+                      const stemBaseX = bbox.x * canvasSize.width + (bbox.w * canvasSize.width) / 2;
+                      const stemBaseY = bbox.y * canvasSize.height - SELECTION_BOX_PADDING;
+                      if (rotation) {
+                        const rad = (rotation * Math.PI) / 180;
+                        const cos = Math.cos(rad), sin = Math.sin(rad);
+                        const dx = stemBaseX - bboxCxPx, dy = stemBaseY - bboxCyPx;
+                        const rx = bboxCxPx + dx * cos - dy * sin;
+                        const ry = bboxCyPx + dx * sin + dy * cos;
+                        return <line x1={rx} y1={ry} x2={rotateHandle.nx * canvasSize.width} y2={rotateHandle.ny * canvasSize.height}
+                          stroke="white" strokeWidth="1" strokeDasharray="3 2" opacity="0.35" />;
+                      }
+                      return <line x1={stemBaseX} y1={stemBaseY} x2={rotateHandle.nx * canvasSize.width} y2={rotateHandle.ny * canvasSize.height}
+                        stroke="white" strokeWidth="1" strokeDasharray="3 2" opacity="0.35" />;
+                    })()}
                     {handles.map(h => {
                       const cx = h.nx * canvasSize.width;
                       const cy = h.ny * canvasSize.height;
-                      const isCalloutArrowTip = selectedAnn.toolType === 'callout' && !h.isMoveHandle && h.index === 1;
-                      const handleFill = h.isMoveHandle ? '#6366f1' : isCalloutArrowTip ? '#f59e0b' : '#3b82f6';
-                      const handleTitle = h.isMoveHandle
-                        ? 'Move annotation'
-                        : selectedAnn.toolType === 'callout'
-                          ? h.index === 0 ? 'Text box — drag to reposition' : 'Arrow tip — drag to repoint'
-                          : selectedAnn.toolType === 'arrow' || selectedAnn.toolType === 'double_arrow'
-                            ? h.index === 0 ? 'Line start — drag to adjust' : 'Arrow head — drag to adjust'
-                            : `Endpoint ${h.index + 1} — drag to reshape`;
+                      const isCalloutArrowTip = selectedAnn.toolType === 'callout' && !h.isMoveHandle && !h.isRotateHandle && h.index === 1;
+                      const handleFill = h.isRotateHandle ? '#22c55e'
+                        : h.isMoveHandle ? '#6366f1'
+                        : isCalloutArrowTip ? '#f59e0b'
+                        : '#3b82f6';
+                      const handleTitle = h.isRotateHandle
+                        ? `Rotate — drag to rotate (${Math.round(rotation)}°)`
+                        : h.isMoveHandle
+                          ? 'Move annotation'
+                          : selectedAnn.toolType === 'callout'
+                            ? h.index === 0 ? 'Text box — drag to reposition' : 'Arrow tip — drag to repoint'
+                            : selectedAnn.toolType === 'arrow' || selectedAnn.toolType === 'double_arrow'
+                              ? h.index === 0 ? 'Line start — drag to adjust' : 'Arrow head — drag to adjust'
+                              : `Endpoint ${h.index + 1} — drag to reshape`;
+                      const r = h.isRotateHandle || h.isMoveHandle ? 9 : 8;
                       return (
                         <g key={`handle-${h.index}`}>
                           {/* Hit-area circle (invisible, larger) */}
                           <circle cx={cx} cy={cy} r="18" fill="transparent">
                             <title>{handleTitle}</title>
                           </circle>
-                          {/* Outer white ring */}
-                          <circle cx={cx} cy={cy} r={h.isMoveHandle ? 9 : 8}
-                            fill={handleFill} stroke="white" strokeWidth="2.5" />
-                          {/* Move handle shows a cross icon */}
+                          {/* Visible handle circle */}
+                          <circle cx={cx} cy={cy} r={r} fill={handleFill} stroke="white" strokeWidth="2.5" />
+                          {/* Rotate handle: circular-arrow icon */}
+                          {h.isRotateHandle && (
+                            <g transform={`translate(${cx}, ${cy})`} stroke="white" strokeWidth="1.5" strokeLinecap="round" fill="none">
+                              <path d="M -4 -3 A 5 5 0 1 1 3.5 -3.5" />
+                              <polyline points="3.5,-3.5 5.5,-1.5 5.5,-5" />
+                            </g>
+                          )}
+                          {/* Move handle: cross icon */}
                           {h.isMoveHandle && (
                             <g stroke="white" strokeWidth="1.5" strokeLinecap="round">
                               <line x1={cx - 4} y1={cy} x2={cx + 4} y2={cy} />
@@ -1591,13 +1815,6 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
                         </g>
                       );
                     })}
-                    {/* If no handles (pen/highlighter), fall back to selection ring */}
-                    {handles.length === 0 && (() => {
-                      const anchor = getAnnotationAnchor(selectedAnn);
-                      if (!anchor) return null;
-                      return <circle cx={anchor.x * canvasSize.width} cy={anchor.y * canvasSize.height}
-                        r="22" fill="none" stroke="#fff" strokeWidth="2" strokeDasharray="4 3" opacity="0.85" />;
-                    })()}
                   </g>
                 );
               })()}
