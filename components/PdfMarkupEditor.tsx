@@ -107,7 +107,7 @@ const TOOL_GROUPS: ToolGroup[] = [
   ]},
   { label: 'Lines', tools: [
     { id: 'line',         icon: SvgIcon('M4 20L20 4'),                                   title: 'Line' },
-    { id: 'dashed_line',  icon: SvgIcon('M4 20L20 4'),                                   title: 'Dashed Line' },
+    { id: 'dashed_line',  icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><line x1="4" y1="20" x2="20" y2="4" strokeWidth="2" strokeLinecap="round" strokeDasharray="3 2" /></svg>, title: 'Dashed Line' },
     { id: 'arrow',        icon: SvgIcon('M14 5l7 7m0 0l-7 7m7-7H3'),                     title: 'Arrow' },
     { id: 'double_arrow', icon: SvgIcon('M7 16l-4-4m0 0l4-4m-4 4h18m0 0l-4 4m4-4l-4-4'), title: 'Double Arrow' },
     { id: 'dimension',    icon: SvgIcon('M8 9l4-4 4 4m0 6l-4 4-4-4'),                    title: 'Dimension / Measurement' },
@@ -717,6 +717,25 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     }
   }, []);
 
+  const updateColor = useCallback((id: string, color: string) => {
+    if (isPendingAnnotation(id)) {
+      setPendingAnnotations(prev => prev.map(a => a.id === id ? { ...a, color } : a));
+      undoStackRef.current = undoStackRef.current.map(e => e.id === id ? { ...e, color } : e);
+    } else {
+      const target = annotationsRef.current.find(a => a.id === id);
+      if (!target) return;
+      const newId = generateTempId();
+      const promoted: PdfAnnotation = { ...target, id: newId, color };
+      setAnnotations(prev => prev.filter(a => a.id !== id));
+      setPendingAnnotations(prev => [...prev, promoted]);
+      undoStackRef.current.push(promoted);
+      if (undoStackRef.current.length > MAX_UNDO_STACK_SIZE) undoStackRef.current.shift();
+      redoStackRef.current = [];
+      setCanUndo(true); setCanRedo(false);
+      setSelectedAnnId(newId);
+    }
+  }, []);
+
   // Persist all staged annotations to DB in parallel
   const handleSave = useCallback(async () => {
     if (pendingAnnotations.length === 0) return;
@@ -1273,6 +1292,13 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
                 className={`w-7 h-7 rounded-full shrink-0 transition-transform hover:scale-110 active:scale-95 ${currentColor === c ? 'ring-2 ring-white ring-offset-1 ring-offset-slate-900 scale-110' : ''}`}
                 style={{ backgroundColor: c, border: (c === '#ffffff' || c === '#000000') ? '1px solid rgba(255,255,255,0.2)' : undefined }} />
             ))}
+            <label
+              className={`relative w-7 h-7 rounded-full shrink-0 overflow-hidden cursor-pointer transition-transform hover:scale-110 active:scale-95 ${!COLORS.includes(currentColor) ? 'ring-2 ring-white ring-offset-1 ring-offset-slate-900 scale-110' : ''}`}
+              title="Custom color"
+              style={{ background: COLORS.includes(currentColor) ? 'conic-gradient(#ef4444,#eab308,#22c55e,#3b82f6,#8b5cf6,#ec4899,#ef4444)' : currentColor, border: '1.5px solid rgba(255,255,255,0.25)' }}>
+              <input type="color" value={currentColor} onChange={e => setCurrentColor(e.target.value)}
+                className="opacity-0 absolute inset-0 w-full h-full cursor-pointer" />
+            </label>
           </div>
 
           <div className="w-px h-6 bg-white/10 shrink-0" />
@@ -1346,6 +1372,25 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
                     : ''}
               </span>
 
+              {/* Color picker for selected annotation */}
+              <div className="w-px h-6 bg-white/10 shrink-0" />
+              <span className="text-[9px] text-slate-400 font-black uppercase tracking-widest shrink-0">Color</span>
+              <div className="flex items-center gap-1 shrink-0">
+                {COLORS.map(c => (
+                  <button key={c} onClick={() => { setCurrentColor(c); updateColor(selectedAnn.id, c); }} title={c}
+                    className={`w-6 h-6 rounded-full shrink-0 transition-transform hover:scale-110 active:scale-95 ${selectedAnn.color === c ? 'ring-2 ring-white ring-offset-1 ring-offset-slate-900 scale-110' : ''}`}
+                    style={{ backgroundColor: c, border: (c === '#ffffff' || c === '#000000') ? '1px solid rgba(255,255,255,0.2)' : undefined }} />
+                ))}
+                <label
+                  className={`relative w-6 h-6 rounded-full shrink-0 overflow-hidden cursor-pointer transition-transform hover:scale-110 active:scale-95 ${!COLORS.includes(selectedAnn.color) ? 'ring-2 ring-white ring-offset-1 ring-offset-slate-900 scale-110' : ''}`}
+                  title="Custom color"
+                  style={{ background: COLORS.includes(selectedAnn.color) ? 'conic-gradient(#ef4444,#eab308,#22c55e,#3b82f6,#8b5cf6,#ec4899,#ef4444)' : selectedAnn.color, border: '1.5px solid rgba(255,255,255,0.25)' }}>
+                  <input type="color" value={selectedAnn.color}
+                    onChange={e => { setCurrentColor(e.target.value); updateColor(selectedAnn.id, e.target.value); }}
+                    className="opacity-0 absolute inset-0 w-full h-full cursor-pointer" />
+                </label>
+              </div>
+
               {/* Font size picker for selected text / callout annotations */}
               {(selectedAnn.toolType === 'text' || selectedAnn.toolType === 'callout') && (
                 <>
@@ -1409,6 +1454,8 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       {/* Hint bar when drawing line/shape tools */}
       {!isNavTool && (
         <div className="flex items-center gap-2 px-3 py-1 border-b border-white/5 bg-slate-950/40 shrink-0">
+          <span className="text-[8px] text-brand/80 font-black uppercase tracking-widest shrink-0">{currentTool.replace(/_/g, ' ')}</span>
+          <span className="text-[8px] text-slate-600 font-black uppercase tracking-widest">·</span>
           <span className="text-[8px] text-slate-600 font-black uppercase tracking-widest">
             {currentTool !== 'pen' && currentTool !== 'highlighter' && currentTool !== 'text' && currentTool !== 'callout' && currentTool !== 'stamp'
               ? <>Tap again to deactivate · Hold <kbd className="text-slate-500 font-mono">⇧ Shift</kbd> to constrain / snap to 45°</>
