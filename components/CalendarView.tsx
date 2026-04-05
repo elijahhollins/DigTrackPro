@@ -217,12 +217,10 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onVi
             {calendarDays.map((d, i) => {
               const isToday = d !== null && d.day === today.getDate() && isViewingCurrentMonth;
               const isSelected = d?.day === selectedDay;
-              const MAX_SHOW = 2;
               const visibleEvents = d?.events.filter(ev =>
                 !dismissedEvents.has(`${ev.ticket.id}:${ev.type}`)
               ) ?? [];
-              const shown = visibleEvents.slice(0, MAX_SHOW);
-              const overflow = visibleEvents.length - MAX_SHOW;
+              const uniqueEventTypes = [...new Set(visibleEvents.map((ev: CalendarEvent) => ev.type))] as CalendarEvent['type'][];
 
               return (
                 <div
@@ -249,18 +247,24 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onVi
                       }`}>
                         {d.day}
                       </span>
-                      <div className="flex flex-col gap-0.5">
-                        {shown.map((ev: CalendarEvent, idx) => (
-                          <div
-                            key={idx}
-                            title={`${EVENT_META[ev.type].label}: ${ev.ticket.ticketNo}`}
-                            className={`text-[9px] font-bold px-1.5 py-0.5 rounded truncate leading-tight ${EVENT_META[ev.type].pill}`}
-                          >
-                            {ev.ticket.ticketNo}
+                      <div className="flex flex-col gap-0.5 mt-0.5">
+                        {visibleEvents.length > 0 && (
+                          <div className="flex items-center gap-1">
+                            <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-md leading-tight ${
+                              isDarkMode ? 'bg-brand/20 text-brand' : 'bg-brand/10 text-brand'
+                            }`}>
+                              {visibleEvents.length}
+                            </span>
+                            <div className="flex gap-0.5 flex-wrap">
+                              {uniqueEventTypes.map(type => (
+                                <div
+                                  key={type}
+                                  title={EVENT_META[type].label}
+                                  className={`w-1.5 h-1.5 rounded-full ${EVENT_META[type].dot}`}
+                                />
+                              ))}
+                            </div>
                           </div>
-                        ))}
-                        {overflow > 0 && (
-                          <p className={`text-[9px] font-bold px-1.5 ${subtle}`}>+{overflow} more</p>
                         )}
                       </div>
                     </>
