@@ -1764,7 +1764,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
         {!isLoadingPdf && !pdfError && (
           <div
             ref={containerRef}
-            className={`relative shadow-2xl rounded-lg overflow-hidden ${toolCursor}`}
+            className={`relative shadow-2xl rounded-lg overflow-hidden shrink-0 ${toolCursor}`}
             style={{ width: canvasSize.width || '100%', touchAction: 'none' }}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
