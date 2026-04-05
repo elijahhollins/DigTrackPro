@@ -726,9 +726,9 @@ const App: React.FC = () => {
                           <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Tickets</th>
                           <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Client / Location</th>
                           <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] text-center ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Status</th>
-                          <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] text-right ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Expiry</th>
                           <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] text-right ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Dig By</th>
                           <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] text-center ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Dig Begun?</th>
+                          <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] text-right ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Expiry</th>
                           <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] text-right ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Actions</th>
                         </tr>
                       </thead>
@@ -776,6 +776,7 @@ const App: React.FC = () => {
                                 </td>
                                 <td className="px-5 py-4" />
                                 <td className="px-5 py-4" />
+
                                 <td className="px-5 py-4 text-right">
                                   {isAdmin && (
                                     <button onClick={(e) => { e.stopPropagation(); jobEntity && apiService.deleteJob(jobEntity.id).then(() => initApp()); }} className="p-1.5 text-slate-600 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all rounded-lg hover:bg-rose-500/10">
@@ -814,9 +815,6 @@ const App: React.FC = () => {
                                         {ticket.isArchived ? 'ARCHIVED' : status}
                                       </span>
                                     </td>
-                                    <td className={`px-5 py-3 text-[11px] font-semibold text-right tabular-nums ${isDarkMode ? 'text-slate-600' : 'text-slate-500'}`}>
-                                      {formatDateStr(ticket.expires)}
-                                    </td>
                                     <td className={`px-5 py-3 text-[11px] font-semibold text-right tabular-nums ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`}>
                                       {(ticket.callInDate || ticket.digByDate) ? formatDateStr(ticket.digByDate || addDaysToDateStr(ticket.callInDate, 10)) : <span className={`text-[10px] ${isDarkMode ? 'text-slate-700' : 'text-slate-400'}`}>—</span>}
                                     </td>
@@ -834,6 +832,9 @@ const App: React.FC = () => {
                                           —
                                         </span>
                                       )}
+                                    </td>
+                                    <td className={`px-5 py-3 text-[11px] font-semibold text-right tabular-nums ${isDarkMode ? 'text-slate-600' : 'text-slate-500'}`}>
+                                      {formatDateStr(ticket.expires)}
                                     </td>
                                     <td className="px-5 py-3 text-right">
                                       <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all">
