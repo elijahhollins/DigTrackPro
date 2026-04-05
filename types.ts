@@ -157,4 +157,4 @@ export interface JobNote {
 
 export type SortField = keyof DigTicket | 'status';
 export type SortOrder = 'asc' | 'desc';
-export type AppView = 'dashboard' | 'calendar' | 'jobs' | 'photos' | 'team' | 'map';
+export type AppView = 'dashboard' | 'calendar' | 'jobs' | 'photos' | 'team' | 'map' | 'asbuilt';
