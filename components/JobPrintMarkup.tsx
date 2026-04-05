@@ -113,21 +113,19 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, isAdmin, se
         </div>
 
         <div className="flex items-center gap-2">
-          {isAdmin && (
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isUploading}
-              className="px-4 py-2 bg-brand text-slate-900 rounded-xl font-black text-xs uppercase tracking-wider shadow-lg transition-all hover:scale-105 active:scale-95 disabled:opacity-50"
-              title="Upload PDF"
-            >
-              <div className="flex items-center gap-2">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                </svg>
-                {isUploading ? 'Uploading...' : 'Upload PDF'}
-              </div>
-            </button>
-          )}
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isUploading}
+            className="px-4 py-2 bg-brand text-slate-900 rounded-xl font-black text-xs uppercase tracking-wider shadow-lg transition-all hover:scale-105 active:scale-95 disabled:opacity-50"
+            title="Upload PDF"
+          >
+            <div className="flex items-center gap-2">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+              </svg>
+              {isUploading ? 'Uploading...' : 'Upload PDF'}
+            </div>
+          </button>
           <button
             onClick={onClose}
             className="p-2 bg-rose-600 text-white rounded-xl shadow-lg transition-all hover:scale-105 active:scale-95"
@@ -153,14 +151,12 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, isAdmin, se
             </svg>
             <p className="text-sm font-black uppercase tracking-widest text-slate-400 mb-2">No PDFs Uploaded</p>
             <p className="text-xs text-slate-500 mb-6 max-w-md">Upload PDF job prints to store and view them for this job.</p>
-            {isAdmin && (
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="px-6 py-3 bg-brand text-slate-900 rounded-xl font-black text-xs uppercase tracking-wider shadow-lg transition-all hover:scale-105"
-              >
-                Upload First PDF
-              </button>
-            )}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="px-6 py-3 bg-brand text-slate-900 rounded-xl font-black text-xs uppercase tracking-wider shadow-lg transition-all hover:scale-105"
+            >
+              Upload First PDF
+            </button>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
