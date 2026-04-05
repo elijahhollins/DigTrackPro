@@ -1717,7 +1717,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       )}
 
       {/* ── Canvas area ── */}
-      <div ref={mainRef} className="flex-1 overflow-auto flex flex-col items-center p-4 gap-4">
+      <div ref={mainRef} className="flex-1 min-h-0 overflow-auto flex flex-col items-center p-4 gap-4">
 
         {annLoadErr && (
           <div className="w-full max-w-3xl flex items-center gap-3 px-4 py-3 bg-amber-500/10 border border-amber-500/30 rounded-xl shrink-0">
