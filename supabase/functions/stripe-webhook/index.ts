@@ -12,6 +12,8 @@
 import Stripe from 'https://esm.sh/stripe@14.21.0?target=deno';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
+const STRIPE_API_VERSION = (Deno.env.get('STRIPE_API_VERSION') ?? '2024-06-20') as Stripe.LatestApiVersion;
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, stripe-signature',
@@ -32,7 +34,7 @@ Deno.serve(async (req: Request) => {
     return new Response('Webhook configuration error', { status: 500 });
   }
 
-  const stripe = new Stripe(stripeSecretKey, { apiVersion: '2024-06-20' });
+  const stripe = new Stripe(stripeSecretKey, { apiVersion: STRIPE_API_VERSION });
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
   // Verify Stripe signature
@@ -193,7 +195,12 @@ function resolvePlanName(priceId: string | undefined): string {
 
   if (priceId && enterprisePriceId && priceId === enterprisePriceId) return 'enterprise';
   if (priceId && proPriceId && priceId === proPriceId) return 'pro';
-  return 'pro'; // default paid plan
+  // Unknown price ID — log and default to 'pro' as a safe fallback for
+  // paid subscriptions; the status column already records payment truth.
+  if (priceId) {
+    console.warn(`[stripe-webhook] Unrecognized price ID: ${priceId}. Defaulting plan to 'pro'.`);
+  }
+  return 'pro';
 }
 
 interface SubscriptionUpsertData {

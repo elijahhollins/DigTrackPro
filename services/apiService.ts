@@ -1,5 +1,5 @@
 
-import { supabase } from '../lib/supabaseClient.ts';
+import { supabase, getEnv } from '../lib/supabaseClient.ts';
 import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job, NoShowRecord, JobPrint, PrintMarker, Company, PdfAnnotation, CompanySubscription, SubscriptionStatus, PlanName } from '../types.ts';
 
 const mapRole = (role: string | undefined): UserRole => {
@@ -833,7 +833,7 @@ export const apiService = {
   async createCheckoutSession(priceId: string, successUrl: string, cancelUrl: string): Promise<{ url: string }> {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) throw new Error('Not authenticated');
-    const supabaseUrl = (supabase as any).supabaseUrl as string;
+    const supabaseUrl = getEnv('SUPABASE_URL') || 'https://fusubnzndmngjfgatzrq.supabase.co';
     const res = await fetch(`${supabaseUrl}/functions/v1/create-checkout-session`, {
       method: 'POST',
       headers: {
@@ -850,7 +850,7 @@ export const apiService = {
   async createBillingPortalSession(returnUrl: string): Promise<{ url: string }> {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) throw new Error('Not authenticated');
-    const supabaseUrl = (supabase as any).supabaseUrl as string;
+    const supabaseUrl = getEnv('SUPABASE_URL') || 'https://fusubnzndmngjfgatzrq.supabase.co';
     const res = await fetch(`${supabaseUrl}/functions/v1/get-billing-portal`, {
       method: 'POST',
       headers: {
