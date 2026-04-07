@@ -12,9 +12,10 @@ interface BillingViewProps {
 interface PricingPlan {
   id: PlanName;
   label: string;
-  monthlyPrice: number;
+  monthlyPrice?: number;
+  contactForQuote?: boolean;
   description: string;
-  priceId: string;
+  priceId?: string;
   features: string[];
   highlighted?: boolean;
 }
@@ -24,7 +25,7 @@ const PRICING_PLANS: PricingPlan[] = [
   {
     id: 'pro',
     label: 'Pro',
-    monthlyPrice: 99,
+    monthlyPrice: 299,
     description: 'Everything your crew needs to manage dig tickets efficiently.',
     priceId: import.meta.env.VITE_STRIPE_PRO_PRICE_ID ?? 'price_pro_monthly',
     highlighted: true,
@@ -42,9 +43,8 @@ const PRICING_PLANS: PricingPlan[] = [
   {
     id: 'enterprise',
     label: 'Enterprise',
-    monthlyPrice: 299,
+    contactForQuote: true,
     description: 'Custom branding, SLA, and dedicated support for large operations.',
-    priceId: import.meta.env.VITE_STRIPE_ENTERPRISE_PRICE_ID ?? 'price_enterprise_monthly',
     features: [
       'Everything in Pro',
       'Custom brand colors & logo',
@@ -63,7 +63,7 @@ const statusConfig: Record<string, { label: string; color: string; bg: string; b
   trialing: { label: 'Trial',     color: 'text-sky-400',     bg: 'bg-sky-500/10',     border: 'border-sky-500/25' },
   past_due: { label: 'Past Due',  color: 'text-amber-400',   bg: 'bg-amber-500/10',   border: 'border-amber-500/25' },
   canceled: { label: 'Canceled',  color: 'text-rose-400',    bg: 'bg-rose-500/10',    border: 'border-rose-500/25' },
-  inactive: { label: 'Free Plan', color: 'text-slate-400',   bg: 'bg-slate-500/10',   border: 'border-slate-500/25' },
+  inactive: { label: 'No Plan',   color: 'text-slate-400',   bg: 'bg-slate-500/10',   border: 'border-slate-500/25' },
 };
 
 const formatDate = (ts?: number): string => {
@@ -111,6 +111,7 @@ const BillingView: React.FC<BillingViewProps> = ({ companyId, companyName, isDar
   }, [loadSubscription]);
 
   const handleSubscribe = async (plan: PricingPlan) => {
+    if (!plan.priceId) return;
     setCheckoutLoading(plan.id);
     setError(null);
     try {
@@ -210,7 +211,7 @@ const BillingView: React.FC<BillingViewProps> = ({ companyId, companyName, isDar
             <div>
               <div className="flex items-center gap-2.5 flex-wrap">
                 <p className={`text-[13px] font-black uppercase tracking-wide ${headingText}`}>
-                  {isLoading ? 'Loading...' : (currentPlan?.label ?? 'Free Plan')}
+                  {isLoading ? 'Loading...' : (currentPlan?.label ?? 'No Active Plan')}
                 </p>
                 {!isLoading && (
                   <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border ${currentStatus.color} ${currentStatus.bg} ${currentStatus.border}`}>
@@ -230,17 +231,17 @@ const BillingView: React.FC<BillingViewProps> = ({ companyId, companyName, isDar
                   )}
                 </p>
               ) : (
-                <p className={`text-[11px] mt-0.5 ${subtleText}`}>No active subscription</p>
+                <p className={`text-[11px] mt-0.5 ${subtleText}`}>No active subscription — choose a plan below</p>
               )}
             </div>
           </div>
 
-          {isPaid && (
+          {isPaid && currentPlan?.monthlyPrice && (
             <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${isDarkMode ? 'bg-white/[0.03] border-white/[0.06]' : 'bg-slate-50 border-slate-100'}`}>
               <div className="text-right">
                 <p className={`text-[9px] font-black uppercase tracking-widest ${subtleText}`}>Monthly</p>
                 <p className={`text-xl font-black ${headingText}`}>
-                  ${currentPlan?.monthlyPrice ?? 0}
+                  ${currentPlan.monthlyPrice}
                   <span className={`text-[10px] font-bold ${subtleText}`}>/mo</span>
                 </p>
               </div>
@@ -287,8 +288,14 @@ const BillingView: React.FC<BillingViewProps> = ({ companyId, companyName, isDar
                     )}
                   </div>
                   <div className="flex items-baseline gap-1 mt-2">
-                    <span className={`text-3xl font-black ${headingText}`}>${plan.monthlyPrice}</span>
-                    <span className={`text-[11px] font-bold ${subtleText}`}>/month</span>
+                    {plan.contactForQuote ? (
+                      <span className={`text-2xl font-black ${headingText}`}>Custom Pricing</span>
+                    ) : (
+                      <>
+                        <span className={`text-3xl font-black ${headingText}`}>${plan.monthlyPrice}</span>
+                        <span className={`text-[11px] font-bold ${subtleText}`}>/month</span>
+                      </>
+                    )}
                   </div>
                   <p className={`text-[11px] mt-2 leading-relaxed ${bodyText}`}>{plan.description}</p>
                 </div>
@@ -304,63 +311,58 @@ const BillingView: React.FC<BillingViewProps> = ({ companyId, companyName, isDar
                   ))}
                 </ul>
 
-                <button
-                  onClick={() => !isActive && handleSubscribe(plan)}
-                  disabled={isActive || checkoutLoading !== null}
-                  className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${
-                    isActive
-                      ? isDarkMode
-                        ? 'bg-white/5 text-slate-600 cursor-default border border-white/[0.07]'
-                        : 'bg-slate-100 text-slate-400 cursor-default border border-slate-200'
-                      : plan.highlighted
-                      ? 'bg-brand text-[#07101f] hover:opacity-90 shadow-lg shadow-brand/20 disabled:opacity-50 disabled:cursor-not-allowed'
-                      : isDarkMode
-                      ? 'border border-white/10 text-slate-300 hover:text-white hover:border-white/20 hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed'
-                      : 'border border-slate-200 text-slate-600 hover:text-brand hover:border-brand/40 disabled:opacity-50 disabled:cursor-not-allowed'
-                  }`}
-                >
-                  {checkoutLoading === plan.id ? (
-                    <>
-                      <div className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                      Redirecting…
-                    </>
-                  ) : isActive ? (
-                    'Active Plan'
-                  ) : (
-                    <>
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                      </svg>
-                      {isPaid ? 'Switch to ' + plan.label : 'Subscribe — $' + plan.monthlyPrice + '/mo'}
-                    </>
-                  )}
-                </button>
+                {plan.contactForQuote ? (
+                  <a
+                    href="mailto:sales@digtrackpro.com?subject=Enterprise%20Plan%20Inquiry"
+                    className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all border ${
+                      isDarkMode
+                        ? 'border-white/10 text-slate-300 hover:text-white hover:border-white/20 hover:bg-white/5'
+                        : 'border-slate-200 text-slate-600 hover:text-brand hover:border-brand/40'
+                    }`}
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    </svg>
+                    Contact Sales
+                  </a>
+                ) : (
+                  <button
+                    onClick={() => !isActive && handleSubscribe(plan)}
+                    disabled={isActive || checkoutLoading !== null}
+                    className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${
+                      isActive
+                        ? isDarkMode
+                          ? 'bg-white/5 text-slate-600 cursor-default border border-white/[0.07]'
+                          : 'bg-slate-100 text-slate-400 cursor-default border border-slate-200'
+                        : plan.highlighted
+                        ? 'bg-brand text-[#07101f] hover:opacity-90 shadow-lg shadow-brand/20 disabled:opacity-50 disabled:cursor-not-allowed'
+                        : isDarkMode
+                        ? 'border border-white/10 text-slate-300 hover:text-white hover:border-white/20 hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed'
+                        : 'border border-slate-200 text-slate-600 hover:text-brand hover:border-brand/40 disabled:opacity-50 disabled:cursor-not-allowed'
+                    }`}
+                  >
+                    {checkoutLoading === plan.id ? (
+                      <>
+                        <div className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                        Redirecting…
+                      </>
+                    ) : isActive ? (
+                      'Active Plan'
+                    ) : (
+                      <>
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                        {'Subscribe — $' + plan.monthlyPrice + '/mo'}
+                      </>
+                    )}
+                  </button>
+                )}
               </div>
             );
           })}
         </div>
       </div>
-
-      {/* ── FREE PLAN FEATURES ── */}
-      {!isPaid && (
-        <div className={`rounded-2xl border p-6 ${card}`}>
-          <p className={`text-[11px] font-black uppercase tracking-widest mb-3 ${subtleText}`}>What's Included — Free Plan</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-            {[
-              'Up to 3 team members',
-              'Up to 50 active tickets',
-              'Basic job & ticket management',
-              'Field docs storage (1 GB)',
-              'Community support',
-            ].map((f) => (
-              <div key={f} className="flex items-center gap-2.5">
-                <span className={`${subtleText}`}><CheckIcon className="w-3.5 h-3.5" /></span>
-                <span className={`text-[11px] font-semibold ${bodyText}`}>{f}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* ── SECURITY NOTICE ── */}
       <div className={`flex items-start gap-3 px-4 py-3.5 rounded-xl border text-[11px] font-semibold ${isDarkMode ? 'bg-white/[0.02] border-white/[0.05] text-slate-500' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>
