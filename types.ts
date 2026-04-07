@@ -157,4 +157,22 @@ export interface JobNote {
 
 export type SortField = keyof DigTicket | 'status';
 export type SortOrder = 'asc' | 'desc';
-export type AppView = 'dashboard' | 'calendar' | 'jobs' | 'photos' | 'team' | 'map' | 'asbuilt';
+export type AppView = 'dashboard' | 'calendar' | 'jobs' | 'photos' | 'team' | 'map' | 'asbuilt' | 'billing';
+
+export type SubscriptionStatus = 'active' | 'trialing' | 'past_due' | 'canceled' | 'inactive';
+export type PlanName = 'free' | 'pro' | 'enterprise';
+
+export interface CompanySubscription {
+  id: string;
+  companyId: string;
+  stripeCustomerId?: string;
+  stripeSubscriptionId?: string;
+  stripePriceId?: string;
+  planName: PlanName;
+  status: SubscriptionStatus;
+  currentPeriodStart?: number;
+  currentPeriodEnd?: number;
+  cancelAtPeriodEnd: boolean;
+  createdAt: number;
+  updatedAt: number;
+}

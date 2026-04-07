@@ -1,6 +1,6 @@
 
 import { supabase } from '../lib/supabaseClient.ts';
-import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job, NoShowRecord, JobPrint, PrintMarker, Company, PdfAnnotation } from '../types.ts';
+import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job, NoShowRecord, JobPrint, PrintMarker, Company, PdfAnnotation, CompanySubscription, SubscriptionStatus, PlanName } from '../types.ts';
 
 const mapRole = (role: string | undefined): UserRole => {
   const r = role?.toUpperCase();
@@ -803,5 +803,64 @@ export const apiService = {
   async updateCurrentUserPassword(password: string): Promise<void> {
     const { error } = await supabase.auth.updateUser({ password });
     if (error) throw error;
-  }
+  },
+
+  // ── BILLING ──────────────────────────────────────────────────────────────
+
+  async getSubscription(companyId: string): Promise<CompanySubscription | null> {
+    const { data, error } = await supabase
+      .from('company_subscriptions')
+      .select('*')
+      .eq('company_id', companyId)
+      .maybeSingle();
+    if (error || !data) return null;
+    return {
+      id: data.id,
+      companyId: data.company_id,
+      stripeCustomerId: data.stripe_customer_id ?? undefined,
+      stripeSubscriptionId: data.stripe_subscription_id ?? undefined,
+      stripePriceId: data.stripe_price_id ?? undefined,
+      planName: (data.plan_name as PlanName) ?? 'free',
+      status: (data.status as SubscriptionStatus) ?? 'inactive',
+      currentPeriodStart: data.current_period_start ? new Date(data.current_period_start).getTime() : undefined,
+      currentPeriodEnd: data.current_period_end ? new Date(data.current_period_end).getTime() : undefined,
+      cancelAtPeriodEnd: data.cancel_at_period_end ?? false,
+      createdAt: new Date(data.created_at).getTime(),
+      updatedAt: new Date(data.updated_at).getTime(),
+    };
+  },
+
+  async createCheckoutSession(priceId: string, successUrl: string, cancelUrl: string): Promise<{ url: string }> {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error('Not authenticated');
+    const supabaseUrl = (supabase as any).supabaseUrl as string;
+    const res = await fetch(`${supabaseUrl}/functions/v1/create-checkout-session`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ priceId, successUrl, cancelUrl }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error ?? 'Failed to create checkout session');
+    return { url: json.url };
+  },
+
+  async createBillingPortalSession(returnUrl: string): Promise<{ url: string }> {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error('Not authenticated');
+    const supabaseUrl = (supabase as any).supabaseUrl as string;
+    const res = await fetch(`${supabaseUrl}/functions/v1/get-billing-portal`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ returnUrl }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error ?? 'Failed to create billing portal session');
+    return { url: json.url };
+  },
 };
