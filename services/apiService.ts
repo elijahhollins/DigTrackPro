@@ -456,6 +456,11 @@ export const apiService = {
     };
   },
 
+  async deleteTicket(id: string): Promise<void> {
+    const { error } = await supabase.from('tickets').delete().eq('id', id);
+    if (error) throw error;
+  },
+
   async updateTicketCoords(id: string, lat: number, lng: number): Promise<void> {
     const { error } = await supabase.from('tickets').update({ geotag_lat: lat, geotag_lng: lng }).eq('id', id);
     if (error) throw error;
