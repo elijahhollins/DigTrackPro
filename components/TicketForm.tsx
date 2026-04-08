@@ -118,6 +118,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
           documentUrl: activeItem.documentUrl || '',
           lat: activeItem.extractedData.lat != null ? String(activeItem.extractedData.lat) : '',
           lng: activeItem.extractedData.lng != null ? String(activeItem.extractedData.lng) : '',
+          workBegun: undefined,
         });
       }
     }
