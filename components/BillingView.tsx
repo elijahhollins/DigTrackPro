@@ -1,12 +1,14 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { CompanySubscription, PlanName } from '../types.ts';
+import { CompanySubscription, PlanName, SubscriptionStatus, Company } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
 
 interface BillingViewProps {
   companyId: string;
   companyName: string;
   isDarkMode?: boolean;
+  isSuperAdmin?: boolean;
+  allCompanies?: Company[];
 }
 
 interface PricingPlan {
@@ -77,12 +79,21 @@ const CheckIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) 
   </svg>
 );
 
-const BillingView: React.FC<BillingViewProps> = ({ companyId, companyName, isDarkMode }) => {
+const BillingView: React.FC<BillingViewProps> = ({ companyId, companyName, isDarkMode, isSuperAdmin = false, allCompanies = [] }) => {
   const [subscription, setSubscription] = useState<CompanySubscription | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
   const [portalLoading, setPortalLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Super admin manual override state
+  const [overrideCompanyId, setOverrideCompanyId] = useState('');
+  const [overridePlan, setOverridePlan] = useState<PlanName>('pro');
+  const [overrideStatus, setOverrideStatus] = useState<SubscriptionStatus>('active');
+  const [overridePeriodEnd, setOverridePeriodEnd] = useState('');
+  const [overrideLoading, setOverrideLoading] = useState(false);
+  const [overrideSuccess, setOverrideSuccess] = useState(false);
+  const [overrideError, setOverrideError] = useState<string | null>(null);
 
   const loadSubscription = useCallback(async () => {
     setIsLoading(true);
@@ -137,6 +148,28 @@ const BillingView: React.FC<BillingViewProps> = ({ companyId, companyName, isDar
       const msg = err instanceof Error ? err.message : 'Failed to open billing portal.';
       setError(msg);
       setPortalLoading(false);
+    }
+  };
+
+  const handleAdminOverride = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!overrideCompanyId) return;
+    setOverrideLoading(true);
+    setOverrideError(null);
+    setOverrideSuccess(false);
+    try {
+      await apiService.adminOverrideSubscription(
+        overrideCompanyId,
+        overridePlan,
+        overrideStatus,
+        overridePeriodEnd || undefined,
+      );
+      setOverrideSuccess(true);
+      setTimeout(() => setOverrideSuccess(false), 4000);
+    } catch (err: unknown) {
+      setOverrideError(err instanceof Error ? err.message : 'Override failed.');
+    } finally {
+      setOverrideLoading(false);
     }
   };
 
@@ -382,6 +415,142 @@ const BillingView: React.FC<BillingViewProps> = ({ companyId, companyName, isDar
           . DigTrackPro never stores your card details. Cancel or modify your plan at any time through the billing portal.
         </span>
       </div>
+
+      {/* ── SUPER ADMIN: MANUAL ACTIVATION ── */}
+      {isSuperAdmin && allCompanies.length > 0 && (
+        <div className={`rounded-2xl border p-6 space-y-5 ${isDarkMode ? 'bg-amber-500/5 border-amber-500/20' : 'bg-amber-50 border-amber-200'}`}>
+          <div className="flex items-center gap-2.5">
+            <svg className="w-4 h-4 text-amber-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+            </svg>
+            <p className={`text-[11px] font-black uppercase tracking-widest ${isDarkMode ? 'text-amber-400' : 'text-amber-700'}`}>
+              Super Admin — Manual Subscription Override
+            </p>
+          </div>
+          <p className={`text-[11px] ${isDarkMode ? 'text-amber-300/70' : 'text-amber-700/70'}`}>
+            Use this to activate a paid plan for customers who pay by check or invoice. This bypasses Stripe.
+          </p>
+
+          <form onSubmit={handleAdminOverride} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Company selector */}
+            <div className="sm:col-span-2">
+              <label className={`block text-[9px] font-black uppercase tracking-widest mb-1.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                Company
+              </label>
+              <select
+                value={overrideCompanyId}
+                onChange={e => setOverrideCompanyId(e.target.value)}
+                required
+                className={`w-full px-3 py-2.5 rounded-xl text-[11px] font-semibold border appearance-none focus:outline-none focus:ring-2 focus:ring-amber-500/40 ${
+                  isDarkMode
+                    ? 'bg-[#0b1629] border-white/[0.08] text-white'
+                    : 'bg-white border-slate-200 text-slate-900'
+                }`}
+              >
+                <option value="">Select a company…</option>
+                {allCompanies.map(co => (
+                  <option key={co.id} value={co.id}>{co.name}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Plan */}
+            <div>
+              <label className={`block text-[9px] font-black uppercase tracking-widest mb-1.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                Plan
+              </label>
+              <select
+                value={overridePlan}
+                onChange={e => setOverridePlan(e.target.value as PlanName)}
+                className={`w-full px-3 py-2.5 rounded-xl text-[11px] font-semibold border appearance-none focus:outline-none focus:ring-2 focus:ring-amber-500/40 ${
+                  isDarkMode
+                    ? 'bg-[#0b1629] border-white/[0.08] text-white'
+                    : 'bg-white border-slate-200 text-slate-900'
+                }`}
+              >
+                <option value="pro">Pro</option>
+                <option value="enterprise">Enterprise</option>
+              </select>
+            </div>
+
+            {/* Status */}
+            <div>
+              <label className={`block text-[9px] font-black uppercase tracking-widest mb-1.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                Status
+              </label>
+              <select
+                value={overrideStatus}
+                onChange={e => setOverrideStatus(e.target.value as SubscriptionStatus)}
+                className={`w-full px-3 py-2.5 rounded-xl text-[11px] font-semibold border appearance-none focus:outline-none focus:ring-2 focus:ring-amber-500/40 ${
+                  isDarkMode
+                    ? 'bg-[#0b1629] border-white/[0.08] text-white'
+                    : 'bg-white border-slate-200 text-slate-900'
+                }`}
+              >
+                <option value="active">Active (Paid)</option>
+                <option value="trialing">Trialing</option>
+                <option value="past_due">Past Due</option>
+                <option value="canceled">Canceled</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </div>
+
+            {/* Period End Date */}
+            <div className="sm:col-span-2">
+              <label className={`block text-[9px] font-black uppercase tracking-widest mb-1.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                Subscription End Date <span className={`normal-case font-semibold ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>(optional — leave blank for open-ended)</span>
+              </label>
+              <input
+                type="date"
+                value={overridePeriodEnd}
+                onChange={e => setOverridePeriodEnd(e.target.value)}
+                className={`w-full px-3 py-2.5 rounded-xl text-[11px] font-semibold border focus:outline-none focus:ring-2 focus:ring-amber-500/40 ${
+                  isDarkMode
+                    ? 'bg-[#0b1629] border-white/[0.08] text-white'
+                    : 'bg-white border-slate-200 text-slate-900'
+                }`}
+              />
+            </div>
+
+            {/* Submit */}
+            <div className="sm:col-span-2 flex items-center gap-3">
+              <button
+                type="submit"
+                disabled={!overrideCompanyId || overrideLoading}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest bg-amber-500 text-white hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md shadow-amber-500/20"
+              >
+                {overrideLoading ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Saving…
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+                    </svg>
+                    Apply Override
+                  </>
+                )}
+              </button>
+              {overrideSuccess && (
+                <span className="text-[11px] font-black text-emerald-400 uppercase tracking-widest">
+                  ✓ Subscription updated
+                </span>
+              )}
+            </div>
+          </form>
+
+          {overrideError && (
+            <div className="flex items-center gap-2 text-[11px] font-semibold text-rose-400">
+              <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              {overrideError}
+            </div>
+          )}
+        </div>
+      )}
 
     </div>
   );

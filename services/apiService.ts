@@ -863,4 +863,27 @@ export const apiService = {
     if (!res.ok) throw new Error(json.error ?? 'Failed to create billing portal session');
     return { url: json.url };
   },
+
+  async adminOverrideSubscription(
+    companyId: string,
+    planName: PlanName,
+    status: SubscriptionStatus,
+    periodEndDate?: string,
+  ): Promise<void> {
+    const now = new Date().toISOString();
+    const periodEnd = periodEndDate ? new Date(periodEndDate).toISOString() : null;
+    const { error } = await supabase.from('company_subscriptions').upsert(
+      {
+        company_id: companyId,
+        plan_name: planName,
+        status,
+        current_period_start: now,
+        current_period_end: periodEnd,
+        cancel_at_period_end: false,
+        updated_at: now,
+      },
+      { onConflict: 'company_id' },
+    );
+    if (error) throw error;
+  },
 };

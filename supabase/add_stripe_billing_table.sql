@@ -74,3 +74,11 @@ language sql security definer stable as $$
 $$;
 
 grant execute on function company_is_paid to authenticated;
+
+-- 7. Allow SUPER_ADMIN to manually upsert subscriptions (e.g. for check payments)
+create policy "super_admin_write_subscriptions"
+    on company_subscriptions
+    for all
+    to authenticated
+    using (exists (select 1 from profiles where id = auth.uid() and role = 'SUPER_ADMIN'))
+    with check (exists (select 1 from profiles where id = auth.uid() and role = 'SUPER_ADMIN'));
