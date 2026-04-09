@@ -32,12 +32,19 @@ declare global {
   }
 }
 
+const VALID_VIEWS: AppView[] = ['dashboard', 'calendar', 'jobs', 'photos', 'team', 'map', 'asbuilt'];
+
 const App: React.FC = () => {
   const [sessionUser, setSessionUser] = useState<User | null>(null);
   const [showCompanyRegistration, setShowCompanyRegistration] = useState(false);
   const [company, setCompany] = useState<Company | null>(null);
   const [allCompanies, setAllCompanies] = useState<Company[]>([]);
-  const [activeView, setActiveView] = useState<AppView>('dashboard');
+  const [activeView, setActiveView] = useState<AppView>(() => {
+    const hash = window.location.hash.slice(1);
+    const initial = VALID_VIEWS.includes(hash as AppView) ? (hash as AppView) : 'dashboard';
+    window.history.replaceState({ view: initial }, '', `#${initial}`);
+    return initial;
+  });
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('dig_theme_mode') === 'dark');
   const [tickets, setTickets] = useState<DigTicket[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -90,7 +97,6 @@ const App: React.FC = () => {
     }
   };
 
-  // Fixed: Added missing handleNavigate function
   const handleNavigate = (view: AppView) => {
     setShowTicketForm(false);
     setEditingTicket(null);
@@ -102,8 +108,18 @@ const App: React.FC = () => {
     setNotesTicket(null);
     setViewingDocUrl(null);
     if (view !== 'photos') setMediaFolderFilter(null);
+    window.history.pushState({ view }, '', `#${view}`);
     setActiveView(view);
   };
+
+  useEffect(() => {
+    const handlePopState = (event: PopStateEvent) => {
+      const v = event.state?.view as AppView | undefined;
+      setActiveView(v && VALID_VIEWS.includes(v) ? v : 'dashboard');
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   const DEFAULT_NEW_USER_NAME = 'New User';
 
