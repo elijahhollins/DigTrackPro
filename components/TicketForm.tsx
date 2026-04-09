@@ -19,6 +19,7 @@ interface IngestionItem {
 interface TicketFormProps {
   // Fixed: Prop type onSave now omits companyId to align with handleSaveTicket signature in App.tsx
   onSave: (data: Omit<DigTicket, 'id' | 'createdAt' | 'companyId'>, archiveOld?: boolean) => Promise<void>;
+  onDelete?: (id: string) => Promise<void>;
   onClose: () => void;
   initialData?: DigTicket | null;
   isDarkMode?: boolean;
@@ -42,11 +43,13 @@ const getSafeMimeType = (file: File): string => {
   }
 };
 
-export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initialData, isDarkMode, existingTickets }) => {
+export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClose, initialData, isDarkMode, existingTickets }) => {
   const [isBatchMode, setIsBatchMode] = useState(false);
   const [isSubmittingManual, setIsSubmittingManual] = useState(false);
   const [isSavingAll, setIsSavingAll] = useState(false);
   const [hasApiKey, setHasApiKey] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeletingTicket, setIsDeletingTicket] = useState(false);
   
   const [formData, setFormData] = useState({
     jobNumber: '', ticketNo: '', street: '', crossStreet: '', place: '', extent: '', county: '', city: '', state: '', callInDate: '', workDate: '', digByDate: '', expires: '', siteContact: '', documentUrl: '', lat: '' as string, lng: '' as string, workBegun: undefined as boolean | undefined,
@@ -627,6 +630,64 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
                   )}
                   {initialData ? 'Commit Record Changes' : isBatchMode ? 'Confirm & Sync Vault' : 'Finalize Ticket Entry'}
                 </button>
+                {initialData && onDelete && (
+                  <div className="mt-4">
+                    {!showDeleteConfirm ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowDeleteConfirm(true)}
+                        className={`w-full py-4 rounded-2xl font-black text-xs uppercase tracking-[0.2em] transition-all border ${isDarkMode ? 'border-rose-500/30 text-rose-400 hover:bg-rose-500/10' : 'border-rose-300 text-rose-500 hover:bg-rose-50'}`}
+                      >
+                        <span className="flex items-center justify-center gap-2">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                          Delete Ticket Permanently
+                        </span>
+                      </button>
+                    ) : (
+                      <div className={`p-5 rounded-2xl border ${isDarkMode ? 'bg-rose-500/10 border-rose-500/30' : 'bg-rose-50 border-rose-200'}`}>
+                        <p className={`text-xs font-black uppercase tracking-widest text-center mb-4 ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>
+                          ⚠️ Permanently delete this ticket?
+                        </p>
+                        <p className={`text-[10px] font-bold text-center mb-4 ${isDarkMode ? 'text-rose-300/70' : 'text-rose-500/80'}`}>
+                          This action cannot be undone. All associated data will be removed.
+                        </p>
+                        <div className="flex gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setShowDeleteConfirm(false)}
+                            disabled={isDeletingTicket}
+                            className={`flex-1 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${isDarkMode ? 'bg-white/5 text-slate-400 border border-white/10 hover:bg-white/10' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'} disabled:opacity-50`}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isDeletingTicket}
+                            onClick={async () => {
+                              setIsDeletingTicket(true);
+                              try {
+                                await onDelete(initialData.id);
+                                onClose();
+                              } catch (err: any) {
+                                alert(err.message);
+                                setIsDeletingTicket(false);
+                                setShowDeleteConfirm(false);
+                              }
+                            }}
+                            className="flex-1 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest bg-rose-500 text-white shadow-lg shadow-rose-500/30 transition-all hover:bg-rose-600 active:scale-95 flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed disabled:scale-100"
+                          >
+                            {isDeletingTicket ? (
+                              <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            ) : (
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6" /></svg>
+                            )}
+                            Yes, Delete
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </form>
           )}
