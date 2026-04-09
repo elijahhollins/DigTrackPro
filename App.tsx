@@ -964,12 +964,16 @@ const App: React.FC = () => {
         </div>
       )}
       {viewingDocUrl && (
-        <div className="fixed inset-0 bg-black/95 z-[300] flex items-center justify-center p-4">
-          <button onClick={() => setViewingDocUrl(null)} className="absolute top-5 right-5 p-3 bg-white/10 rounded-xl text-white hover:bg-rose-500/80 transition-all z-10">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
-          </button>
-          <div className="w-full max-w-5xl h-[90vh] rounded-2xl bg-slate-900 shadow-2xl overflow-hidden border border-white/10 relative">
-            <iframe src={viewingDocUrl} className="w-full h-full bg-white" title="Document Preview" />
+        <div className="fixed inset-0 bg-black/95 z-[300] flex flex-col items-center justify-center p-4">
+          <div className="w-full max-w-5xl flex flex-col h-[90vh]">
+            <div className="flex justify-end pb-2 shrink-0">
+              <button onClick={() => setViewingDocUrl(null)} className="p-2.5 bg-rose-600 text-white rounded-xl hover:bg-rose-500 hover:scale-105 transition-all active:scale-95 min-w-[44px] min-h-[44px] flex items-center justify-center" title="Close">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="flex-1 rounded-2xl bg-slate-900 shadow-2xl overflow-hidden border border-white/10 min-h-0">
+              <iframe src={viewingDocUrl} className="w-full h-full bg-white" title="Document Preview" />
+            </div>
           </div>
         </div>
       )}
