@@ -675,6 +675,8 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   currentToolRef.current = currentTool;
   // Scroll ratio saved just before canvas resize so useLayoutEffect can restore it
   const scrollRestoreRef = useRef<{ ratioX: number; ratioY: number } | null>(null);
+  // Tracks the page number of the last completed render to detect page-change vs zoom-change
+  const lastRenderedPageRef = useRef(0);
 
   // Load annotations
   useEffect(() => {
@@ -724,10 +726,9 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       const scale = (Math.min(avail, 1400) / base.width) * zoom;
       const vp    = page.getViewport({ scale });
       const canvas = canvasRef.current;
-      // Save scroll position as a ratio before resizing the canvas so it can be
-      // restored after the layout update (prevents the scroll container from
-      // snapping back to the top when canvas dimensions change).
-      if (mainRef.current) {
+      // Only preserve scroll when re-rendering the same page (zoom change). When the
+      // page number changes the scroll container should reset to the top naturally.
+      if (mainRef.current && pageNum === lastRenderedPageRef.current) {
         const m = mainRef.current;
         const scrollH = m.scrollHeight - m.clientHeight;
         const scrollW = m.scrollWidth  - m.clientWidth;
@@ -735,7 +736,10 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
           ratioX: scrollW > 0 ? m.scrollLeft / scrollW : 0,
           ratioY: scrollH > 0 ? m.scrollTop  / scrollH : 0,
         };
+      } else {
+        scrollRestoreRef.current = null;
       }
+      lastRenderedPageRef.current = pageNum;
       canvas.width = vp.width; canvas.height = vp.height;
       setCanvasSize({ width: vp.width, height: vp.height });
       const ctx = canvas.getContext('2d');
