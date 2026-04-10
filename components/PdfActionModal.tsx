@@ -11,7 +11,7 @@ interface PdfActionModalProps {
   isDarkMode?: boolean;
 }
 
-const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+const isMobile = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
 export const PdfActionModal: React.FC<PdfActionModalProps> = ({ print, action, onClose, isDarkMode }) => {
   const [isGenerating, setIsGenerating] = useState(false);
@@ -30,7 +30,7 @@ export const PdfActionModal: React.FC<PdfActionModalProps> = ({ print, action, o
       const link = document.createElement('a');
       link.href = downloadUrl;
       link.download = print.fileName;
-      if (isMobile) {
+      if (isMobile()) {
         link.style.display = 'none';
         document.body.appendChild(link);
         link.click();
@@ -54,14 +54,14 @@ export const PdfActionModal: React.FC<PdfActionModalProps> = ({ print, action, o
       const objectUrl = URL.createObjectURL(blob);
       if (action === 'open') {
         window.open(objectUrl, '_blank');
-        setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 300_000);
       } else {
         const link = document.createElement('a');
         link.href = objectUrl;
         const nameParts = print.fileName.split('.');
         const ext = nameParts.length > 1 ? nameParts.pop() : 'pdf';
         link.download = `${nameParts.join('.')}_annotated.${ext}`;
-        if (isMobile) {
+        if (isMobile()) {
           link.style.display = 'none';
           document.body.appendChild(link);
           link.click();
