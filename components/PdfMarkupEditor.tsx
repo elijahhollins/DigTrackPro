@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import PdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?worker';
 import { PdfAnnotation, JobPrint, User, UserRole } from '../types.ts';
@@ -673,6 +673,8 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   // Stable ref to currentTool for use in non-reactive callbacks (e.g., touch listeners)
   const currentToolRef = useRef<ToolType>(currentTool);
   currentToolRef.current = currentTool;
+  // Scroll ratio saved just before canvas resize so useLayoutEffect can restore it
+  const scrollRestoreRef = useRef<{ ratioX: number; ratioY: number } | null>(null);
 
   // Load annotations
   useEffect(() => {
@@ -722,6 +724,18 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       const scale = (Math.min(avail, 1400) / base.width) * zoom;
       const vp    = page.getViewport({ scale });
       const canvas = canvasRef.current;
+      // Save scroll position as a ratio before resizing the canvas so it can be
+      // restored after the layout update (prevents the scroll container from
+      // snapping back to the top when canvas dimensions change).
+      if (mainRef.current) {
+        const m = mainRef.current;
+        const scrollH = m.scrollHeight - m.clientHeight;
+        const scrollW = m.scrollWidth  - m.clientWidth;
+        scrollRestoreRef.current = {
+          ratioX: scrollW > 0 ? m.scrollLeft / scrollW : 0,
+          ratioY: scrollH > 0 ? m.scrollTop  / scrollH : 0,
+        };
+      }
       canvas.width = vp.width; canvas.height = vp.height;
       setCanvasSize({ width: vp.width, height: vp.height });
       const ctx = canvas.getContext('2d');
@@ -736,6 +750,16 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   useEffect(() => {
     if (!isLoadingPdf && pdfDocRef.current) renderPage(pageNumber, zoomLevel);
   }, [pageNumber, zoomLevel, isLoadingPdf, renderPage]);
+
+  // Restore scroll position after canvas resize (runs synchronously before paint)
+  useLayoutEffect(() => {
+    if (!scrollRestoreRef.current || !mainRef.current) return;
+    const { ratioX, ratioY } = scrollRestoreRef.current;
+    scrollRestoreRef.current = null;
+    const m = mainRef.current;
+    m.scrollLeft = ratioX * Math.max(0, m.scrollWidth  - m.clientWidth);
+    m.scrollTop  = ratioY * Math.max(0, m.scrollHeight - m.clientHeight);
+  }, [canvasSize]);
 
   // Undo
   const handleUndo = useCallback(async () => {
@@ -920,6 +944,13 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'z') { e.preventDefault(); handleUndo(); return; }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) { e.preventDefault(); handleRedo(); return; }
 
+      // Intercept Ctrl/⌘ + Plus/Minus/0 browser zoom shortcuts and apply app zoom instead
+      if (e.type === 'keydown' && (e.ctrlKey || e.metaKey)) {
+        if (e.key === '=' || e.key === '+') { e.preventDefault(); setZoomLevel(z => Math.min(4.0, z + 0.25)); return; }
+        if (e.key === '-')                  { e.preventDefault(); setZoomLevel(z => Math.max(0.25, z - 0.25)); return; }
+        if (e.key === '0')                  { e.preventDefault(); setZoomLevel(1.0); return; }
+      }
+
       // Delete / Backspace → delete selected annotation (only when not typing in an input)
       if ((e.key === 'Delete' || e.key === 'Backspace') &&
           !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
@@ -944,6 +975,18 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     window.addEventListener('keyup',   onKey);
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKey); };
   }, [handleUndo, handleRedo, handleDeleteAnnotation]);
+
+  // Block browser-level pinch/scroll zoom (Ctrl+wheel) while the editor is open.
+  // React's synthetic onWheel may be passive in some environments; a direct non-passive
+  // window listener is the most reliable way to prevent the browser from intercepting
+  // the gesture and resetting the viewport/scroll position.
+  useEffect(() => {
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) e.preventDefault();
+    };
+    window.addEventListener('wheel', onWheel, { passive: false });
+    return () => window.removeEventListener('wheel', onWheel);
+  }, []);
 
   // Touch-based pan for mobile: attach direct touch listeners on the canvas container.
   // iOS Safari can fire pointercancel instead of pointermove when setPointerCapture is
