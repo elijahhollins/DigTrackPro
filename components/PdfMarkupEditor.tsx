@@ -1248,11 +1248,19 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     }
   }, []);
 
-  // Ctrl+scroll to zoom
-  const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
-    if (!e.ctrlKey && !e.metaKey) return;
-    e.preventDefault();
-    setZoomLevel(z => Math.max(0.25, Math.min(4.0, z + (e.deltaY > 0 ? -0.1 : 0.1))));
+  // Ctrl+scroll to zoom — must be a non-passive native listener so preventDefault()
+  // actually suppresses the browser's built-in Ctrl+scroll page zoom.  React's
+  // synthetic onWheel is passive, meaning preventDefault() inside it is silently
+  // ignored; the browser zoom fires anyway and the resulting layout change resets
+  // the scroll container back to page 1.
+  useEffect(() => {
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      setZoomLevel(z => Math.max(0.25, Math.min(4.0, z + (e.deltaY > 0 ? -0.1 : 0.1))));
+    };
+    document.addEventListener('wheel', onWheel, { passive: false });
+    return () => document.removeEventListener('wheel', onWheel);
   }, []);
 
   // Text / callout submit
@@ -1316,7 +1324,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[300] bg-slate-950 flex flex-col select-none" onWheel={handleWheel}>
+    <div className="fixed inset-0 z-[300] bg-slate-950 flex flex-col select-none">
 
       {/* ── Row 1: Header ── */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10 bg-slate-900/90 backdrop-blur shrink-0 flex-wrap gap-y-1.5 min-h-[56px]">
