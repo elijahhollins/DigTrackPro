@@ -3,6 +3,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { Job, JobPrint, User } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
 import PdfMarkupEditor from './PdfMarkupEditor.tsx';
+import { PdfActionModal } from './PdfActionModal.tsx';
 
 interface AsBuiltViewProps {
   jobs: Job[];
@@ -25,8 +26,7 @@ export const AsBuiltView: React.FC<AsBuiltViewProps> = ({ jobs, sessionUser, isA
   const [printsMap, setPrintsMap] = useState<Record<string, JobPrintsState>>({});
   const [markupPrint, setMarkupPrint] = useState<JobPrint | null>(null);
   const [isUploading, setIsUploading] = useState<Record<string, boolean>>({});
-
-  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  const [actionModal, setActionModal] = useState<{ print: JobPrint; action: 'open' | 'download' } | null>(null);
 
   const filteredJobs = jobs.filter((job) => {
     const q = search.toLowerCase();
@@ -83,33 +83,6 @@ export const AsBuiltView: React.FC<AsBuiltViewProps> = ({ jobs, sessionUser, isA
       }
       return next;
     });
-  };
-
-  const getDownloadUrl = (print: JobPrint): string => {
-    if (!print.url) return '';
-    const baseUrl = print.url.split('?')[0];
-    return `${baseUrl}?download=${encodeURIComponent(print.fileName)}`;
-  };
-
-  const handleDownload = (print: JobPrint) => {
-    if (!print.url) return;
-    const downloadUrl = getDownloadUrl(print);
-    const link = document.createElement('a');
-    link.href = downloadUrl;
-    link.download = print.fileName;
-    if (isMobile) {
-      link.style.display = 'none';
-      document.body.appendChild(link);
-      link.click();
-      setTimeout(() => document.body.removeChild(link), 100);
-    } else {
-      link.click();
-    }
-  };
-
-  const handleOpen = (print: JobPrint) => {
-    if (!print.url) return;
-    window.open(print.url, '_blank');
   };
 
   const handleUpload = async (job: Job, file: File) => {
@@ -367,7 +340,7 @@ export const AsBuiltView: React.FC<AsBuiltViewProps> = ({ jobs, sessionUser, isA
                                 Markup
                               </button>
                               <button
-                                onClick={() => handleOpen(print)}
+                                onClick={() => setActionModal({ print, action: 'open' })}
                                 className={`px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 ${
                                   isDarkMode
                                     ? 'bg-slate-800 text-white border border-white/10 hover:bg-slate-700'
@@ -377,7 +350,7 @@ export const AsBuiltView: React.FC<AsBuiltViewProps> = ({ jobs, sessionUser, isA
                                 Open
                               </button>
                               <button
-                                onClick={() => handleDownload(print)}
+                                onClick={() => setActionModal({ print, action: 'download' })}
                                 className={`px-3 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 ${
                                   isDarkMode
                                     ? 'bg-slate-800 text-white border border-white/10 hover:bg-slate-700'
@@ -397,6 +370,15 @@ export const AsBuiltView: React.FC<AsBuiltViewProps> = ({ jobs, sessionUser, isA
             );
           })}
         </div>
+      )}
+
+      {actionModal && (
+        <PdfActionModal
+          print={actionModal.print}
+          action={actionModal.action}
+          onClose={() => setActionModal(null)}
+          isDarkMode={isDarkMode}
+        />
       )}
     </div>
   );

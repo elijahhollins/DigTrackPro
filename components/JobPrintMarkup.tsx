@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Job, JobPrint, User } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
 import PdfMarkupEditor from './PdfMarkupEditor.tsx';
+import { PdfActionModal } from './PdfActionModal.tsx';
 
 interface JobPrintMarkupProps {
   job: Job;
@@ -17,6 +18,7 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, isAdmin, se
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [editingPrint, setEditingPrint] = useState<JobPrint | null>(null);
+  const [actionModal, setActionModal] = useState<{ print: JobPrint; action: 'open' | 'download' } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const brandColor = 'bg-brand';
@@ -57,34 +59,6 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, isAdmin, se
     }
   };
 
-  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-
-  const getDownloadUrl = (print: JobPrint): string => {
-    if (!print.url) return '';
-    const baseUrl = print.url.split('?')[0];
-    return `${baseUrl}?download=${encodeURIComponent(print.fileName)}`;
-  };
-
-  const handleDownload = (print: JobPrint) => {
-    if (!print.url) return;
-    const downloadUrl = getDownloadUrl(print);
-    const link = document.createElement('a');
-    link.href = downloadUrl;
-    link.download = print.fileName;
-    if (isMobile) {
-      link.style.display = 'none';
-      document.body.appendChild(link);
-      link.click();
-      setTimeout(() => document.body.removeChild(link), 100);
-    } else {
-      link.click();
-    }
-  };
-
-  const handleOpen = (print: JobPrint) => {
-    if (!print.url) return;
-    window.open(print.url, '_blank');
-  };
 
   if (editingPrint) {
     return (
@@ -197,13 +171,13 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, isAdmin, se
                     Markup
                   </button>
                   <button
-                    onClick={() => handleOpen(print)}
+                    onClick={() => setActionModal({ print, action: 'open' })}
                     className="px-3 py-2.5 bg-slate-800 text-white border border-white/10 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all hover:bg-slate-700 active:scale-95"
                   >
                     Open
                   </button>
                   <button
-                    onClick={() => handleDownload(print)}
+                    onClick={() => setActionModal({ print, action: 'download' })}
                     className="px-3 py-2.5 bg-slate-800 text-white border border-white/10 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all hover:bg-slate-700 active:scale-95"
                   >
                     Download
@@ -222,6 +196,14 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, isAdmin, se
         accept="application/pdf"
         onChange={handleFileUpload}
       />
+
+      {actionModal && (
+        <PdfActionModal
+          print={actionModal.print}
+          action={actionModal.action}
+          onClose={() => setActionModal(null)}
+        />
+      )}
     </div>
   );
 };
