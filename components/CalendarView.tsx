@@ -242,7 +242,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onVi
                         isToday
                           ? 'bg-brand text-white font-black'
                           : isSelected
-                            ? 'text-brand font-black'
+                            ? `ring-2 ring-brand font-black ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`
                             : isDarkMode ? 'text-slate-500' : 'text-slate-400'
                       }`}>
                         {d.day}
