@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { JobPrint } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
 import { exportPdfWithAnnotations } from '../utils/pdfExport.ts';
@@ -19,11 +19,10 @@ export const PdfActionModal: React.FC<PdfActionModalProps> = ({ print, action, o
   const [error, setError] = useState<string | null>(null);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
 
-  // Clean up object URL when modal unmounts or a new one is set
+  // Revoke the previous blob URL whenever blobUrl changes, and on unmount
   useEffect(() => {
     return () => { if (blobUrl) URL.revokeObjectURL(blobUrl); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [blobUrl]);
 
   const label = action === 'open' ? 'Open' : 'Download';
 
@@ -63,11 +62,11 @@ export const PdfActionModal: React.FC<PdfActionModalProps> = ({ print, action, o
     }
   };
 
-  const annotatedFileName = (() => {
+  const annotatedFileName = useMemo(() => {
     const parts = print.fileName.split('.');
     const ext = parts.length > 1 ? parts.pop() : 'pdf';
     return `${parts.join('.')}_annotated.${ext}`;
-  })();
+  }, [print.fileName]);
 
   return (
     <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
