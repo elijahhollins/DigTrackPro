@@ -145,7 +145,7 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({
     if (!activeJob) { alert('Select a job first.'); return; }
     setIsUploading(true);
     const newItems: UploadItem[] = files.map(f => ({
-      id: Math.random().toString(36).slice(2, 11),
+      id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Math.random().toString(36).slice(2, 11),
       file: f,
       previewUrl: URL.createObjectURL(f),
       progress: 0,
