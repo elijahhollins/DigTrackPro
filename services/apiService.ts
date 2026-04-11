@@ -611,7 +611,7 @@ export const apiService = {
       .select('*')
       .eq('print_id', printId)
       .order('created_at', { ascending: true });
-    if (error) return [];
+    if (error) throw error;
     return (data || []).map(a => ({
       id: a.id,
       printId: a.print_id,

@@ -934,7 +934,12 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       .map(entry => savedMap.get(entry.id) ?? entry)
       .filter(entry => !isPendingAnnotation(entry.id) || failedIds.has(entry.id));
     setCanUndo(undoStackRef.current.length > 0);
-    if (failedIds.size > 0) setActionErr(`${failedIds.size} annotation(s) failed to save`);
+    if (failedIds.size > 0) {
+      const firstRejection = results.find(r => r.status === 'rejected') as PromiseRejectedResult | undefined;
+      const detail = (firstRejection?.reason as { message?: string } | undefined)?.message
+        ?? String(firstRejection?.reason ?? '');
+      setActionErr(`${failedIds.size} annotation(s) failed to save${detail ? ` — ${detail}` : ''}`);
+    }
     setIsSaving(false);
   }, [pendingAnnotations]);
 
@@ -1007,8 +1012,10 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     let startX = 0, startY = 0, startSL = 0, startST = 0, panning = false;
 
     const onTouchStart = (e: TouchEvent) => {
-      // Only single-finger scroll; don't pan if a pen/mouse draw is in progress.
-      if (e.touches.length !== 1 || drawingPtrRef.current !== null) return;
+      // Only scroll for nav tools (pan/select). When a drawing tool is active, let
+      // pointer events handle the gesture so the user can draw with their finger.
+      const isNavTool = currentToolRef.current === 'pan' || currentToolRef.current === 'select';
+      if (e.touches.length !== 1 || drawingPtrRef.current !== null || !isNavTool) return;
       panning = true;
       startX  = e.touches[0].clientX;
       startY  = e.touches[0].clientY;
@@ -1055,12 +1062,14 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       return;
     }
 
-    // Single-finger touch is handled exclusively by the touch scroll listener.
-    // Pointer capture is only used for pen/stylus and mouse.
-    if (e.pointerType === 'touch') return;
+    // Single-finger touch yields to the touch-scroll listener for nav tools (pan/select).
+    // For drawing tools, touch is allowed so users can draw with their finger on mobile.
+    if (e.pointerType === 'touch' && (currentTool === 'pan' || currentTool === 'select')) return;
 
     if (drawingPtrRef.current !== null && drawingPtrRef.current !== e.pointerId) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
+    // Only set pointer capture for pen/mouse, not touch: setPointerCapture + touchAction:none
+    // causes iOS Safari to fire pointercancel, which would immediately abort the gesture.
+    if (e.pointerType !== 'touch') e.currentTarget.setPointerCapture(e.pointerId);
     drawingPtrRef.current = e.pointerId;
 
     const coords = getCoords(e.clientX, e.clientY);
@@ -1754,7 +1763,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
           <span className="text-[8px] text-slate-600 font-black uppercase tracking-widest">·</span>
           <span className="text-[8px] text-slate-600 font-black uppercase tracking-widest">
             {currentTool === 'callout'
-              ? <>Drag from arrow tip → text box · tap tool to deactivate</>
+              ? <>Press where the text box goes; drag to the arrow tip · tap tool to deactivate</>
               : currentTool !== 'pen' && currentTool !== 'highlighter' && currentTool !== 'text' && currentTool !== 'stamp'
                 ? <>Tap again to deactivate · Hold <kbd className="text-slate-500 font-mono">⇧ Shift</kbd> to constrain / snap to 45°</>
                 : <>Tap the tool icon again to stop drawing</>
