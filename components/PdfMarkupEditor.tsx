@@ -1,11 +1,14 @@
 
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
-import PdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?worker';
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { PdfAnnotation, JobPrint, User, UserRole } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
 
-pdfjsLib.GlobalWorkerOptions.workerPort = new PdfWorker();
+// Use workerSrc (URL) so pdfjs manages its own Worker lifecycle.
+// This is the standard approach: avoids shared-worker bad-state after errors
+// and works without blob-URL CSP restrictions.
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 // ─────────────────────────────────────────────────────────────
 // Types & constants
@@ -685,9 +688,10 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       .catch((e: Error) => setAnnLoadErr(e.message || 'Failed to load annotations'));
   }, [print.id]);
 
-  // Load PDF via the Supabase storage client so the authenticated session is
-  // used.  This works for both public and private buckets and avoids CORS/403
-  // failures that occur when raw-fetching a public URL.
+  // Load PDF bytes — tries the authenticated Supabase storage client first
+  // (works for both public and private buckets).  Falls back to a plain fetch
+  // against the public URL in case the storage RLS SELECT policy is absent
+  // (common when the bucket is configured as public in the Supabase dashboard).
   useEffect(() => {
     if (!print.storagePath) return;
     setIsLoadingPdf(true); setPdfError(null);
@@ -695,13 +699,40 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
 
     const loadPdf = async () => {
       const path = print.storagePath;
+      let buffer: ArrayBuffer | null = null;
+      let primaryErr: string | null = null;
       try {
-        const buffer = await apiService.downloadJobPrint(path);
-        if (cancelled) return;
+        buffer = await apiService.downloadJobPrint(path);
+      } catch (e: unknown) {
+        primaryErr = e instanceof Error ? e.message : String(e);
+      }
+
+      // Fallback: public-URL fetch (works when the bucket is public and the
+      // authenticated endpoint is blocked by a missing storage RLS policy).
+      if (!buffer && print.url) {
+        try {
+          const response = await fetch(print.url);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          buffer = await response.arrayBuffer();
+        } catch (fallbackErr: unknown) {
+          const fallbackMsg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+          primaryErr = primaryErr
+            ? `${primaryErr}; fallback also failed: ${fallbackMsg}`
+            : `Fallback download failed: ${fallbackMsg}`;
+        }
+      }
+
+      if (cancelled) return;
+      if (!buffer) {
+        setPdfError(primaryErr ?? 'Failed to download PDF');
+        setIsLoadingPdf(false);
+        return;
+      }
+      try {
         const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
         if (!cancelled) { pdfDocRef.current = pdf; setNumPages(pdf.numPages); setPageNumber(1); }
       } catch (e: unknown) {
-        if (!cancelled) setPdfError(e instanceof Error ? e.message : 'Failed to load PDF');
+        if (!cancelled) setPdfError(e instanceof Error ? e.message : 'Failed to parse PDF');
       } finally {
         if (!cancelled) setIsLoadingPdf(false);
       }
@@ -709,7 +740,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
 
     loadPdf();
     return () => { cancelled = true; };
-  }, [print.storagePath]);
+  }, [print.storagePath, print.url]);
 
   // Render page at current zoom
   const renderPage = useCallback(async (pageNum: number, zoom: number) => {
