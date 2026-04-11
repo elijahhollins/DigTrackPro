@@ -371,8 +371,10 @@ export async function exportPdfWithAnnotations(
   onProgress?: (page: number, total: number) => void,
 ): Promise<Blob> {
   // Spin up a dedicated Web Worker and wrap it in a PDFWorker so we can pass
-  // it via the `worker:` option of getDocument().  This guarantees the export
-  // never touches GlobalWorkerOptions.workerPort (the markup editor's worker).
+  // it via the `worker:` option of getDocument().  This is the primary mechanism
+  // that keeps the export isolated from GlobalWorkerOptions.workerPort (the
+  // markup editor's shared Worker).  The workerPort null-out below is a
+  // belt-and-suspenders defence for the case where the instanceof check fails.
   const workerInstance = new PdfWorker();
   const pdfWorker = pdfjsLib.PDFWorker.fromPort({ port: workerInstance });
 
@@ -385,7 +387,23 @@ export async function exportPdfWithAnnotations(
     if (!response.ok) throw new Error('Failed to fetch PDF');
     const buffer = await response.arrayBuffer();
 
-    pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer), worker: pdfWorker }).promise;
+    // Clear GlobalWorkerOptions.workerPort to null for the synchronous portion
+    // of getDocument().  pdfjs reads workerPort only during that synchronous
+    // phase: if the `src.worker instanceof PDFWorker` check fails at runtime
+    // (e.g. a module-identity mismatch in the Vite production bundle), pdfjs
+    // falls back to PDFWorker.fromPort({ port: GlobalWorkerOptions.workerPort }).
+    // With workerPort = null the fallback instead calls new PDFWorker() which
+    // (because GlobalWorkerOptions.workerSrc is '' in this app) throws inside
+    // _initialize() and triggers _setupFakeWorker() — a LoopbackPort on the
+    // main thread.  Either way, the markup editor's shared Worker is never
+    // used, so pdf.destroy() cannot send "Terminate" to it.
+    const savedWorkerPort = pdfjsLib.GlobalWorkerOptions.workerPort;
+    pdfjsLib.GlobalWorkerOptions.workerPort = null;
+    const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer), worker: pdfWorker });
+    // Restore immediately — pdfjs has already read workerPort synchronously.
+    pdfjsLib.GlobalWorkerOptions.workerPort = savedWorkerPort;
+
+    pdf = await loadingTask.promise;
     const numPages = pdf.numPages;
 
     const pages: Array<{ jpegData: Uint8Array; width: number; height: number }> = [];
@@ -421,13 +439,12 @@ export async function exportPdfWithAnnotations(
     const pdfBytes = buildPdfFromJpegs(pages);
     return new Blob([pdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' });
   } finally {
-    // pdf.destroy() sends "Terminate" through transport.messageHandler whose
-    // comObj is exportWorkerInstance (set when getDocument resolved with
-    // worker: pdfWorker).  The "Terminate" therefore goes to the export worker,
-    // not to GlobalWorkerOptions.workerPort (the markup editor's shared worker).
-    // After the transport is torn down, pdfWorker.destroy() removes
-    // exportWorkerInstance from the internal #workerPorts WeakMap, and
-    // workerInstance.terminate() hard-kills the export thread.
+    // pdf.destroy() sends "Terminate" to whichever worker pdfjs chose:
+    //   • instanceof passed → pdfWorker (our dedicated export Worker thread)
+    //   • instanceof failed → the fake LoopbackPort worker on the main thread
+    // In neither case is the markup editor's shared Worker ever sent "Terminate".
+    // pdfWorker.destroy() removes workerInstance from the internal #workerPorts
+    // WeakMap, and workerInstance.terminate() hard-kills the export thread.
     try { await pdf?.destroy(); } catch { /* ignore cleanup errors */ }
     pdfWorker.destroy();
     workerInstance.terminate();
