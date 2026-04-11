@@ -198,22 +198,22 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({
     <div className="flex flex-col lg:flex-row gap-4 animate-in h-[calc(100vh-140px)] -mt-2 overflow-hidden">
 
       {/* SIDEBAR */}
-      <aside className={`lg:w-64 xl:w-72 shrink-0 flex flex-col rounded-2xl border overflow-hidden ${dark ?ark ? 'bg-slate-900 border-white/[0.08]' : 'bg-white border-slate-200 shadow-sm'}`}>
-        <div className={`px-4 pt-4 pb-3 border-b ${dark ?ark ? 'border-white/[0.08]' : 'border-slate-100'}`}>
-          <p className={`text-[10px] font-semibold uppercase tracking-widest mb-3 ${dark ?ark ? 'text-slate-500' : 'text-slate-400'}`}>Job Directory</p>
-          <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${dark ?ark ? 'bg-slate-800 border-white/[0.08]' : 'bg-slate-50 border-slate-200'}`}>
-            <svg className={`w-3.5 h-3.5 shrink-0 ${dark ?ark ? 'text-slate-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <aside className={`lg:w-64 xl:w-72 shrink-0 flex flex-col rounded-2xl border overflow-hidden ${dark ? 'bg-slate-900 border-white/[0.08]' : 'bg-white border-slate-200 shadow-sm'}`}>
+        <div className={`px-4 pt-4 pb-3 border-b ${dark ? 'border-white/[0.08]' : 'border-slate-100'}`}>
+          <p className={`text-[10px] font-semibold uppercase tracking-widest mb-3 ${dark ? 'text-slate-500' : 'text-slate-400'}`}>Job Directory</p>
+          <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${dark ? 'bg-slate-800 border-white/[0.08]' : 'bg-slate-50 border-slate-200'}`}>
+            <svg className={`w-3.5 h-3.5 shrink-0 ${dark ? 'text-slate-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
             <input
               type="text"
               placeholder="Search jobs..."
-              className={`flex-1 bg-transparent outline-none text-[12px] placeholder:text-slate-400 ${dark ?ark ? 'text-white' : 'text-slate-900'}`}
+              className={`flex-1 bg-transparent outline-none text-[12px] placeholder:text-slate-400 ${dark ? 'text-white' : 'text-slate-900'}`}
               value={sidebarSearch}
               onChange={e => setSidebarSearch(e.target.value)}
             />
             {sidebarSearch && (
-              <button onClick={() => setSidebarSearch('')} className={`transition-colors ${dark ?ark ? 'text-slate-500 hover:text-white' : 'text-slate-400 hover:text-slate-600'}`}>
+              <button onClick={() => setSidebarSearch('')} className={`transition-colors ${dark ? 'text-slate-500 hover:text-white' : 'text-slate-400 hover:text-slate-600'}`}>
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             )}
@@ -222,7 +222,7 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({
 
         <div className="flex-1 overflow-y-auto py-2 px-2 space-y-0.5">
           {filteredSidebarFolders.length === 0 ? (
-            <p className={`text-center py-10 text-[11px] font-medium ${dark ?ark ? 'text-slate-600' : 'text-slate-400'}`}>No jobs found</p>
+            <p className={`text-center py-10 text-[11px] font-medium ${dark ? 'text-slate-600' : 'text-slate-400'}`}>No jobs found</p>
           ) : filteredSidebarFolders.map(num => {
             const isActive = selectedFolder === num;
             const jobEntity = jobs.find(j => j.jobNumber === num);
@@ -287,11 +287,11 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({
         {selectedFolder ? (
           <>
             {/* Header */}
-            <div className={`shrink-0 mb-3 px-5 py-3.5 rounded-2xl border ${dark ?ark ? 'bg-slate-900 border-white/[0.08]' : 'bg-white border-slate-200 shadow-sm'}`}>
+            <div className={`shrink-0 mb-3 px-5 py-3.5 rounded-2xl border ${dark ? 'bg-slate-900 border-white/[0.08]' : 'bg-white border-slate-200 shadow-sm'}`}>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h2 className={`text-[15px] font-bold ${dark ?ark ? 'text-white' : 'text-slate-900'}`}>Job #{selectedFolder}</h2>
+                    <h2 className={`text-[15px] font-bold ${dark ? 'text-white' : 'text-slate-900'}`}>Job #{selectedFolder}</h2>
                     {selectedJob?.isComplete && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-500 text-[10px] font-semibold">
                         <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" /></svg>
@@ -300,14 +300,14 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({
                     )}
                   </div>
                   {selectedJob && (
-                    <p className={`text-[11px] mt-0.5 truncate ${dark ?ark ? 'text-slate-400' : 'text-slate-500'}`}>
+                    <p className={`text-[11px] mt-0.5 truncate ${dark ? 'text-slate-400' : 'text-slate-500'}`}>
                       {[selectedJob.customer, selectedJob.address, selectedJob.city].filter(Boolean).join(' \u00b7 ')}
                     </p>
                   )}
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0 flex-wrap">
-                  <div className={`flex items-center rounded-xl p-0.5 gap-0.5 ${dark ?ark ? 'bg-slate-800' : 'bg-slate-100'}`}>
+                  <div className={`flex items-center rounded-xl p-0.5 gap-0.5 ${dark ? 'bg-slate-800' : 'bg-slate-100'}`}>
                     {(['all', 'photos', 'tickets'] as ActiveTab[]).map(tab => (
                       <button
                         key={tab}
@@ -323,8 +323,8 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({
                     ))}
                   </div>
 
-                  <div className={`hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl border ${dark ?ark ? 'bg-slate-800 border-white/[0.08] text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`}>
-                    <svg className={`w-3.5 h-3.5 ${dark ?ark ? 'text-slate-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div className={`hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl border ${dark ? 'bg-slate-800 border-white/[0.08] text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`}>
+                    <svg className={`w-3.5 h-3.5 ${dark ? 'text-slate-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                     </svg>
                     <input
@@ -384,14 +384,14 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({
                             : dark ? 'bg-slate-800 border-white/[0.08] hover:border-white/20' : 'bg-white border-slate-200 hover:border-slate-300 shadow-sm hover:shadow-md'
                         }`}
                       >
-                        <div className={`relative aspect-square flex items-center justify-center overflow-hidden ${dark ?ark ? 'bg-slate-700' : 'bg-slate-100'}`}>
+                        <div className={`relative aspect-square flex items-center justify-center overflow-hidden ${dark ? 'bg-slate-700' : 'bg-slate-100'}`}>
                           {isPdfAsset ? (
-                            <div className={`flex flex-col items-center justify-center gap-2 w-full h-full ${dark ?ark ? 'bg-slate-800' : 'bg-slate-50'}`}>
+                            <div className={`flex flex-col items-center justify-center gap-2 w-full h-full ${dark ? 'bg-slate-800' : 'bg-slate-50'}`}>
                               <svg className="w-10 h-10 text-rose-500" fill="currentColor" viewBox="0 0 24 24">
                                 <path d="M11.363 2c4.155 0 2.637 6 2.637 6s6-1.518 6 2.638v11.362c0 .552-.448 1-1 1H5c-.552 0-1-.448-1-1V3c0-.552.448-1 1-1h6.363zM12 2H5c-1.103 0-2 .897-2 2v16c0 1.103.897 2 2 2h14c1.103 0 2-.897 2-2V9l-7-7z" />
                                 <path d="M19 9h-7V2l7 7z" />
                               </svg>
-                              <span className={`text-[9px] font-semibold uppercase tracking-wider ${dark ?ark ? 'text-slate-500' : 'text-slate-400'}`}>PDF</span>
+                              <span className={`text-[9px] font-semibold uppercase tracking-wider ${dark ? 'text-slate-500' : 'text-slate-400'}`}>PDF</span>
                             </div>
                           ) : (
                             <img src={asset.dataUrl} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" loading="lazy" />
@@ -417,19 +417,19 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({
                           )}
                         </div>
 
-                        <div className={`px-2.5 py-2 ${dark ?ark ? 'bg-slate-800' : 'bg-white'}`}>
+                        <div className={`px-2.5 py-2 ${dark ? 'bg-slate-800' : 'bg-white'}`}>
                           <div className="flex items-center gap-1.5">
                             <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${isTicketAsset ? 'bg-rose-500' : 'bg-brand'}`} />
-                            <p className={`text-[11px] font-medium truncate flex-1 ${dark ?ark ? 'text-slate-300' : 'text-slate-700'}`}>{asset.caption}</p>
+                            <p className={`text-[11px] font-medium truncate flex-1 ${dark ? 'text-slate-300' : 'text-slate-700'}`}>{asset.caption}</p>
                           </div>
-                          <p className={`text-[10px] mt-0.5 ${dark ?ark ? 'text-slate-600' : 'text-slate-400'}`}>{new Date(asset.timestamp).toLocaleDateString()}</p>
+                          <p className={`text-[10px] mt-0.5 ${dark ? 'text-slate-600' : 'text-slate-400'}`}>{new Date(asset.timestamp).toLocaleDateString()}</p>
                         </div>
                       </div>
                     );
                   })}
                 </div>
               ) : (
-                <div className={`flex flex-col items-center justify-center h-64 rounded-2xl border-2 border-dashed text-center ${dark ?ark ? 'border-white/[0.08] text-slate-600' : 'border-slate-200 text-slate-400'}`}>
+                <div className={`flex flex-col items-center justify-center h-64 rounded-2xl border-2 border-dashed text-center ${dark ? 'border-white/[0.08] text-slate-600' : 'border-slate-200 text-slate-400'}`}>
                   <svg className="w-10 h-10 mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                   </svg>
@@ -448,8 +448,8 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({
             </div>
           </>
         ) : (
-          <div className={`flex-1 flex flex-col items-center justify-center text-center rounded-2xl border-2 border-dashed ${dark ?ark ? 'border-white/[0.08] text-slate-500' : 'border-slate-200 text-slate-400'}`}>
-            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-4 ${dark ?ark ? 'bg-slate-800' : 'bg-slate-100'}`}>
+          <div className={`flex-1 flex flex-col items-center justify-center text-center rounded-2xl border-2 border-dashed ${dark ? 'border-white/[0.08] text-slate-500' : 'border-slate-200 text-slate-400'}`}>
+            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-4 ${dark ? 'bg-slate-800' : 'bg-slate-100'}`}>
               <svg className="w-7 h-7 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
               </svg>
@@ -607,8 +607,8 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({
       {/* UPLOAD STATUS */}
       {uploadQueue.length > 0 && (
         <div className="fixed bottom-24 right-4 w-72 z-[200] animate-in slide-in-from-right">
-          <div className={`rounded-2xl border overflow-hidden shadow-xl ${dark ?ark ? 'bg-slate-900 border-white/10' : 'bg-white border-slate-200'}`}>
-            <div className={`flex items-center justify-between px-4 py-3 border-b ${dark ?ark ? 'border-white/[0.08]' : 'border-slate-100'}`}>
+          <div className={`rounded-2xl border overflow-hidden shadow-xl ${dark ? 'bg-slate-900 border-white/10' : 'bg-white border-slate-200'}`}>
+            <div className={`flex items-center justify-between px-4 py-3 border-b ${dark ? 'border-white/[0.08]' : 'border-slate-100'}`}>
               <div className="flex items-center gap-2.5">
                 <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${isUploading ? 'bg-brand text-slate-900' : 'bg-emerald-500 text-white'}`}>
                   {isUploading
@@ -616,21 +616,21 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({
                     : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
                   }
                 </div>
-                <p className={`text-[12px] font-semibold ${dark ?ark ? 'text-white' : 'text-slate-900'}`}>{isUploading ? 'Uploading...' : 'Upload complete'}</p>
+                <p className={`text-[12px] font-semibold ${dark ? 'text-white' : 'text-slate-900'}`}>{isUploading ? 'Uploading...' : 'Upload complete'}</p>
               </div>
-              <button onClick={() => setUploadQueue([])} className={`p-1 rounded-lg transition-colors ${dark ?ark ? 'text-slate-500 hover:text-white' : 'text-slate-400 hover:text-slate-600'}`}>
+              <button onClick={() => setUploadQueue([])} className={`p-1 rounded-lg transition-colors ${dark ? 'text-slate-500 hover:text-white' : 'text-slate-400 hover:text-slate-600'}`}>
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
             <div className="max-h-48 overflow-y-auto p-2 space-y-1.5">
               {uploadQueue.map(item => (
-                <div key={item.id} className={`flex items-center gap-2.5 p-2 rounded-xl ${dark ?ark ? 'bg-slate-800' : 'bg-slate-50'}`}>
+                <div key={item.id} className={`flex items-center gap-2.5 p-2 rounded-xl ${dark ? 'bg-slate-800' : 'bg-slate-50'}`}>
                   <div className="w-9 h-9 rounded-lg overflow-hidden shrink-0">
                     <img src={item.previewUrl} className="w-full h-full object-cover" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className={`text-[11px] font-medium truncate ${dark ?ark ? 'text-slate-300' : 'text-slate-700'}`}>{item.file.name}</p>
-                    <div className={`w-full h-1 rounded-full mt-1 overflow-hidden ${dark ?ark ? 'bg-slate-700' : 'bg-slate-200'}`}>
+                    <p className={`text-[11px] font-medium truncate ${dark ? 'text-slate-300' : 'text-slate-700'}`}>{item.file.name}</p>
+                    <div className={`w-full h-1 rounded-full mt-1 overflow-hidden ${dark ? 'bg-slate-700' : 'bg-slate-200'}`}>
                       <div className={`h-full transition-all duration-300 ${item.status === 'error' ? 'bg-rose-500' : 'bg-brand'}`} style={{ width: `${item.progress}%` }} />
                     </div>
                   </div>
