@@ -1,5 +1,6 @@
 
 import * as pdfjsLib from 'pdfjs-dist';
+import PdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?worker';
 import { PdfAnnotation } from '../types.ts';
 
 // ─── Stamp constants ────────────────────────────────────────────────────────
@@ -369,36 +370,44 @@ export async function exportPdfWithAnnotations(
   annotations: PdfAnnotation[],
   onProgress?: (page: number, total: number) => void,
 ): Promise<Blob> {
+  // Use a dedicated worker so we never share or disturb the markup editor's worker
+  const worker = new PdfWorker();
+
   // Fetch PDF as binary (CORS-safe via fetch)
   const response = await fetch(pdfUrl);
   if (!response.ok) throw new Error('Failed to fetch PDF');
   const buffer = await response.arrayBuffer();
 
-  // Load with pdfjs-dist
-  const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
+  // Load with pdfjs-dist using our dedicated worker
+  const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer), workerPort: worker }).promise;
   const numPages = pdf.numPages;
 
   const pages: Array<{ jpegData: Uint8Array; width: number; height: number }> = [];
 
-  for (let pageNum = 1; pageNum <= numPages; pageNum++) {
-    onProgress?.(pageNum, numPages);
+  try {
+    for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+      onProgress?.(pageNum, numPages);
 
-    const page = await pdf.getPage(pageNum);
-    const viewport = page.getViewport({ scale: 2 }); // 2× for quality
-    const canvas = document.createElement('canvas');
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    const ctx = canvas.getContext('2d')!;
+      const page = await pdf.getPage(pageNum);
+      const viewport = page.getViewport({ scale: 2 }); // 2× for quality
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const ctx = canvas.getContext('2d')!;
 
-    await page.render({ canvasContext: ctx, viewport }).promise;
+      await page.render({ canvasContext: ctx, viewport }).promise;
 
-    await drawAnnotationsOnCanvas(canvas, annotations, pageNum);
+      await drawAnnotationsOnCanvas(canvas, annotations, pageNum);
 
-    const jpegBlob = await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob(b => b ? resolve(b) : reject(new Error('Canvas to blob failed')), 'image/jpeg', 0.92);
-    });
-    const jpegData = new Uint8Array(await jpegBlob.arrayBuffer());
-    pages.push({ jpegData, width: Math.round(viewport.width), height: Math.round(viewport.height) });
+      const jpegBlob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(b => b ? resolve(b) : reject(new Error('Canvas to blob failed')), 'image/jpeg', 0.92);
+      });
+      const jpegData = new Uint8Array(await jpegBlob.arrayBuffer());
+      pages.push({ jpegData, width: Math.round(viewport.width), height: Math.round(viewport.height) });
+    }
+  } finally {
+    await pdf.destroy();
+    worker.terminate();
   }
 
   const pdfBytes = buildPdfFromJpegs(pages);
