@@ -370,21 +370,31 @@ export async function exportPdfWithAnnotations(
   annotations: PdfAnnotation[],
   onProgress?: (page: number, total: number) => void,
 ): Promise<Blob> {
-  // Use a dedicated worker so we never share or disturb the markup editor's worker
-  const worker = new PdfWorker();
+  // Create a raw Worker instance exclusively for this export.
+  // We must never share GlobalWorkerOptions.workerPort (the markup editor's worker)
+  // because pdf.destroy() sends a "Terminate" message to the worker that shuts down
+  // its message handler, making it unresponsive to future getDocument() calls.
+  const workerInstance = new PdfWorker();
+  // Wrap it in a PDFWorker so we can pass it via the `worker` option of getDocument().
+  // Using the `worker` option bypasses GlobalWorkerOptions entirely.
+  const pdfWorker = pdfjsLib.PDFWorker.fromPort({ port: workerInstance });
 
   // Fetch PDF as binary (CORS-safe via fetch)
   const response = await fetch(pdfUrl);
-  if (!response.ok) throw new Error('Failed to fetch PDF');
+  if (!response.ok) {
+    pdfWorker.destroy();
+    workerInstance.terminate();
+    throw new Error('Failed to fetch PDF');
+  }
   const buffer = await response.arrayBuffer();
-
-  // Load with pdfjs-dist using our dedicated worker
-  const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer), workerPort: worker }).promise;
-  const numPages = pdf.numPages;
 
   const pages: Array<{ jpegData: Uint8Array; width: number; height: number }> = [];
 
   try {
+    // Pass our dedicated PDFWorker so pdfjs never touches GlobalWorkerOptions.workerPort
+    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer), worker: pdfWorker }).promise;
+    const numPages = pdf.numPages;
+
     for (let pageNum = 1; pageNum <= numPages; pageNum++) {
       onProgress?.(pageNum, numPages);
 
@@ -405,9 +415,12 @@ export async function exportPdfWithAnnotations(
       const jpegData = new Uint8Array(await jpegBlob.arrayBuffer());
       pages.push({ jpegData, width: Math.round(viewport.width), height: Math.round(viewport.height) });
     }
-  } finally {
+
     await pdf.destroy();
-    worker.terminate();
+  } finally {
+    // PDFWorker created from a port does not terminate the underlying Worker on
+    // destroy(), so we explicitly terminate the raw Worker to avoid thread leaks.
+    workerInstance.terminate();
   }
 
   const pdfBytes = buildPdfFromJpegs(pages);
