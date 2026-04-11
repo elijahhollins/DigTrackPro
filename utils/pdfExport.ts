@@ -379,21 +379,17 @@ export async function exportPdfWithAnnotations(
   // Using the `worker` option bypasses GlobalWorkerOptions entirely.
   const pdfWorker = pdfjsLib.PDFWorker.fromPort({ port: workerInstance });
 
-  // Fetch PDF as binary (CORS-safe via fetch)
-  const response = await fetch(pdfUrl);
-  if (!response.ok) {
-    pdfWorker.destroy();
-    workerInstance.terminate();
-    throw new Error('Failed to fetch PDF');
-  }
-  const buffer = await response.arrayBuffer();
-
-  const pages: Array<{ jpegData: Uint8Array; width: number; height: number }> = [];
-
   try {
+    // Fetch PDF as binary (CORS-safe via fetch)
+    const response = await fetch(pdfUrl);
+    if (!response.ok) throw new Error('Failed to fetch PDF');
+    const buffer = await response.arrayBuffer();
+
     // Pass our dedicated PDFWorker so pdfjs never touches GlobalWorkerOptions.workerPort
     const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer), worker: pdfWorker }).promise;
     const numPages = pdf.numPages;
+
+    const pages: Array<{ jpegData: Uint8Array; width: number; height: number }> = [];
 
     for (let pageNum = 1; pageNum <= numPages; pageNum++) {
       onProgress?.(pageNum, numPages);
@@ -417,14 +413,16 @@ export async function exportPdfWithAnnotations(
     }
 
     await pdf.destroy();
+
+    const pdfBytes = buildPdfFromJpegs(pages);
+    return new Blob([pdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' });
   } finally {
-    // PDFWorker created from a port does not terminate the underlying Worker on
-    // destroy(), so we explicitly terminate the raw Worker to avoid thread leaks.
+    // Always clean up the dedicated worker. pdfWorker.destroy() is a no-op if
+    // pdf.destroy() already called it; PDFWorker created from a port never
+    // terminates the underlying thread, so terminate explicitly to avoid leaks.
+    pdfWorker.destroy();
     workerInstance.terminate();
   }
-
-  const pdfBytes = buildPdfFromJpegs(pages);
-  return new Blob([pdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' });
 }
 
 // ─── XML escape helper ───────────────────────────────────────────────────────
