@@ -1,11 +1,14 @@
 
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
-import PdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?worker';
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { PdfAnnotation, JobPrint, User, UserRole } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
 
-pdfjsLib.GlobalWorkerOptions.workerPort = new PdfWorker();
+// Use workerSrc (URL) so pdfjs manages its own Worker lifecycle.
+// This is the standard approach: avoids shared-worker bad-state after errors
+// and works without blob-URL CSP restrictions.
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 // ─────────────────────────────────────────────────────────────
 // Types & constants
@@ -685,27 +688,51 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       .catch((e: Error) => setAnnLoadErr(e.message || 'Failed to load annotations'));
   }, [print.id]);
 
-  // Load PDF — pre-fetch binary data via fetch() so that pdfjs-dist receives a
-  // Uint8Array rather than a URL string.  Passing a raw URL to getDocument()
-  // triggers pdfjs-dist's internal XHR which is often blocked by CORS on
-  // Supabase Storage (and similar object-storage CDNs) even when the same URL
-  // is accessible from fetch().  Fetching ourselves and handing off the bytes
-  // bypasses that entirely.
+  // Load PDF bytes — tries the authenticated Supabase storage client first
+  // (works for both public and private buckets).  Falls back to a plain fetch
+  // against the public URL in case the storage RLS SELECT policy is absent
+  // (common when the bucket is configured as public in the Supabase dashboard).
   useEffect(() => {
-    if (!print.url) return;
+    if (!print.storagePath) return;
     setIsLoadingPdf(true); setPdfError(null);
     let cancelled = false;
 
     const loadPdf = async () => {
+      const path = print.storagePath;
+      let buffer: ArrayBuffer | null = null;
+      let primaryErr: string | null = null;
       try {
-        const response = await fetch(print.url!);
-        if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
-        const buffer = await response.arrayBuffer();
-        if (cancelled) return;
+        buffer = await apiService.downloadJobPrint(path);
+      } catch (e: unknown) {
+        primaryErr = e instanceof Error ? e.message : String(e);
+      }
+
+      // Fallback: public-URL fetch (works when the bucket is public and the
+      // authenticated endpoint is blocked by a missing storage RLS policy).
+      if (!buffer && print.url) {
+        try {
+          const response = await fetch(print.url);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          buffer = await response.arrayBuffer();
+        } catch (fallbackErr: unknown) {
+          const fallbackMsg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+          primaryErr = primaryErr
+            ? `${primaryErr}; fallback also failed: ${fallbackMsg}`
+            : `Fallback download failed: ${fallbackMsg}`;
+        }
+      }
+
+      if (cancelled) return;
+      if (!buffer) {
+        setPdfError(primaryErr ?? 'Failed to download PDF');
+        setIsLoadingPdf(false);
+        return;
+      }
+      try {
         const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
         if (!cancelled) { pdfDocRef.current = pdf; setNumPages(pdf.numPages); setPageNumber(1); }
       } catch (e: unknown) {
-        if (!cancelled) setPdfError(e instanceof Error ? e.message : 'Failed to load PDF');
+        if (!cancelled) setPdfError(e instanceof Error ? e.message : 'Failed to parse PDF');
       } finally {
         if (!cancelled) setIsLoadingPdf(false);
       }
@@ -713,7 +740,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
 
     loadPdf();
     return () => { cancelled = true; };
-  }, [print.url]);
+  }, [print.storagePath, print.url]);
 
   // Render page at current zoom
   const renderPage = useCallback(async (pageNum: number, zoom: number) => {
@@ -934,7 +961,12 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       .map(entry => savedMap.get(entry.id) ?? entry)
       .filter(entry => !isPendingAnnotation(entry.id) || failedIds.has(entry.id));
     setCanUndo(undoStackRef.current.length > 0);
-    if (failedIds.size > 0) setActionErr(`${failedIds.size} annotation(s) failed to save`);
+    if (failedIds.size > 0) {
+      const firstRejection = results.find(r => r.status === 'rejected') as PromiseRejectedResult | undefined;
+      const detail = (firstRejection?.reason as { message?: string } | undefined)?.message
+        ?? String(firstRejection?.reason ?? '');
+      setActionErr(`${failedIds.size} annotation(s) failed to save${detail ? ` — ${detail}` : ''}`);
+    }
     setIsSaving(false);
   }, [pendingAnnotations]);
 
@@ -1007,8 +1039,10 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     let startX = 0, startY = 0, startSL = 0, startST = 0, panning = false;
 
     const onTouchStart = (e: TouchEvent) => {
-      // Only single-finger scroll; don't pan if a pen/mouse draw is in progress.
-      if (e.touches.length !== 1 || drawingPtrRef.current !== null) return;
+      // Only scroll for nav tools (pan/select). When a drawing tool is active, let
+      // pointer events handle the gesture so the user can draw with their finger.
+      const isNavTool = currentToolRef.current === 'pan' || currentToolRef.current === 'select';
+      if (e.touches.length !== 1 || drawingPtrRef.current !== null || !isNavTool) return;
       panning = true;
       startX  = e.touches[0].clientX;
       startY  = e.touches[0].clientY;
@@ -1055,12 +1089,14 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       return;
     }
 
-    // Single-finger touch is handled exclusively by the touch scroll listener.
-    // Pointer capture is only used for pen/stylus and mouse.
-    if (e.pointerType === 'touch') return;
+    // Single-finger touch yields to the touch-scroll listener for nav tools (pan/select).
+    // For drawing tools, touch is allowed so users can draw with their finger on mobile.
+    if (e.pointerType === 'touch' && (currentTool === 'pan' || currentTool === 'select')) return;
 
     if (drawingPtrRef.current !== null && drawingPtrRef.current !== e.pointerId) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
+    // Only set pointer capture for pen/mouse, not touch: setPointerCapture + touchAction:none
+    // causes iOS Safari to fire pointercancel, which would immediately abort the gesture.
+    if (e.pointerType !== 'touch') e.currentTarget.setPointerCapture(e.pointerId);
     drawingPtrRef.current = e.pointerId;
 
     const coords = getCoords(e.clientX, e.clientY);
@@ -1754,7 +1790,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
           <span className="text-[8px] text-slate-600 font-black uppercase tracking-widest">·</span>
           <span className="text-[8px] text-slate-600 font-black uppercase tracking-widest">
             {currentTool === 'callout'
-              ? <>Drag from arrow tip → text box · tap tool to deactivate</>
+              ? <>Press where the text box goes; drag to the arrow tip · tap tool to deactivate</>
               : currentTool !== 'pen' && currentTool !== 'highlighter' && currentTool !== 'text' && currentTool !== 'stamp'
                 ? <>Tap again to deactivate · Hold <kbd className="text-slate-500 font-mono">⇧ Shift</kbd> to constrain / snap to 45°</>
                 : <>Tap the tool icon again to stop drawing</>

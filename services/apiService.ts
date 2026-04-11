@@ -588,6 +588,12 @@ export const apiService = {
     return { ...data, companyId: data.company_id, url: publicUrl, createdAt: new Date(data.created_at).getTime() };
   },
 
+  async downloadJobPrint(storagePath: string): Promise<ArrayBuffer> {
+    const { data, error } = await supabase.storage.from('job-prints').download(storagePath);
+    if (error) throw new Error(`Failed to download job print (${storagePath}): ${error.message}`);
+    return data.arrayBuffer();
+  },
+
   async getPrintMarkers(printId: string): Promise<PrintMarker[]> {
     const { data, error } = await supabase.from('print_markers').select('*').eq('print_id', printId);
     if (error) return [];
@@ -611,7 +617,7 @@ export const apiService = {
       .select('*')
       .eq('print_id', printId)
       .order('created_at', { ascending: true });
-    if (error) return [];
+    if (error) throw error;
     return (data || []).map(a => ({
       id: a.id,
       printId: a.print_id,
