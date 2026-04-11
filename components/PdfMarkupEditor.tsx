@@ -71,6 +71,10 @@ const HANDLE_HIT_RADIUS_NORM    = 0.06;  // tap radius to grab a control-point h
 const DEFAULT_FONT_SIZE         = 18;    // default font size for new text / callout annotations
 const ROTATE_HANDLE_INDEX       = 100;   // reserved handle index for the rotation handle
 const ROTATE_HANDLE_OFFSET_NORM = 0.055; // distance above bbox top (in normalised coords) for rotate handle
+const EDGE_HANDLE_TOP           = 5;     // mid-top edge handle index
+const EDGE_HANDLE_RIGHT         = 6;     // mid-right edge handle index
+const EDGE_HANDLE_BOTTOM        = 7;     // mid-bottom edge handle index
+const EDGE_HANDLE_LEFT          = 8;     // mid-left edge handle index
 
 const generateTempId    = () => 'tmp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
 const isPendingAnnotation = (id: string) => id.startsWith('tmp-');
@@ -437,7 +441,7 @@ const getAnnotationBBox = (ann: PdfAnnotation, data?: AnyAnnotationData): { x: n
   }
   return null;
 };
-type HandleDef = { nx: number; ny: number; index: number; isMoveHandle?: boolean; isRotateHandle?: boolean };
+type HandleDef = { nx: number; ny: number; index: number; isMoveHandle?: boolean; isRotateHandle?: boolean; isEdgeHandle?: boolean };
 const getHandlesNorm = (ann: PdfAnnotation): HandleDef[] => {
   const d = ann.data as AnyAnnotationData;
   const t = ann.toolType as ToolType;
@@ -451,12 +455,18 @@ const getHandlesNorm = (ann: PdfAnnotation): HandleDef[] => {
     ];
   } else if (t === 'rectangle' || t === 'filled_rectangle' || t === 'circle' || t === 'filled_circle' || t === 'cloud') {
     if (d.x1 === undefined) return [];
+    const sx1 = d.x1 ?? 0, sy1 = d.y1 ?? 0, sx2 = d.x2 ?? 0, sy2 = d.y2 ?? 0;
+    const scx = (sx1 + sx2) / 2, scy = (sy1 + sy2) / 2;
     baseHandles = [
-      { nx: d.x1 ?? 0, ny: d.y1 ?? 0, index: 0 },
-      { nx: d.x2 ?? 0, ny: d.y1 ?? 0, index: 1 },
-      { nx: d.x2 ?? 0, ny: d.y2 ?? 0, index: 2 },
-      { nx: d.x1 ?? 0, ny: d.y2 ?? 0, index: 3 },
-      { nx: ((d.x1 ?? 0) + (d.x2 ?? 0)) / 2, ny: ((d.y1 ?? 0) + (d.y2 ?? 0)) / 2, index: 4, isMoveHandle: true },
+      { nx: sx1, ny: sy1, index: 0 },
+      { nx: sx2, ny: sy1, index: 1 },
+      { nx: sx2, ny: sy2, index: 2 },
+      { nx: sx1, ny: sy2, index: 3 },
+      { nx: scx, ny: scy, index: 4, isMoveHandle: true },
+      { nx: scx, ny: sy1, index: EDGE_HANDLE_TOP,    isEdgeHandle: true },
+      { nx: sx2, ny: scy, index: EDGE_HANDLE_RIGHT,  isEdgeHandle: true },
+      { nx: scx, ny: sy2, index: EDGE_HANDLE_BOTTOM, isEdgeHandle: true },
+      { nx: sx1, ny: scy, index: EDGE_HANDLE_LEFT,   isEdgeHandle: true },
     ];
   } else if (t === 'text' || t === 'stamp') {
     if (d.x === undefined) return [];
@@ -474,6 +484,10 @@ const getHandlesNorm = (ann: PdfAnnotation): HandleDef[] => {
       { nx: bx2, ny: by2, index: 2 },
       { nx: bx1, ny: by2, index: 3 },
       { nx: pcx, ny: pcy, index: 4, isMoveHandle: true },
+      { nx: pcx, ny: by1, index: EDGE_HANDLE_TOP,    isEdgeHandle: true },
+      { nx: bx2, ny: pcy, index: EDGE_HANDLE_RIGHT,  isEdgeHandle: true },
+      { nx: pcx, ny: by2, index: EDGE_HANDLE_BOTTOM, isEdgeHandle: true },
+      { nx: bx1, ny: pcy, index: EDGE_HANDLE_LEFT,   isEdgeHandle: true },
     ];
   }
 
@@ -555,7 +569,7 @@ const applyHandleDrag = (
       : { ...origData, x2: effectiveCur.x, y2: effectiveCur.y };
   }
 
-  // ── Shape corner / move handles ───────────────────────────────────────────
+  // ── Shape corner / edge / move handles ───────────────────────────────────────────
   if (toolType === 'rectangle' || toolType === 'filled_rectangle' || toolType === 'circle' || toolType === 'filled_circle' || toolType === 'cloud') {
     if (handleIndex === 4) {
       const dx = effectiveCur.x - effectiveDragStart.x;
@@ -565,7 +579,12 @@ const applyHandleDrag = (
     if (handleIndex === 0) return { ...origData, x1: effectiveCur.x, y1: effectiveCur.y };
     if (handleIndex === 1) return { ...origData, x2: effectiveCur.x, y1: effectiveCur.y };
     if (handleIndex === 2) return { ...origData, x2: effectiveCur.x, y2: effectiveCur.y };
-    return { ...origData, x1: effectiveCur.x, y2: effectiveCur.y };
+    if (handleIndex === 3) return { ...origData, x1: effectiveCur.x, y2: effectiveCur.y };
+    // Edge handles: constrain to a single axis
+    if (handleIndex === EDGE_HANDLE_TOP)    return { ...origData, y1: effectiveCur.y };
+    if (handleIndex === EDGE_HANDLE_RIGHT)  return { ...origData, x2: effectiveCur.x };
+    if (handleIndex === EDGE_HANDLE_BOTTOM) return { ...origData, y2: effectiveCur.y };
+    if (handleIndex === EDGE_HANDLE_LEFT)   return { ...origData, x1: effectiveCur.x };
   }
 
   // ── Text / stamp move handle ───────────────────────────────────────────────
@@ -573,7 +592,7 @@ const applyHandleDrag = (
     return { ...origData, x: effectiveCur.x, y: effectiveCur.y };
   }
 
-  // ── Pen / highlighter: move or scale corner handles ────────────────────────
+  // ── Pen / highlighter: move, scale corner or edge handles ────────────────────────
   if (toolType === 'pen' || toolType === 'highlighter') {
     if (!origData.points || origData.points.length < 2) return origData;
     const pts = origData.points;
@@ -586,6 +605,28 @@ const applyHandleDrag = (
       const dx = effectiveCur.x - effectiveDragStart.x;
       const dy = effectiveCur.y - effectiveDragStart.y;
       return { ...origData, points: pts.map(p => ({ ...p, x: p.x + dx, y: p.y + dy })) };
+    }
+
+    // Edge handles: scale on a single axis, anchor at the opposite edge
+    if (handleIndex === EDGE_HANDLE_TOP) {
+      // Top edge: scale Y from bottom, X unchanged
+      const scaleY = (origY2 - origY1) !== 0 ? (origY2 - effectiveCur.y) / (origY2 - origY1) : 1;
+      return { ...origData, points: pts.map(p => ({ ...p, y: origY2 + (p.y - origY2) * scaleY })) };
+    }
+    if (handleIndex === EDGE_HANDLE_RIGHT) {
+      // Right edge: scale X from left, Y unchanged
+      const scaleX = (origX2 - origX1) !== 0 ? (effectiveCur.x - origX1) / (origX2 - origX1) : 1;
+      return { ...origData, points: pts.map(p => ({ ...p, x: origX1 + (p.x - origX1) * scaleX })) };
+    }
+    if (handleIndex === EDGE_HANDLE_BOTTOM) {
+      // Bottom edge: scale Y from top, X unchanged
+      const scaleY = (origY2 - origY1) !== 0 ? (effectiveCur.y - origY1) / (origY2 - origY1) : 1;
+      return { ...origData, points: pts.map(p => ({ ...p, y: origY1 + (p.y - origY1) * scaleY })) };
+    }
+    if (handleIndex === EDGE_HANDLE_LEFT) {
+      // Left edge: scale X from right, Y unchanged
+      const scaleX = (origX2 - origX1) !== 0 ? (origX2 - effectiveCur.x) / (origX2 - origX1) : 1;
+      return { ...origData, points: pts.map(p => ({ ...p, x: origX2 + (p.x - origX2) * scaleX })) };
     }
 
     // Corner scale: compute anchor (opposite corner) and scale all points from it
@@ -1200,7 +1241,13 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
             dragHandleRef.current.origData, ann.toolType as ToolType,
             dragHandleRef.current.handleIndex, coords, dragHandleRef.current.dragStartNorm,
           );
-          setLiveEditData(newData);
+          // Snap rotation to 15° increments when Shift is held while dragging the rotation handle
+          if (shiftPressedRef.current && dragHandleRef.current.handleIndex === ROTATE_HANDLE_INDEX) {
+            const snapped = Math.round((newData.rotation ?? 0) / 15) * 15;
+            setLiveEditData({ ...newData, rotation: ((snapped % 360) + 360) % 360 });
+          } else {
+            setLiveEditData(newData);
+          }
         }
       }
       return;
@@ -1641,10 +1688,10 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
                 {selectedAnn.toolType.replace(/_/g, ' ')} selected
                 {selectedAnn.toolType === 'callout' && getHandlesNorm(selectedAnn).length >= 2
                   ? ' — drag amber dot to repoint arrow · blue dot to move text box · green dot to rotate'
-                  : getHandlesNorm(selectedAnn).some(h => h.isRotateHandle) && getHandlesNorm(selectedAnn).some(h => !h.isMoveHandle && !h.isRotateHandle)
-                    ? ' — drag blue dots to resize · purple dot to move · green dot to rotate'
+                  : getHandlesNorm(selectedAnn).some(h => h.isRotateHandle) && getHandlesNorm(selectedAnn).some(h => !h.isMoveHandle && !h.isRotateHandle && !h.isEdgeHandle)
+                    ? ' — blue corners to resize · sky diamonds for single-axis · purple dot to move · green dot to rotate (hold Shift for 15° snap)'
                     : getHandlesNorm(selectedAnn).some(h => h.isRotateHandle)
-                      ? ' — drag purple dot to move · green dot to rotate'
+                      ? ' — drag purple dot to move · green dot to rotate (hold Shift for 15° snap)'
                       : ''}
               </span>
 
@@ -1914,17 +1961,21 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
                       const isCalloutArrowTip = selectedAnn.toolType === 'callout' && !h.isMoveHandle && !h.isRotateHandle && h.index === 1;
                       const handleFill = h.isRotateHandle ? '#22c55e'
                         : h.isMoveHandle ? '#6366f1'
+                        : h.isEdgeHandle ? '#0ea5e9'
                         : isCalloutArrowTip ? '#f59e0b'
                         : '#3b82f6';
+                      const edgeLabel = h.index === EDGE_HANDLE_TOP ? 'top' : h.index === EDGE_HANDLE_RIGHT ? 'right' : h.index === EDGE_HANDLE_BOTTOM ? 'bottom' : 'left';
                       const handleTitle = h.isRotateHandle
-                        ? `Rotate — drag to rotate (${Math.round(rotation)}°)`
+                        ? `Rotate — drag to rotate (${Math.round(rotation)}°), hold Shift for 15° snapping`
                         : h.isMoveHandle
                           ? 'Move annotation'
-                          : selectedAnn.toolType === 'callout'
-                            ? h.index === 0 ? 'Text box — drag to reposition' : 'Arrow tip — drag to repoint'
-                            : selectedAnn.toolType === 'arrow' || selectedAnn.toolType === 'double_arrow'
-                              ? h.index === 0 ? 'Line start — drag to adjust' : 'Arrow head — drag to adjust'
-                              : `Endpoint ${h.index + 1} — drag to reshape`;
+                          : h.isEdgeHandle
+                            ? `Resize ${edgeLabel} edge — drag to resize on one axis`
+                            : selectedAnn.toolType === 'callout'
+                              ? h.index === 0 ? 'Text box — drag to reposition' : 'Arrow tip — drag to repoint'
+                              : selectedAnn.toolType === 'arrow' || selectedAnn.toolType === 'double_arrow'
+                                ? h.index === 0 ? 'Line start — drag to adjust' : 'Arrow head — drag to adjust'
+                                : `Endpoint ${h.index + 1} — drag to reshape`;
                       const r = h.isRotateHandle || h.isMoveHandle ? 9 : 8;
                       return (
                         <g key={`handle-${h.index}`}>
@@ -1932,8 +1983,17 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
                           <circle cx={cx} cy={cy} r="18" fill="transparent">
                             <title>{handleTitle}</title>
                           </circle>
-                          {/* Visible handle circle */}
-                          <circle cx={cx} cy={cy} r={r} fill={handleFill} stroke="white" strokeWidth="2.5" />
+                          {/* Edge handles: diamond (rotated square) shape */}
+                          {h.isEdgeHandle ? (
+                            <rect
+                              x={cx - 6} y={cy - 6} width={12} height={12}
+                              fill={handleFill} stroke="white" strokeWidth="2"
+                              transform={`rotate(45, ${cx}, ${cy})`}
+                            />
+                          ) : (
+                            /* Visible handle circle */
+                            <circle cx={cx} cy={cy} r={r} fill={handleFill} stroke="white" strokeWidth="2.5" />
+                          )}
                           {/* Rotate handle: circular-arrow icon */}
                           {h.isRotateHandle && (
                             <g transform={`translate(${cx}, ${cy})`} stroke="white" strokeWidth="1.5" strokeLinecap="round" fill="none">
