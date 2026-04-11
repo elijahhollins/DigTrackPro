@@ -685,22 +685,18 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       .catch((e: Error) => setAnnLoadErr(e.message || 'Failed to load annotations'));
   }, [print.id]);
 
-  // Load PDF — pre-fetch binary data via fetch() so that pdfjs-dist receives a
-  // Uint8Array rather than a URL string.  Passing a raw URL to getDocument()
-  // triggers pdfjs-dist's internal XHR which is often blocked by CORS on
-  // Supabase Storage (and similar object-storage CDNs) even when the same URL
-  // is accessible from fetch().  Fetching ourselves and handing off the bytes
-  // bypasses that entirely.
+  // Load PDF via the Supabase storage client so the authenticated session is
+  // used.  This works for both public and private buckets and avoids CORS/403
+  // failures that occur when raw-fetching a public URL.
   useEffect(() => {
-    if (!print.url) return;
+    if (!print.storagePath) return;
     setIsLoadingPdf(true); setPdfError(null);
     let cancelled = false;
 
     const loadPdf = async () => {
+      const path = print.storagePath;
       try {
-        const response = await fetch(print.url!);
-        if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
-        const buffer = await response.arrayBuffer();
+        const buffer = await apiService.downloadJobPrint(path);
         if (cancelled) return;
         const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
         if (!cancelled) { pdfDocRef.current = pdf; setNumPages(pdf.numPages); setPageNumber(1); }
@@ -713,7 +709,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
 
     loadPdf();
     return () => { cancelled = true; };
-  }, [print.url]);
+  }, [print.storagePath]);
 
   // Render page at current zoom
   const renderPage = useCallback(async (pageNum: number, zoom: number) => {
