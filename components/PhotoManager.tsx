@@ -209,7 +209,11 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({
     <div className={`flex h-[calc(100vh-140px)] overflow-hidden rounded-2xl border ${dark ? 'border-white/[0.06] bg-[#0a1628]' : 'border-slate-200 bg-white shadow-sm'}`}>
 
       {/* ── SIDEBAR ─────────────────────────────────────────────────────── */}
-      <aside className={`w-60 xl:w-64 shrink-0 flex flex-col border-r ${dark ? 'border-white/[0.06] bg-[#0b1a2e]' : 'border-slate-100 bg-slate-50'}`}>
+      {/* Mobile: full-width when no job is selected; hidden when a job is open */}
+      {/* Desktop (sm+): always visible as a fixed-width sidebar */}
+      <aside className={`shrink-0 flex flex-col border-r
+        ${activeJob ? 'hidden sm:flex sm:w-60 xl:w-64' : 'flex w-full sm:w-60 xl:w-64'}
+        ${dark ? 'border-white/[0.06] bg-[#0b1a2e]' : 'border-slate-100 bg-slate-50'}`}>
 
         {/* Sidebar header */}
         <div className={`px-4 pt-4 pb-3 shrink-0 border-b ${dark ? 'border-white/[0.06]' : 'border-slate-100'}`}>
@@ -314,7 +318,9 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({
       </aside>
 
       {/* ── MAIN AREA ────────────────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      {/* Mobile: full-width when a job is selected; hidden when showing the job list */}
+      {/* Desktop (sm+): always visible, takes remaining flex space */}
+      <div className={`flex-1 flex-col min-w-0 overflow-hidden ${activeJob ? 'flex' : 'hidden sm:flex'}`}>
         {activeJob ? (
           <>
             {/* Content header */}
