@@ -376,13 +376,16 @@ export async function exportPdfWithAnnotations(
   const workerInstance = new PdfWorker();
   const pdfWorker = pdfjsLib.PDFWorker.fromPort({ port: workerInstance });
 
+  // Declared outside try so the finally block can call pdf.destroy().
+  let pdf: pdfjsLib.PDFDocumentProxy | undefined;
+
   try {
     // Fetch PDF as binary (CORS-safe via fetch)
     const response = await fetch(pdfUrl);
     if (!response.ok) throw new Error('Failed to fetch PDF');
     const buffer = await response.arrayBuffer();
 
-    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer), worker: pdfWorker }).promise;
+    pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer), worker: pdfWorker }).promise;
     const numPages = pdf.numPages;
 
     const pages: Array<{ jpegData: Uint8Array; width: number; height: number }> = [];
@@ -391,7 +394,7 @@ export async function exportPdfWithAnnotations(
       onProgress?.(pageNum, numPages);
 
       const page = await pdf.getPage(pageNum);
-      const viewport = page.getViewport({ scale: 2 }); // 2× for quality
+      const viewport = page.getViewport({ scale: 1.5 }); // 1.5× balances quality and GPU memory
       const canvas = document.createElement('canvas');
       canvas.width = viewport.width;
       canvas.height = viewport.height;
@@ -406,25 +409,26 @@ export async function exportPdfWithAnnotations(
       });
       const jpegData = new Uint8Array(await jpegBlob.arrayBuffer());
       pages.push({ jpegData, width: Math.round(viewport.width), height: Math.round(viewport.height) });
+
+      // Resize the canvas to 0×0 to release the GPU-backed memory immediately.
+      // On iOS Safari the canvas memory pool is limited; without explicit
+      // release, a multi-page export can exhaust it and cause the markup
+      // editor's canvas.getContext('2d') to return null on the next open.
+      canvas.width = 0;
+      canvas.height = 0;
     }
 
     const pdfBytes = buildPdfFromJpegs(pages);
     return new Blob([pdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' });
   } finally {
-    // Hard-terminate the export worker thread directly.
-    //
-    // We intentionally skip pdf.destroy() here.  pdf.destroy() calls
-    // transport.destroy() which sends a "Terminate" message through the pdfjs
-    // message channel.  If the `instanceof PDFWorker` check in getDocument()
-    // failed at runtime (e.g. a module-identity mismatch in the production
-    // bundle), pdfjs would have fallen back to GlobalWorkerOptions.workerPort
-    // — the markup editor's shared worker — and "Terminate" would permanently
-    // shut down its message handler, breaking the markup editor.
-    //
-    // pdfWorker.destroy() only removes the message-event listener on
-    // workerInstance (no messages sent) and removes it from the internal
-    // #workerPorts WeakMap.  workerInstance.terminate() then kills the thread
-    // at the OS level.  No "Terminate" message is sent to any worker.
+    // pdf.destroy() sends "Terminate" through transport.messageHandler whose
+    // comObj is exportWorkerInstance (set when getDocument resolved with
+    // worker: pdfWorker).  The "Terminate" therefore goes to the export worker,
+    // not to GlobalWorkerOptions.workerPort (the markup editor's shared worker).
+    // After the transport is torn down, pdfWorker.destroy() removes
+    // exportWorkerInstance from the internal #workerPorts WeakMap, and
+    // workerInstance.terminate() hard-kills the export thread.
+    try { await pdf?.destroy(); } catch { /* ignore cleanup errors */ }
     pdfWorker.destroy();
     workerInstance.terminate();
   }
