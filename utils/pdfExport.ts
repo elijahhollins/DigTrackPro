@@ -343,12 +343,12 @@ function buildPdfFromJpegs(
   const header = e(headerStr);
   const xrefOffset = offset + header.byteLength;
 
-  let xref = `xref\n0 ${totalObjs + 1}\n0000000000 65535 f \n`;
-  for (let n = 1; n <= totalObjs; n++) {
+  let xref = `xref\n0 ${totalObjs}\n0000000000 65535 f \n`;
+  for (let n = 1; n <= totalObjs - 1; n++) {
     const off = offsets[n] !== undefined ? offsets[n] + header.byteLength : 0;
     xref += `${String(off).padStart(10, '0')} 00000 n \n`;
   }
-  xref += `trailer\n<< /Size ${totalObjs + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  xref += `trailer\n<< /Size ${totalObjs} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
 
   const allParts: Uint8Array[] = [header, ...objs, e(xref)];
   return concat(...allParts);
