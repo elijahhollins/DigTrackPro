@@ -143,7 +143,7 @@ const Login: React.FC<LoginProps> = ({ authError = '' }) => {
         {/* Logo */}
         <div className="relative">
           <div className="flex items-center gap-3 mb-16">
-            <img src="/logo.png" alt="Company logo" className="w-11 h-11 object-contain rounded-2xl" />
+            <img src="/logo.svg" alt="Company logo" className="w-11 h-11 object-contain rounded-2xl" />
             <div>
               <p className="text-white text-sm font-black uppercase tracking-widest font-display">DigTrack Pro</p>
               <p className="text-slate-600 text-[9px] font-bold uppercase tracking-[0.2em]">Locate Management</p>
@@ -184,7 +184,7 @@ const Login: React.FC<LoginProps> = ({ authError = '' }) => {
         <div className="w-full max-w-sm">
           {/* Mobile logo */}
           <div className="flex lg:hidden items-center gap-3 mb-8 justify-center">
-            <img src="/logo.png" alt="Company logo" className="w-10 h-10 object-contain rounded-2xl" />
+            <img src="/logo.svg" alt="Company logo" className="w-10 h-10 object-contain rounded-2xl" />
             <div>
               <p className="text-white text-sm font-black uppercase tracking-widest">DigTrack Pro</p>
               <p className="text-slate-600 text-[9px] uppercase tracking-[0.15em]">Locate Management</p>

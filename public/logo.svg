@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- White background -->
+  <rect width="200" height="200" fill="white"/>
+
+  <!-- "D" letter – dark charcoal -->
+  <text x="10" y="148" font-family="Arial Black, Arial, sans-serif" font-weight="900"
+        font-size="140" fill="#2b3148">D</text>
+
+  <!-- "T" letter – orange, shifted right -->
+  <text x="96" y="148" font-family="Arial Black, Arial, sans-serif" font-weight="900"
+        font-size="140" fill="#f05a1a">T</text>
+
+  <!-- Location pin body (orange) -->
+  <ellipse cx="101" cy="62" rx="14" ry="16" fill="#f05a1a"/>
+  <!-- Pin tail -->
+  <polygon points="101,90 92,66 110,66" fill="#f05a1a"/>
+  <!-- Pin inner circle (white) -->
+  <circle cx="101" cy="59" r="6" fill="white"/>
+
+  <!-- "DIG TRACK" text -->
+  <text x="100" y="175" text-anchor="middle" font-family="Arial Black, Arial, sans-serif"
+        font-weight="900" font-size="17" fill="#2b3148" letter-spacing="2">DIG </text>
+  <text x="100" y="175" text-anchor="middle" font-family="Arial Black, Arial, sans-serif"
+        font-weight="900" font-size="17" fill="#f05a1a" letter-spacing="2" dx="32">TRACK</text>
+
+  <!-- Subtitle "PRO" -->
+  <text x="100" y="192" text-anchor="middle" font-family="Arial, sans-serif"
+        font-weight="700" font-size="12" fill="#2b3148" letter-spacing="6">PRO</text>
+</svg>

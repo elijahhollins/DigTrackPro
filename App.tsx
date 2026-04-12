@@ -555,7 +555,7 @@ const App: React.FC = () => {
           onClick={() => handleNavigate('dashboard')}
         >
           <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-all group-hover:scale-105 ${isProcessing ? 'animate-pulse opacity-75' : ''}`}>
-            <img src="/logo.png" alt="Company logo" className="w-9 h-9 object-contain rounded-xl" />
+            <img src="/logo.svg" alt="Company logo" className="w-9 h-9 object-contain rounded-xl" />
           </div>
           <div className="hidden lg:block overflow-hidden">
             <p className={`text-[13px] font-black uppercase tracking-tight font-display truncate group-hover:text-brand transition-colors ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
