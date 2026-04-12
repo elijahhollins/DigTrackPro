@@ -1092,7 +1092,8 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     };
 
     const onTouchMove = (e: TouchEvent) => {
-      if (!panning || e.touches.length !== 1) { panning = false; return; }
+      // If a handle drag has claimed the pointer, stop scrolling and let pointer events handle it.
+      if (!panning || e.touches.length !== 1 || drawingPtrRef.current !== null) { panning = false; return; }
       e.preventDefault();
       main.scrollLeft = startSL - (e.touches[0].clientX - startX);
       main.scrollTop  = startST - (e.touches[0].clientY - startY);
@@ -1130,15 +1131,23 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       return;
     }
 
-    // Single-finger touch yields to the touch-scroll listener for nav tools (pan/select).
-    // For drawing tools, touch is allowed so users can draw with their finger on mobile.
-    if (e.pointerType === 'touch' && (currentTool === 'pan' || currentTool === 'select')) return;
+    // Touch + pan always yields to the touch-scroll listener.
+    if (e.pointerType === 'touch' && currentTool === 'pan') return;
+    // Touch + select: annotation tap and handle selection are handled below.
+    // We do NOT capture the pointer here (drawingPtrRef stays null) so the scroll
+    // listener stays active for plain tap-to-select gestures.  It is set inside the
+    // handle-drag branch below so pointer-move/up can track the drag.
 
     if (drawingPtrRef.current !== null && drawingPtrRef.current !== e.pointerId) return;
     // Only set pointer capture for pen/mouse, not touch: setPointerCapture + touchAction:none
     // causes iOS Safari to fire pointercancel, which would immediately abort the gesture.
     if (e.pointerType !== 'touch') e.currentTarget.setPointerCapture(e.pointerId);
-    drawingPtrRef.current = e.pointerId;
+    // For touch+select we defer claiming drawingPtrRef until we know a handle drag is starting.
+    // Plain tap-to-select completes entirely inside the select block below and returns, so
+    // drawingPtrRef never needs to be set, keeping the scroll listener free.
+    if (!(e.pointerType === 'touch' && currentTool === 'select')) {
+      drawingPtrRef.current = e.pointerId;
+    }
 
     const coords = getCoords(e.clientX, e.clientY);
 
@@ -1184,6 +1193,9 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
             if (!betterTargetExists) {
               dragHandleRef.current = { handleIndex: nearestHandle.index, origData: currentSelected.data as AnyAnnotationData, dragStartNorm: coords };
               setLiveEditData(currentSelected.data as AnyAnnotationData);
+              // For touch: claim the pointer now so handlePointerMove/Up can track the drag.
+              // This also signals onTouchMove to stop scrolling for the duration of the drag.
+              if (e.pointerType === 'touch') drawingPtrRef.current = e.pointerId;
               return;
             }
           }
