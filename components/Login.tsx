@@ -143,11 +143,7 @@ const Login: React.FC<LoginProps> = ({ authError = '' }) => {
         {/* Logo */}
         <div className="relative">
           <div className="flex items-center gap-3 mb-16">
-            <div className="w-11 h-11 rounded-2xl bg-brand/15 border border-brand/25 flex items-center justify-center glow-brand">
-              <svg className="w-6 h-6 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-              </svg>
-            </div>
+            <img src="/logo.png" alt="Company logo" className="w-11 h-11 object-contain rounded-2xl" />
             <div>
               <p className="text-white text-sm font-black uppercase tracking-widest font-display">DigTrack Pro</p>
               <p className="text-slate-600 text-[9px] font-bold uppercase tracking-[0.2em]">Locate Management</p>
@@ -188,11 +184,7 @@ const Login: React.FC<LoginProps> = ({ authError = '' }) => {
         <div className="w-full max-w-sm">
           {/* Mobile logo */}
           <div className="flex lg:hidden items-center gap-3 mb-8 justify-center">
-            <div className="w-10 h-10 rounded-2xl bg-brand/15 border border-brand/25 flex items-center justify-center">
-              <svg className="w-5 h-5 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-              </svg>
-            </div>
+            <img src="/logo.png" alt="Company logo" className="w-10 h-10 object-contain rounded-2xl" />
             <div>
               <p className="text-white text-sm font-black uppercase tracking-widest">DigTrack Pro</p>
               <p className="text-slate-600 text-[9px] uppercase tracking-[0.15em]">Locate Management</p>
