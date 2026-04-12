@@ -1155,8 +1155,8 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       const pageAnns = [...annotations, ...pendingAnnotations].filter(a => a.pageNumber === pageNumber);
       // 1. Check if tapping a control-point handle on the selected annotation.
       //    Use selectedAnnIdRef (stable ref) so this callback never reads a stale closure value.
-      //    Find the NEAREST handle (not the first) and only capture the event if there is no
-      //    other annotation that is a better tap target — this prevents the dense handle zones
+      //    Find the NEAREST handle (not the first) and only capture the event if the tap is NOT
+      //    strictly inside another annotation's bounding box — this prevents the dense handle zones
       //    introduced by edge handles from swallowing clicks intended to select a different annotation.
       const currentSelId = selectedAnnIdRef.current;
       if (currentSelId) {
@@ -1169,10 +1169,18 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
             if (dist < nearestHandleDist) { nearestHandleDist = dist; nearestHandle = h; }
           }
           if (nearestHandle) {
-            // Yield to selection if another annotation is strictly closer to the tap than this handle
+            // Yield to selection only if the tap is clearly INSIDE another annotation's bounding
+            // box (strict containment, no padding).  Using hitTestAnnotation distance < nearestHandleDist
+            // was too broad — a nearby-but-non-overlapping annotation would suppress handle drags
+            // even though the click was unambiguously on a handle of the selected annotation.
             const betterTargetExists = pageAnns
               .filter(a => a.id !== currentSelId)
-              .some(a => hitTestAnnotation(a, coords) < nearestHandleDist);
+              .some(a => {
+                const abbox = getAnnotationBBox(a);
+                if (!abbox) return false;
+                return coords.x >= abbox.x && coords.x <= abbox.x + abbox.w &&
+                       coords.y >= abbox.y && coords.y <= abbox.y + abbox.h;
+              });
             if (!betterTargetExists) {
               dragHandleRef.current = { handleIndex: nearestHandle.index, origData: currentSelected.data as AnyAnnotationData, dragStartNorm: coords };
               setLiveEditData(currentSelected.data as AnyAnnotationData);
