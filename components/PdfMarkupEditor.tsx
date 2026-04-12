@@ -1155,13 +1155,26 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       const pageAnns = [...annotations, ...pendingAnnotations].filter(a => a.pageNumber === pageNumber);
       // 1. Check if tapping a control-point handle on the selected annotation.
       //    Use selectedAnnIdRef (stable ref) so this callback never reads a stale closure value.
+      //    Find the NEAREST handle (not the first) and only capture the event if there is no
+      //    other annotation that is a better tap target — this prevents the dense handle zones
+      //    introduced by edge handles from swallowing clicks intended to select a different annotation.
       const currentSelId = selectedAnnIdRef.current;
       if (currentSelId) {
         const currentSelected = pageAnns.find(a => a.id === currentSelId);
         if (currentSelected) {
+          let nearestHandle: HandleDef | null = null;
+          let nearestHandleDist = HANDLE_HIT_RADIUS_NORM;
           for (const h of getHandlesNorm(currentSelected)) {
-            if (Math.hypot(h.nx - coords.x, h.ny - coords.y) < HANDLE_HIT_RADIUS_NORM) {
-              dragHandleRef.current = { handleIndex: h.index, origData: currentSelected.data as AnyAnnotationData, dragStartNorm: coords };
+            const dist = Math.hypot(h.nx - coords.x, h.ny - coords.y);
+            if (dist < nearestHandleDist) { nearestHandleDist = dist; nearestHandle = h; }
+          }
+          if (nearestHandle) {
+            // Yield to selection if another annotation is strictly closer to the tap than this handle
+            const betterTargetExists = pageAnns
+              .filter(a => a.id !== currentSelId)
+              .some(a => hitTestAnnotation(a, coords) < nearestHandleDist);
+            if (!betterTargetExists) {
+              dragHandleRef.current = { handleIndex: nearestHandle.index, origData: currentSelected.data as AnyAnnotationData, dragStartNorm: coords };
               setLiveEditData(currentSelected.data as AnyAnnotationData);
               return;
             }
