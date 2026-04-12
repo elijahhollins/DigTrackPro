@@ -274,7 +274,7 @@ const App: React.FC = () => {
     return () => { supabase.removeChannel(channel); };
   }, [sessionUser?.id, sessionUser?.role, sessionUser?.companyId]);
 
-  // Prompt the user about any unarchived tickets that are on day 9 after their call-in date
+  // Prompt the user about any unarchived tickets on the day before their dig-by date
   // and haven't yet been answered about whether work has begun.
   // Only admins are prompted; crew users are not asked this question.
   useEffect(() => {
@@ -284,12 +284,13 @@ const App: React.FC = () => {
     const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
     const pending = tickets.find(t => {
       if (t.isArchived || t.workBegun !== undefined) return false;
-      if (!t.callInDate) return false;
-      const day9Str = addDaysToDateStr(t.callInDate, 9);
-      if (!day9Str) return false;
-      const [y, m, d] = day9Str.split('-').map(Number);
-      const day9Start = new Date(y, m - 1, d);
-      return todayStart >= day9Start;
+      const digByDateStr = t.digByDate || (t.workDate ? addDaysToDateStr(t.workDate, 9) : '');
+      if (!digByDateStr) return false;
+      const oneDayBeforeStr = addDaysToDateStr(digByDateStr, -1);
+      if (!oneDayBeforeStr) return false;
+      const [y, m, d] = oneDayBeforeStr.split('-').map(Number);
+      const thresholdStart = new Date(y, m - 1, d);
+      return todayStart >= thresholdStart;
     });
     if (pending) setDigConfirmTicket(pending);
   }, [tickets, digConfirmTicket, sessionUser]);
