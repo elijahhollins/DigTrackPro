@@ -284,7 +284,7 @@ const App: React.FC = () => {
     const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
     const pending = tickets.find(t => {
       if (t.isArchived || t.workBegun !== undefined) return false;
-      const digByDateStr = t.digByDate || (t.callInDate ? addDaysToDateStr(t.callInDate, 10) : '');
+      const digByDateStr = t.digByDate || (t.workDate ? addDaysToDateStr(t.workDate, 9) : '');
       if (!digByDateStr) return false;
       const oneDayBeforeStr = addDaysToDateStr(digByDateStr, -1);
       if (!oneDayBeforeStr) return false;
