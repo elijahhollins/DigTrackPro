@@ -276,8 +276,10 @@ const App: React.FC = () => {
 
   // Prompt the user about any unarchived tickets that are on day 9 after their call-in date
   // and haven't yet been answered about whether work has begun.
+  // Only admins are prompted; crew users are not asked this question.
   useEffect(() => {
     if (digConfirmTicket) return;
+    if (!sessionUser || (sessionUser.role !== UserRole.ADMIN && sessionUser.role !== UserRole.SUPER_ADMIN)) return;
     const today = new Date();
     const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
     const pending = tickets.find(t => {
@@ -290,7 +292,7 @@ const App: React.FC = () => {
       return todayStart >= day9Start;
     });
     if (pending) setDigConfirmTicket(pending);
-  }, [tickets, digConfirmTicket]);
+  }, [tickets, digConfirmTicket, sessionUser]);
 
   useEffect(() => {
     if (!highlightedTicketId || activeView !== 'dashboard') return;
