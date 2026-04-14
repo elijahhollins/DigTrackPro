@@ -178,7 +178,7 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({
     if (!selectedJobNumber) { alert('Select a job first.'); return; }
     setIsUploading(true);
     const newItems: UploadQueueItem[] = files.map(f => ({
-      id: Math.random().toString(36).slice(2, 11),
+      id: crypto.randomUUID(),
       file: f,
       previewUrl: URL.createObjectURL(f),
       progress: 0,
@@ -486,6 +486,7 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({
                           {collage.length === 1 ? (
                             <img
                               src={collage[0].dataUrl}
+                              alt={`Site photo thumbnail for Job #${job.jobNumber}`}
                               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
                               loading="lazy"
                             />
@@ -495,6 +496,7 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({
                                 {collage[i] ? (
                                   <img
                                     src={collage[i].dataUrl}
+                                    alt={`Site photo thumbnail for Job #${job.jobNumber}`}
                                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
                                     loading="lazy"
                                   />
@@ -658,6 +660,7 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({
                       <div className="relative">
                         <img
                           src={asset.dataUrl}
+                          alt={asset.caption}
                           className="w-full h-auto object-cover group-hover:scale-[1.03] transition-transform duration-700"
                           loading="lazy"
                         />
@@ -776,6 +779,7 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({
               ) : (
                 <img
                   src={currentAssets[activePhotoIndex].dataUrl}
+                  alt={currentAssets[activePhotoIndex].caption}
                   className="max-w-full max-h-[62vh] rounded-2xl shadow-2xl border border-white/10 object-contain"
                 />
               )}
@@ -826,7 +830,7 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({
                     <path d="M11.363 2c4.155 0 2.637 6 2.637 6s6-1.518 6 2.638v11.362c0 .552-.448 1-1 1H5c-.552 0-1-.448-1-1V3c0-.552.448-1 1-1h6.363z" />
                   </svg>
                 ) : (
-                  <img src={a.dataUrl} className="w-full h-full object-cover" />
+                  <img src={a.dataUrl} alt={a.caption} className="w-full h-full object-cover" />
                 )}
               </button>
             ))}
@@ -861,7 +865,7 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({
               {uploadQueue.map(item => (
                 <div key={item.id} className={`flex items-center gap-2.5 p-2 rounded-xl border ${dm ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-100'}`}>
                   <div className="w-9 h-9 rounded-lg overflow-hidden shrink-0 border border-black/10">
-                    <img src={item.previewUrl} className="w-full h-full object-cover" />
+                    <img src={item.previewUrl} alt={item.file.name} className="w-full h-full object-cover" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className={`text-[9px] font-black uppercase tracking-tight truncate ${tp}`}>{item.file.name}</p>
