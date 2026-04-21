@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, JobNote, User, UserRole, Job, UserRecord, Company } from './types.ts';
+import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, JobNote, User, UserRole, Job, UserRecord, Company, NoShowRecord } from './types.ts';
 import { getTicketStatus, getStatusColor, addDaysToDateStr, formatDateStr } from './utils/dateUtils.ts';
 import { apiService } from './services/apiService.ts';
 import { supabase, isSupabaseConfigured, getEnv } from './lib/supabaseClient.ts';
@@ -417,6 +417,30 @@ const App: React.FC = () => {
     }
   };
 
+  const getAdminAlertEmails = (): string[] =>
+    users
+      .filter(u => (u.role === UserRole.ADMIN || u.role === UserRole.SUPER_ADMIN) && u.notifyEmail)
+      .map(u => u.notifyEmail!);
+
+  const handleSaveNoShow = async (record: NoShowRecord) => {
+    await apiService.addNoShow(record);
+    const adminEmails = getAdminAlertEmails();
+    if (adminEmails.length > 0) {
+      const ticket = tickets.find(t => t.id === record.ticketId);
+      if (ticket) {
+        apiService.sendAlertEmail('no_show', ticket, record.author, adminEmails).catch(() => {});
+      }
+    }
+    initApp();
+  };
+
+  const handleUpdateNotificationEmail = async (email: string | null) => {
+    if (!sessionUser) return;
+    await apiService.updateNotificationEmail(sessionUser.id, email);
+    setUsers(prev => prev.map(u => u.id === sessionUser.id ? { ...u, notifyEmail: email || undefined } : u));
+    setSessionUser(prev => prev ? { ...prev, notifyEmail: email || undefined } : prev);
+  };
+
   const handleRefreshRequest = async (ticket: DigTicket, e: React.MouseEvent) => {
     e.stopPropagation();
     if (ticket.refreshRequested) {
@@ -426,6 +450,12 @@ const App: React.FC = () => {
       const updated = { ...ticket, refreshRequested: !ticket.refreshRequested };
       const saved = await apiService.saveTicket(updated);
       setTickets(prev => prev.map(t => t.id === saved.id ? saved : t));
+      if (!ticket.refreshRequested) {
+        const adminEmails = getAdminAlertEmails();
+        if (adminEmails.length > 0) {
+          apiService.sendAlertEmail('refresh', ticket, sessionUser?.name || '', adminEmails).catch(() => {});
+        }
+      }
     } catch (error: any) {
       alert('Refresh request failed: ' + error.message);
     }
@@ -925,7 +955,7 @@ const App: React.FC = () => {
             />}
             {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} isAdmin={isAdmin} isDarkMode={isDarkMode} onJobSelect={(job: Job) => handleJobSelection(job.jobNumber, job)} onViewDoc={setViewingDocUrl} />}
             {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} isAdmin={isAdmin} companyId={sessionUser.companyId} onAddPhoto={(data, file) => apiService.addPhoto({ ...data, companyId: sessionUser.companyId }, file)} onDeletePhoto={(id: string) => apiService.deletePhoto(id)} onDeleteJob={async (id) => { await apiService.deleteJob(id); initApp(); }} initialSearch={mediaFolderFilter} />}
-            {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} company={company || undefined} isDarkMode={isDarkMode} isSuperAdmin={isSuperAdmin} allCompanies={allCompanies} onCompanyCreated={(co) => setAllCompanies(prev => [...prev, co])} onCompanyUpdated={handleUpdateCompany} onAddUser={async (u) => { await apiService.addUser({ ...u, companyId: sessionUser.companyId }); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onUpdateUserName={async (id, name) => { await apiService.updateUserName(id, name); initApp(); }} onSendPasswordReset={async (email) => { await apiService.sendPasswordReset(email); }} onUpdateCurrentUserPassword={async (password) => { await apiService.updateCurrentUserPassword(password); }} />}
+            {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} company={company || undefined} isDarkMode={isDarkMode} isSuperAdmin={isSuperAdmin} allCompanies={allCompanies} onCompanyCreated={(co) => setAllCompanies(prev => [...prev, co])} onCompanyUpdated={handleUpdateCompany} onAddUser={async (u) => { await apiService.addUser({ ...u, companyId: sessionUser.companyId }); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onUpdateUserName={async (id, name) => { await apiService.updateUserName(id, name); initApp(); }} onSendPasswordReset={async (email) => { await apiService.sendPasswordReset(email); }} onUpdateCurrentUserPassword={async (password) => { await apiService.updateCurrentUserPassword(password); }} onUpdateNotificationEmail={handleUpdateNotificationEmail} />}
             {activeView === 'asbuilt' && <AsBuiltView jobs={jobs} sessionUser={sessionUser} isAdmin={isAdmin} isDarkMode={isDarkMode} onDeleteJob={async (id) => { await apiService.deleteJob(id); initApp(); }} />}
           </div>
         </main>
@@ -949,7 +979,7 @@ const App: React.FC = () => {
       {(showJobForm || editingJob) && <JobForm onSave={async (data) => { const job: Job = editingJob ? { ...editingJob, ...data } : { ...data, id: crypto.randomUUID(), companyId: sessionUser.companyId, createdAt: Date.now(), isComplete: false }; const saved = await apiService.saveJob(job); setJobs(prev => [...prev.filter(j => j.id !== saved.id), saved]); setShowJobForm(false); setEditingJob(null); }} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} isDarkMode={isDarkMode} />}
       {selectedJobSummary && <JobSummaryModal job={selectedJobSummary} onClose={() => setSelectedJobSummary(null)} onEdit={() => { setEditingJob(selectedJobSummary); setShowJobForm(true); setSelectedJobSummary(null); }} onDelete={() => { apiService.deleteJob(selectedJobSummary.id).then(() => initApp()); setSelectedJobSummary(null); }} onToggleComplete={async () => { await apiService.saveJob({ ...selectedJobSummary, isComplete: !selectedJobSummary.isComplete }); initApp(); }} onViewMedia={() => { setMediaFolderFilter(selectedJobSummary.jobNumber); handleNavigate('photos'); }} onViewMarkup={() => { setShowMarkup(selectedJobSummary); setSelectedJobSummary(null); }} isDarkMode={isDarkMode} />}
       {showMarkup && <JobPrintMarkup job={showMarkup} isAdmin={isAdmin} sessionUser={sessionUser} onClose={() => setShowMarkup(null)} isDarkMode={isDarkMode} />}
-      {noShowTicket && <NoShowForm ticket={noShowTicket} userName={sessionUser?.name || ''} onSave={async (record) => { await apiService.addNoShow(record); initApp(); }} onDelete={async () => { await apiService.deleteNoShow(noShowTicket.id); initApp(); return true; }} onClose={() => setNoShowTicket(null)} isDarkMode={isDarkMode} />}
+      {noShowTicket && <NoShowForm ticket={noShowTicket} userName={sessionUser?.name || ''} onSave={handleSaveNoShow} onDelete={async () => { await apiService.deleteNoShow(noShowTicket.id); initApp(); return true; }} onClose={() => setNoShowTicket(null)} isDarkMode={isDarkMode} />}
       {notesTicket && <TicketNotesModal ticket={notesTicket} userName={sessionUser?.name || ''} isAdmin={isAdmin} onClose={() => { setNotesTicket(null); apiService.getNotes().then(setNotes).catch((err) => console.error('Failed to refresh notes:', err)); }} isDarkMode={isDarkMode} />}
       {digConfirmTicket && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[200] flex items-center justify-center p-4">
