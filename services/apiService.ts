@@ -818,6 +818,9 @@ export const apiService = {
   },
 
   async updateNotificationEmail(userId: string, email: string | null): Promise<void> {
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new Error('Invalid email address format');
+    }
     const { error } = await supabase.from('profiles').update({ notify_email: email || null }).eq('id', userId);
     if (error) throw error;
   },

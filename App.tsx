@@ -428,7 +428,7 @@ const App: React.FC = () => {
     if (adminEmails.length > 0) {
       const ticket = tickets.find(t => t.id === record.ticketId);
       if (ticket) {
-        apiService.sendAlertEmail('no_show', ticket, record.author, adminEmails).catch(() => {});
+        apiService.sendAlertEmail('no_show', ticket, record.author, adminEmails).catch(err => console.warn('Email alert failed:', err));
       }
     }
     initApp();
@@ -453,7 +453,7 @@ const App: React.FC = () => {
       if (!ticket.refreshRequested) {
         const adminEmails = getAdminAlertEmails();
         if (adminEmails.length > 0) {
-          apiService.sendAlertEmail('refresh', ticket, sessionUser?.name || '', adminEmails).catch(() => {});
+          apiService.sendAlertEmail('refresh', ticket, sessionUser?.name || '', adminEmails).catch(err => console.warn('Email alert failed:', err));
         }
       }
     } catch (error: any) {
