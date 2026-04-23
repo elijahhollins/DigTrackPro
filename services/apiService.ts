@@ -814,5 +814,12 @@ export const apiService = {
   async updateCurrentUserPassword(password: string): Promise<void> {
     const { error } = await supabase.auth.updateUser({ password });
     if (error) throw error;
+  },
+
+  async sendSmsNotification(to: string, message: string): Promise<void> {
+    const { error } = await supabase.functions.invoke('send-sms', {
+      body: { to, message },
+    });
+    if (error) throw error;
   }
 };
