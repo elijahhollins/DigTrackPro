@@ -114,15 +114,25 @@ serve(async (req) => {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({ from: FROM_EMAIL, to, subject, html: htmlBody }),
+        }).then(async (res) => {
+          if (!res.ok) {
+            const body = await res.text();
+            throw new Error(`Resend API error ${res.status}: ${body}`);
+          }
+          return res;
         })
       )
     );
 
     const succeeded = results.filter(r => r.status === 'fulfilled').length;
+    const failed = results
+      .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+      .map(r => r.reason?.message ?? 'unknown error');
 
-    return new Response(JSON.stringify({ sent: succeeded, total: adminEmails.length }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return new Response(
+      JSON.stringify({ sent: succeeded, total: adminEmails.length, errors: failed.length > 0 ? failed : undefined }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
   } catch (error) {
     return new Response(JSON.stringify({ error: (error as Error).message }), {
       status: 500,
