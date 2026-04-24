@@ -39,7 +39,8 @@ create table if not exists profiles (
     company_id uuid references companies(id),
     name text, 
     username text, 
-    role text
+    role text,
+    notify_email text
 );
 
 create table if not exists jobs (
@@ -832,7 +833,7 @@ export const apiService = {
     adminEmails: string[]
   ): Promise<void> {
     if (adminEmails.length === 0) return;
-    await supabase.functions.invoke('send-alert-email', {
+    const { error } = await supabase.functions.invoke('send-alert-email', {
       body: {
         type,
         ticketNo: ticket.ticketNo,
@@ -845,5 +846,6 @@ export const apiService = {
         adminEmails,
       },
     });
+    if (error) throw error;
   }
 };
