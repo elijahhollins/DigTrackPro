@@ -275,7 +275,8 @@ export const apiService = {
     return (data || []).map(u => ({ 
       ...u, 
       companyId: u.company_id,
-      role: mapRole(u.role)
+      role: mapRole(u.role),
+      notifyEmail: u.notify_email || undefined
     }));
   },
 
@@ -814,5 +815,35 @@ export const apiService = {
   async updateCurrentUserPassword(password: string): Promise<void> {
     const { error } = await supabase.auth.updateUser({ password });
     if (error) throw error;
+  },
+
+  async updateNotificationEmail(userId: string, email: string | null): Promise<void> {
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new Error('Invalid email address format');
+    }
+    const { error } = await supabase.from('profiles').update({ notify_email: email || null }).eq('id', userId);
+    if (error) throw error;
+  },
+
+  async sendAlertEmail(
+    type: 'no_show' | 'refresh',
+    ticket: DigTicket,
+    actor: string,
+    adminEmails: string[]
+  ): Promise<void> {
+    if (adminEmails.length === 0) return;
+    await supabase.functions.invoke('send-alert-email', {
+      body: {
+        type,
+        ticketNo: ticket.ticketNo,
+        jobNumber: ticket.jobNumber,
+        street: ticket.street,
+        city: ticket.city,
+        state: ticket.state,
+        expires: ticket.expires,
+        actor,
+        adminEmails,
+      },
+    });
   }
 };

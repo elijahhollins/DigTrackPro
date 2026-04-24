@@ -38,6 +38,7 @@ export interface User {
   role: UserRole;
   username: string;
   companyId: string;
+  notifyEmail?: string;
 }
 
 export interface UserRecord extends User {

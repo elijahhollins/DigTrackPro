@@ -18,6 +18,7 @@ interface TeamManagementProps {
   onUpdateUserName?: (id: string, name: string) => Promise<void>;
   onSendPasswordReset?: (email: string) => Promise<void>;
   onUpdateCurrentUserPassword?: (password: string) => Promise<void>;
+  onUpdateNotificationEmail?: (email: string | null) => Promise<void>;
 }
 
 const TeamManagement: React.FC<TeamManagementProps> = ({ 
@@ -33,11 +34,16 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
   onToggleRole,
   onUpdateUserName,
   onSendPasswordReset,
-  onUpdateCurrentUserPassword
+  onUpdateCurrentUserPassword,
+  onUpdateNotificationEmail
 }) => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [pushStatus, setPushStatus] = useState<'granted' | 'denied' | 'default'>(typeof Notification !== 'undefined' ? Notification.permission : 'default');
   const [isRegisteringPush, setIsRegisteringPush] = useState(false);
+
+  // Email alert notification state (admin only)
+  const [alertEmail, setAlertEmail] = useState(sessionUser?.notifyEmail || '');
+  const [isSavingAlertEmail, setIsSavingAlertEmail] = useState(false);
 
   // Platform admin state (super-admin only)
   const [showNewCompanyForm, setShowNewCompanyForm] = useState(false);
@@ -120,6 +126,34 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
       alert(`Sync Failed: ${err.message}`);
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  const handleSaveAlertEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = alertEmail.trim();
+    if (!trimmed) return;
+    setIsSavingAlertEmail(true);
+    try {
+      await onUpdateNotificationEmail?.(trimmed);
+      alert('Email alerts enabled. You will receive notifications for no-show and refresh requests.');
+    } catch (err: any) {
+      alert('Failed to save alert email: ' + err.message);
+    } finally {
+      setIsSavingAlertEmail(false);
+    }
+  };
+
+  const handleClearAlertEmail = async () => {
+    if (!confirm('Disable email alerts? You will stop receiving no-show and refresh notifications.')) return;
+    setIsSavingAlertEmail(true);
+    try {
+      await onUpdateNotificationEmail?.(null);
+      setAlertEmail('');
+    } catch (err: any) {
+      alert('Failed to disable alert email: ' + err.message);
+    } finally {
+      setIsSavingAlertEmail(false);
     }
   };
 
@@ -592,6 +626,82 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                 {isRegisteringPush ? '...' : pushStatus === 'granted' ? 'Enabled' : 'Enable'}
               </button>
             </div>
+          </div>
+        )}
+
+        {isAdmin && (
+          <div className={`p-6 rounded-2xl border ${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-100 shadow-sm'}`}>
+            <div className="mb-4">
+              <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                <svg className="w-4 h-4 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                Email Alerts
+              </h3>
+              <p className={`text-[10px] font-bold uppercase tracking-tighter mt-1 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                No Show &amp; Refresh Request Notifications
+              </p>
+            </div>
+            {sessionUser.notifyEmail ? (
+              <div className="space-y-3">
+                <div className={`flex items-center gap-3 p-3 rounded-xl border ${isDarkMode ? 'bg-emerald-500/5 border-emerald-500/15' : 'bg-emerald-50 border-emerald-100'}`}>
+                  <div className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-[9px] font-black uppercase tracking-widest ${isDarkMode ? 'text-emerald-500' : 'text-emerald-700'}`}>Active · Sending alerts to</p>
+                    <p className={`text-[11px] font-bold truncate mt-0.5 ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>{sessionUser.notifyEmail}</p>
+                  </div>
+                </div>
+                <form onSubmit={handleSaveAlertEmail} className="flex gap-2">
+                  <input
+                    type="email"
+                    value={alertEmail}
+                    onChange={e => setAlertEmail(e.target.value)}
+                    placeholder="Change email address..."
+                    required
+                    className={`flex-1 px-3 py-2 border rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder-slate-600' : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400'}`}
+                  />
+                  <button
+                    type="submit"
+                    disabled={isSavingAlertEmail}
+                    className="px-3 py-2 bg-brand text-slate-900 rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-60 hover:scale-105 active:scale-95 transition-all whitespace-nowrap"
+                  >
+                    {isSavingAlertEmail ? '...' : 'Update'}
+                  </button>
+                </form>
+                <button
+                  type="button"
+                  onClick={handleClearAlertEmail}
+                  disabled={isSavingAlertEmail}
+                  className={`text-[9px] font-black uppercase tracking-widest transition-colors ${isDarkMode ? 'text-slate-600 hover:text-rose-500' : 'text-slate-400 hover:text-rose-500'}`}
+                >
+                  Disable Email Alerts
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleSaveAlertEmail} className="space-y-3">
+                <div>
+                  <label className={`block text-[9px] font-black uppercase tracking-widest mb-1.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                    Notification Email
+                  </label>
+                  <input
+                    type="email"
+                    value={alertEmail}
+                    onChange={e => setAlertEmail(e.target.value)}
+                    placeholder="Enter email to receive alerts..."
+                    required
+                    className={`w-full px-4 py-2.5 border rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder-slate-600' : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400'}`}
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={isSavingAlertEmail || !alertEmail.trim()}
+                  className="w-full bg-brand text-slate-900 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-60 hover:scale-105 active:scale-95 transition-all shadow-lg shadow-brand/20"
+                >
+                  {isSavingAlertEmail ? 'Saving...' : 'Enable Email Alerts'}
+                </button>
+                <p className={`text-[9px] font-bold uppercase tracking-tighter ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                  You'll receive an email whenever a crew member logs a no-show or requests a refresh.
+                </p>
+              </form>
+            )}
           </div>
         )}
 
