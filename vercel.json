@@ -4,5 +4,10 @@
       "source": "/(.*)\\.mjs",
       "headers": [{ "key": "Content-Type", "value": "text/javascript" }]
     }
+  ],
+  "rewrites": [
+    { "source": "/terms", "destination": "/terms.html" },
+    { "source": "/privacy", "destination": "/privacy.html" },
+    { "source": "/((?!terms\\.html|privacy\\.html).*)", "destination": "/index.html" }
   ]
 }
