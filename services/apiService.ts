@@ -833,7 +833,7 @@ export const apiService = {
     adminEmails: string[]
   ): Promise<void> {
     if (adminEmails.length === 0) return;
-    const { error } = await supabase.functions.invoke('send-alert-email', {
+    const { data, error } = await supabase.functions.invoke('send-alert-email', {
       body: {
         type,
         ticketNo: ticket.ticketNo,
@@ -846,6 +846,9 @@ export const apiService = {
         adminEmails,
       },
     });
-    if (error) throw error;
+    if (error) {
+      console.error('send-alert-email function error:', error, data);
+      throw error;
+    }
   }
 };
