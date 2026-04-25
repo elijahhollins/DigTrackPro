@@ -33,7 +33,7 @@ serve(async (req) => {
     const { type, ticketNo, jobNumber, street, city, state, expires, actor, adminEmails } = payload;
 
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
-    const FROM_EMAIL = Deno.env.get('RESEND_FROM_EMAIL') || 'alerts@digtrackpro.com';
+    const FROM_EMAIL = Deno.env.get('RESEND_FROM_EMAIL') || 'alerts@digtrack.app';
 
     if (!RESEND_API_KEY) {
       return new Response(JSON.stringify({ error: 'RESEND_API_KEY secret not configured' }), {
