@@ -832,12 +832,13 @@ export const apiService = {
       .select('notify_email')
       .eq('company_id', companyId)
       .in('role', ['ADMIN', 'SUPER_ADMIN'])
-      .not('notify_email', 'is', null);
+      .not('notify_email', 'is', null)
+      .neq('notify_email', '');
     if (error) {
       console.error('getAlertEmails error:', error);
       return [];
     }
-    return (data || []).map((r: { notify_email: string }) => r.notify_email).filter(Boolean);
+    return (data || []).map((r: { notify_email: string }) => r.notify_email).filter((e: string) => e.length > 0);
   },
 
   async sendAlertEmail(

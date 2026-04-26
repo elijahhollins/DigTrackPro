@@ -420,7 +420,9 @@ const App: React.FC = () => {
   const handleSaveNoShow = async (record: NoShowRecord) => {
     await apiService.addNoShow(record);
     const ticket = tickets.find(t => t.id === record.ticketId);
-    if (ticket && sessionUser?.companyId) {
+    if (!sessionUser?.companyId) {
+      console.warn('Email alert skipped: no company ID on session user');
+    } else if (ticket) {
       const adminEmails = await apiService.getAlertEmails(sessionUser.companyId);
       if (adminEmails.length > 0) {
         apiService.sendAlertEmail('no_show', ticket, record.author, adminEmails).catch(err => console.warn('Email alert failed:', err));
@@ -446,7 +448,9 @@ const App: React.FC = () => {
       const saved = await apiService.saveTicket(updated);
       setTickets(prev => prev.map(t => t.id === saved.id ? saved : t));
       if (!ticket.refreshRequested) {
-        if (sessionUser?.companyId) {
+        if (!sessionUser?.companyId) {
+          console.warn('Email alert skipped: no company ID on session user');
+        } else {
           const adminEmails = await apiService.getAlertEmails(sessionUser.companyId);
           if (adminEmails.length > 0) {
             apiService.sendAlertEmail('refresh', ticket, sessionUser?.name || '', adminEmails).catch(err => console.warn('Email alert failed:', err));
