@@ -417,17 +417,12 @@ const App: React.FC = () => {
     }
   };
 
-  const getAdminAlertEmails = (): string[] =>
-    users
-      .filter(u => (u.role === UserRole.ADMIN || u.role === UserRole.SUPER_ADMIN) && u.notifyEmail)
-      .map(u => u.notifyEmail!);
-
   const handleSaveNoShow = async (record: NoShowRecord) => {
     await apiService.addNoShow(record);
-    const adminEmails = getAdminAlertEmails();
-    if (adminEmails.length > 0) {
-      const ticket = tickets.find(t => t.id === record.ticketId);
-      if (ticket) {
+    const ticket = tickets.find(t => t.id === record.ticketId);
+    if (ticket && sessionUser?.companyId) {
+      const adminEmails = await apiService.getAlertEmails(sessionUser.companyId);
+      if (adminEmails.length > 0) {
         apiService.sendAlertEmail('no_show', ticket, record.author, adminEmails).catch(err => console.warn('Email alert failed:', err));
       }
     }
@@ -451,9 +446,11 @@ const App: React.FC = () => {
       const saved = await apiService.saveTicket(updated);
       setTickets(prev => prev.map(t => t.id === saved.id ? saved : t));
       if (!ticket.refreshRequested) {
-        const adminEmails = getAdminAlertEmails();
-        if (adminEmails.length > 0) {
-          apiService.sendAlertEmail('refresh', ticket, sessionUser?.name || '', adminEmails).catch(err => console.warn('Email alert failed:', err));
+        if (sessionUser?.companyId) {
+          const adminEmails = await apiService.getAlertEmails(sessionUser.companyId);
+          if (adminEmails.length > 0) {
+            apiService.sendAlertEmail('refresh', ticket, sessionUser?.name || '', adminEmails).catch(err => console.warn('Email alert failed:', err));
+          }
         }
       }
     } catch (error: any) {

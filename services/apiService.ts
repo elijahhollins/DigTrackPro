@@ -826,6 +826,20 @@ export const apiService = {
     if (error) throw error;
   },
 
+  async getAlertEmails(companyId: string): Promise<string[]> {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('notify_email')
+      .eq('company_id', companyId)
+      .in('role', ['ADMIN', 'SUPER_ADMIN'])
+      .not('notify_email', 'is', null);
+    if (error) {
+      console.error('getAlertEmails error:', error);
+      return [];
+    }
+    return (data || []).map((r: { notify_email: string }) => r.notify_email).filter(Boolean);
+  },
+
   async sendAlertEmail(
     type: 'no_show' | 'refresh',
     ticket: DigTicket,
