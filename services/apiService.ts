@@ -826,6 +826,21 @@ export const apiService = {
     if (error) throw error;
   },
 
+  async getAlertEmails(companyId: string): Promise<string[]> {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('notify_email')
+      .eq('company_id', companyId)
+      .in('role', ['ADMIN', 'SUPER_ADMIN'])
+      .not('notify_email', 'is', null)
+      .neq('notify_email', '');
+    if (error) {
+      console.error('getAlertEmails error:', error);
+      return [];
+    }
+    return (data || []).map((r: { notify_email: string }) => r.notify_email).filter((e: string) => e.length > 0);
+  },
+
   async sendAlertEmail(
     type: 'no_show' | 'refresh',
     ticket: DigTicket,
@@ -833,7 +848,7 @@ export const apiService = {
     adminEmails: string[]
   ): Promise<void> {
     if (adminEmails.length === 0) return;
-    const { error } = await supabase.functions.invoke('send-alert-email', {
+    const { data, error } = await supabase.functions.invoke('send-alert-email', {
       body: {
         type,
         ticketNo: ticket.ticketNo,
@@ -846,6 +861,9 @@ export const apiService = {
         adminEmails,
       },
     });
-    if (error) throw error;
+    if (error) {
+      console.error('send-alert-email function error:', error, data);
+      throw error;
+    }
   }
 };
