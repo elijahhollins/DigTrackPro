@@ -31,10 +31,17 @@ Deno.serve(async (req) => {
     const { type, ticketNo, jobNumber, street, city, state, expires, actor, adminEmails } = payload;
 
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
-    const FROM_EMAIL = Deno.env.get('RESEND_FROM_EMAIL') || 'alerts@digtrack.app';
+    const FROM_EMAIL = Deno.env.get('RESEND_FROM_EMAIL');
 
     if (!RESEND_API_KEY) {
-      return new Response(JSON.stringify({ error: 'RESEND_API_KEY secret not configured' }), {
+      return new Response(JSON.stringify({ error: 'RESEND_API_KEY secret not configured. Run: supabase secrets set RESEND_API_KEY=re_...' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (!FROM_EMAIL) {
+      return new Response(JSON.stringify({ error: 'RESEND_FROM_EMAIL secret not configured. Run: supabase secrets set RESEND_FROM_EMAIL=alerts@yourdomain.com (must be a Resend-verified sender address)' }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -127,10 +134,9 @@ Deno.serve(async (req) => {
       .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
       .map(r => r.reason?.message ?? 'unknown error');
 
-    return new Response(
-      JSON.stringify({ sent: succeeded, total: adminEmails.length, errors: failed.length > 0 ? failed : undefined }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    const responseBody = JSON.stringify({ sent: succeeded, total: adminEmails.length, errors: failed.length > 0 ? failed : undefined });
+    const status = succeeded === 0 && failed.length > 0 ? 500 : 200;
+    return new Response(responseBody, { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   } catch (error) {
     return new Response(JSON.stringify({ error: (error as Error).message }), {
       status: 500,
