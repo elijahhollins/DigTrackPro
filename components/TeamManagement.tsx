@@ -19,6 +19,7 @@ interface TeamManagementProps {
   onSendPasswordReset?: (email: string) => Promise<void>;
   onUpdateCurrentUserPassword?: (password: string) => Promise<void>;
   onUpdateNotificationEmail?: (email: string | null) => Promise<void>;
+  onTestEmail?: () => Promise<void>;
 }
 
 const TeamManagement: React.FC<TeamManagementProps> = ({ 
@@ -35,7 +36,8 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
   onUpdateUserName,
   onSendPasswordReset,
   onUpdateCurrentUserPassword,
-  onUpdateNotificationEmail
+  onUpdateNotificationEmail,
+  onTestEmail
 }) => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [pushStatus, setPushStatus] = useState<'granted' | 'denied' | 'default'>(typeof Notification !== 'undefined' ? Notification.permission : 'default');
@@ -44,6 +46,8 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
   // Email alert notification state (admin only)
   const [alertEmail, setAlertEmail] = useState(sessionUser?.notifyEmail || '');
   const [isSavingAlertEmail, setIsSavingAlertEmail] = useState(false);
+  const [isSendingTestEmail, setIsSendingTestEmail] = useState(false);
+  const [testEmailResult, setTestEmailResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
   // Platform admin state (super-admin only)
   const [showNewCompanyForm, setShowNewCompanyForm] = useState(false);
@@ -150,10 +154,25 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
     try {
       await onUpdateNotificationEmail?.(null);
       setAlertEmail('');
+      setTestEmailResult(null);
     } catch (err: any) {
       alert('Failed to disable alert email: ' + err.message);
     } finally {
       setIsSavingAlertEmail(false);
+    }
+  };
+
+  const handleSendTestEmail = async () => {
+    if (!onTestEmail) return;
+    setIsSendingTestEmail(true);
+    setTestEmailResult(null);
+    try {
+      await onTestEmail();
+      setTestEmailResult({ ok: true, msg: 'Test email sent! Check your inbox.' });
+    } catch (err: any) {
+      setTestEmailResult({ ok: false, msg: err.message || 'Failed to send test email.' });
+    } finally {
+      setIsSendingTestEmail(false);
     }
   };
 
@@ -666,6 +685,23 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                     {isSavingAlertEmail ? '...' : 'Update'}
                   </button>
                 </form>
+                {onTestEmail && (
+                  <div className="space-y-1.5">
+                    <button
+                      type="button"
+                      onClick={handleSendTestEmail}
+                      disabled={isSendingTestEmail || isSavingAlertEmail}
+                      className={`text-[9px] font-black uppercase tracking-widest transition-colors ${isDarkMode ? 'text-slate-500 hover:text-brand disabled:opacity-40' : 'text-slate-400 hover:text-brand disabled:opacity-40'}`}
+                    >
+                      {isSendingTestEmail ? 'Sending...' : 'Send Test Email'}
+                    </button>
+                    {testEmailResult && (
+                      <p className={`text-[9px] font-bold ${testEmailResult.ok ? 'text-emerald-500' : 'text-rose-500'}`}>
+                        {testEmailResult.ok ? '✓ ' : '✗ '}{testEmailResult.msg}
+                      </p>
+                    )}
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={handleClearAlertEmail}

@@ -255,6 +255,18 @@ const mapJob = (data: any): Job => ({
   isComplete: data.is_complete ?? false
 });
 
+function throwIfEmailFailed(error: unknown, data: Record<string, unknown> | null, logLabel: string): void {
+  if (error) {
+    console.error(logLabel, error, data);
+    throw error;
+  }
+  if (data && typeof data.sent === 'number' && data.sent === 0 && Array.isArray(data.errors) && data.errors.length > 0) {
+    const msg = `Email delivery failed: ${(data.errors as string[]).join('; ')}`;
+    console.error(msg);
+    throw new Error(msg);
+  }
+}
+
 export const apiService = {
   async getCompany(id: string): Promise<Company | null> {
     const { data, error } = await supabase.from('companies').select('*').eq('id', id).single();
@@ -855,9 +867,22 @@ export const apiService = {
         adminEmails,
       },
     });
-    if (error) {
-      console.error('send-alert-email function error:', error, data);
-      throw error;
-    }
+    throwIfEmailFailed(error, data, 'send-alert-email function error');
+  },
+
+  async testAlertEmail(toEmail: string): Promise<void> {
+    const { data, error } = await supabase.functions.invoke('send-alert-email', {
+      body: {
+        type: 'no_show',
+        ticketNo: 'TEST-001',
+        jobNumber: 'TEST',
+        street: '123 Test Street',
+        city: 'Test City',
+        state: 'TX',
+        actor: 'DigTrack Pro Test',
+        adminEmails: [toEmail],
+      },
+    });
+    throwIfEmailFailed(error, data, 'testAlertEmail error');
   }
 };
