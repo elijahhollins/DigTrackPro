@@ -1033,6 +1033,8 @@ const App: React.FC = () => {
           </div>
         </div>
       )}
+
+<DebugOverlay />
     </div>
   );
 };
