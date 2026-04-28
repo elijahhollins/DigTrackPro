@@ -697,7 +697,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                     </button>
                     {testEmailResult && (
                       <p className={`text-[9px] font-bold ${testEmailResult.ok ? 'text-emerald-500' : 'text-rose-500'}`}>
-                        {testEmailResult.msg}
+                        {testEmailResult.ok ? '✓ ' : '✗ '}{testEmailResult.msg}
                       </p>
                     )}
                   </div>

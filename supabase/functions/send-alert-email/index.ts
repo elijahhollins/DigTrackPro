@@ -34,7 +34,7 @@ Deno.serve(async (req) => {
     const FROM_EMAIL = Deno.env.get('RESEND_FROM_EMAIL');
 
     if (!RESEND_API_KEY) {
-      return new Response(JSON.stringify({ error: 'RESEND_API_KEY secret not configured. Run: supabase secrets set RESEND_API_KEY=re_...' }), {
+      return new Response(JSON.stringify({ error: 'RESEND_API_KEY secret not configured. Get your API key from resend.com/api-keys and run: supabase secrets set RESEND_API_KEY=<your-key>' }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
