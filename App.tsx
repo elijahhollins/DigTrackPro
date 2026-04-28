@@ -1098,7 +1098,6 @@ const DebugOverlay: React.FC = () => {
           ))
         }
       </div>
-<DebugOverlay />
     </div>
   );
 };
