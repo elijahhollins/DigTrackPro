@@ -1039,7 +1039,7 @@ const App: React.FC = () => {
 
 // TEMP DEBUG OVERLAY — remove after testing
 const DebugOverlay: React.FC = () => {
-  const [logs, setLogs] = useState<string[]>([]);
+  const [logs, setLogs] = useState<string[]>(['[log] Debug overlay ready']);
   const [visible, setVisible] = useState(true);
 
   useEffect(() => {
