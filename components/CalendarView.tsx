@@ -1,6 +1,7 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import { DigTicket } from '../types.ts';
+import { addDaysToDateStr } from '../utils/dateUtils.ts';
 
 interface CalendarViewProps {
   tickets: DigTicket[];
@@ -73,8 +74,14 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onVi
     const events: CalendarEvent[] = [];
     const now = new Date();
     tickets.forEach(t => {
-      const start = new Date(t.workDate);
-      const expire = new Date(t.expires);
+      // Ticket clears at 11:59 PM on workDate; first dig day is workDate + 1
+      const digStartStr = addDaysToDateStr(t.workDate, 1);
+      const [sy, sm, sd] = digStartStr.split('-').map(Number);
+      const start = new Date(sy, sm - 1, sd);
+      const expireParts = t.expires.split('-').map(Number);
+      const expire = expireParts.length === 3
+        ? new Date(expireParts[0], expireParts[1] - 1, expireParts[2])
+        : new Date(t.expires);
       const refresh = new Date(expire);
       refresh.setDate(refresh.getDate() - 3);
       if (isSameDay(start, cellDate)) events.push({ ticket: t, type: 'start' });
