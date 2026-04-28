@@ -827,13 +827,7 @@ export const apiService = {
   },
 
   async getAlertEmails(companyId: string): Promise<string[]> {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('notify_email')
-      .eq('company_id', companyId)
-      .in('role', ['ADMIN', 'SUPER_ADMIN'])
-      .not('notify_email', 'is', null)
-      .neq('notify_email', '');
+    const { data, error } = await supabase.rpc('get_alert_emails', { p_company_id: companyId });
     if (error) {
       console.error('getAlertEmails error:', error);
       return [];
