@@ -1098,7 +1098,9 @@ const DebugOverlay: React.FC = () => {
           ))
         }
       </div>
+<DebugOverlay />
     </div>
   );
 };
+
 export default App;
