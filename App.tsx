@@ -73,6 +73,7 @@ const App: React.FC = () => {
   const [noShowTicket, setNoShowTicket] = useState<DigTicket | null>(null);
   const [notesTicket, setNotesTicket] = useState<DigTicket | null>(null);
   const [digConfirmTicket, setDigConfirmTicket] = useState<DigTicket | null>(null);
+  const [snoozedDigConfirmIds, setSnoozedDigConfirmIds] = useState<Set<string>>(new Set());
   const [globalSearch, setGlobalSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<TicketStatus | 'NO_SHOW' | null>(null);
   const [showArchived, setShowArchived] = useState(false);
@@ -284,6 +285,7 @@ const App: React.FC = () => {
     const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
     const pending = tickets.find(t => {
       if (t.isArchived || t.workBegun !== undefined) return false;
+      if (snoozedDigConfirmIds.has(t.id)) return false;
       const digByDateStr = t.digByDate || (t.workDate ? addDaysToDateStr(t.workDate, 9) : '');
       if (!digByDateStr) return false;
       const oneDayBeforeStr = addDaysToDateStr(digByDateStr, -1);
@@ -293,7 +295,7 @@ const App: React.FC = () => {
       return todayStart >= thresholdStart;
     });
     if (pending) setDigConfirmTicket(pending);
-  }, [tickets, digConfirmTicket, sessionUser]);
+  }, [tickets, digConfirmTicket, snoozedDigConfirmIds, sessionUser]);
 
   useEffect(() => {
     if (!highlightedTicketId || activeView !== 'dashboard') return;
@@ -1021,6 +1023,12 @@ const App: React.FC = () => {
                 Yes — Work Begun
               </button>
             </div>
+            <button
+              onClick={() => { setSnoozedDigConfirmIds(prev => new Set(prev).add(digConfirmTicket.id)); setDigConfirmTicket(null); }}
+              className={`w-full py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${isDarkMode ? 'text-slate-500 hover:text-slate-400' : 'text-slate-400 hover:text-slate-500'}`}
+            >
+              Save for Later
+            </button>
           </div>
         </div>
       )}
