@@ -440,6 +440,11 @@ const App: React.FC = () => {
     setSessionUser(prev => prev ? { ...prev, notifyEmail: email || undefined } : prev);
   };
 
+  const handleUpdateUserNotificationEmail = async (userId: string, email: string | null) => {
+    await apiService.updateNotificationEmail(userId, email);
+    setUsers(prev => prev.map(u => u.id === userId ? { ...u, notifyEmail: email || undefined } : u));
+  };
+
   const handleTestEmail = async () => {
     if (!sessionUser?.notifyEmail) return;
     await apiService.testAlertEmail(sessionUser.notifyEmail);
@@ -963,7 +968,7 @@ const App: React.FC = () => {
             />}
             {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} isAdmin={isAdmin} isDarkMode={isDarkMode} onJobSelect={(job: Job) => handleJobSelection(job.jobNumber, job)} onViewDoc={setViewingDocUrl} />}
             {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} isAdmin={isAdmin} companyId={sessionUser.companyId} onAddPhoto={(data, file) => apiService.addPhoto({ ...data, companyId: sessionUser.companyId }, file)} onDeletePhoto={(id: string) => apiService.deletePhoto(id)} onDeleteJob={async (id) => { await apiService.deleteJob(id); initApp(); }} initialSearch={mediaFolderFilter} />}
-            {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} company={company || undefined} isDarkMode={isDarkMode} isSuperAdmin={isSuperAdmin} allCompanies={allCompanies} onCompanyCreated={(co) => setAllCompanies(prev => [...prev, co])} onCompanyUpdated={handleUpdateCompany} onAddUser={async (u) => { await apiService.addUser({ ...u, companyId: sessionUser.companyId }); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onUpdateUserName={async (id, name) => { await apiService.updateUserName(id, name); initApp(); }} onSendPasswordReset={async (email) => { await apiService.sendPasswordReset(email); }} onUpdateCurrentUserPassword={async (password) => { await apiService.updateCurrentUserPassword(password); }} onUpdateNotificationEmail={handleUpdateNotificationEmail} onTestEmail={handleTestEmail} />}
+            {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} company={company || undefined} isDarkMode={isDarkMode} isSuperAdmin={isSuperAdmin} allCompanies={allCompanies} onCompanyCreated={(co) => setAllCompanies(prev => [...prev, co])} onCompanyUpdated={handleUpdateCompany} onAddUser={async (u) => { await apiService.addUser({ ...u, companyId: sessionUser.companyId }); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onUpdateUserName={async (id, name) => { await apiService.updateUserName(id, name); initApp(); }} onSendPasswordReset={async (email) => { await apiService.sendPasswordReset(email); }} onUpdateCurrentUserPassword={async (password) => { await apiService.updateCurrentUserPassword(password); }} onUpdateNotificationEmail={handleUpdateNotificationEmail} onUpdateUserNotificationEmail={handleUpdateUserNotificationEmail} onTestEmail={handleTestEmail} />}
             {activeView === 'asbuilt' && <AsBuiltView jobs={jobs} sessionUser={sessionUser} isAdmin={isAdmin} isDarkMode={isDarkMode} onDeleteJob={async (id) => { await apiService.deleteJob(id); initApp(); }} />}
           </div>
         </main>

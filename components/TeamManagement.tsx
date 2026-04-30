@@ -19,6 +19,7 @@ interface TeamManagementProps {
   onSendPasswordReset?: (email: string) => Promise<void>;
   onUpdateCurrentUserPassword?: (password: string) => Promise<void>;
   onUpdateNotificationEmail?: (email: string | null) => Promise<void>;
+  onUpdateUserNotificationEmail?: (userId: string, email: string | null) => Promise<void>;
   onTestEmail?: () => Promise<void>;
 }
 
@@ -37,6 +38,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
   onSendPasswordReset,
   onUpdateCurrentUserPassword,
   onUpdateNotificationEmail,
+  onUpdateUserNotificationEmail,
   onTestEmail
 }) => {
   const [isSyncing, setIsSyncing] = useState(false);
@@ -80,6 +82,11 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
   const [myNewPassword, setMyNewPassword] = useState('');
   const [myConfirmPassword, setMyConfirmPassword] = useState('');
   const [isSavingMyProfile, setIsSavingMyProfile] = useState(false);
+
+  // Notification email editing state for other admin users
+  const [editingEmailUserId, setEditingEmailUserId] = useState<string | null>(null);
+  const [editUserEmailValue, setEditUserEmailValue] = useState('');
+  const [isSavingUserEmail, setIsSavingUserEmail] = useState(false);
 
   const isAdmin = sessionUser?.role === UserRole.ADMIN || isSuperAdmin;
 
@@ -290,6 +297,36 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
       alert(`Password reset email sent to ${username}.`);
     } catch (err: any) {
       alert('Failed to send reset email: ' + err.message);
+    }
+  };
+
+  const startEditUserEmail = (user: UserRecord) => {
+    setEditingEmailUserId(user.id);
+    setEditUserEmailValue(user.notifyEmail || '');
+  };
+
+  const handleSaveUserEmail = async (userId: string) => {
+    const trimmed = editUserEmailValue.trim();
+    setIsSavingUserEmail(true);
+    try {
+      await onUpdateUserNotificationEmail?.(userId, trimmed || null);
+      setEditingEmailUserId(null);
+    } catch (err: any) {
+      alert('Failed to update notification email: ' + err.message);
+    } finally {
+      setIsSavingUserEmail(false);
+    }
+  };
+
+  const handleClearUserEmail = async (userId: string) => {
+    setIsSavingUserEmail(true);
+    try {
+      await onUpdateUserNotificationEmail?.(userId, null);
+      setEditingEmailUserId(null);
+    } catch (err: any) {
+      alert('Failed to clear notification email: ' + err.message);
+    } finally {
+      setIsSavingUserEmail(false);
     }
   };
 
@@ -806,7 +843,8 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
               {users.map(user => {
                 const isEditingThisUser = editingUserId === user.id;
                 return (
-                <tr key={user.id} className="text-xs font-bold transition-colors hover:bg-black/5">
+                <React.Fragment key={user.id}>
+                <tr className="text-xs font-bold transition-colors hover:bg-black/5">
                   <td className="px-6 py-4">
                     {isEditingThisUser ? (
                       <input
@@ -866,6 +904,19 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                             >
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                             </button>
+                            {(user.role === UserRole.ADMIN || user.role === UserRole.SUPER_ADMIN) && onUpdateUserNotificationEmail && (
+                              <button
+                                onClick={() => editingEmailUserId === user.id ? setEditingEmailUserId(null) : startEditUserEmail(user)}
+                                className={`p-2 rounded-lg transition-colors ${
+                                  user.notifyEmail
+                                    ? 'text-emerald-500 hover:bg-emerald-500/10'
+                                    : isDarkMode ? 'text-slate-400 hover:text-emerald-400 hover:bg-emerald-400/10' : 'text-slate-500 hover:text-emerald-600 hover:bg-emerald-500/10'
+                                }`}
+                                title={user.notifyEmail ? `Email alerts active: ${user.notifyEmail}` : 'Set up email alerts'}
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+                              </button>
+                            )}
                             <button
                               onClick={() => handleSendPasswordReset(user.username)}
                               className={`p-2 rounded-lg transition-colors ${isDarkMode ? 'text-slate-400 hover:text-amber-400 hover:bg-amber-400/10' : 'text-slate-500 hover:text-amber-600 hover:bg-amber-500/10'}`}
@@ -885,6 +936,50 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                     </div>
                   </td>
                 </tr>
+                {editingEmailUserId === user.id && (
+                  <tr className={isDarkMode ? 'bg-black/20' : 'bg-slate-50/80'}>
+                    <td colSpan={isSuperAdmin ? 5 : 4} className="px-6 py-3">
+                      <form onSubmit={(e) => { e.preventDefault(); handleSaveUserEmail(user.id); }} className="flex flex-wrap items-center gap-2">
+                        <span className={`text-[9px] font-black uppercase tracking-widest shrink-0 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                          Alert email for {user.name}:
+                        </span>
+                        <input
+                          type="email"
+                          value={editUserEmailValue}
+                          onChange={e => setEditUserEmailValue(e.target.value)}
+                          placeholder="Enter notification email..."
+                          autoFocus
+                          className={`flex-1 min-w-[180px] max-w-[260px] px-3 py-1.5 border rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder-slate-600' : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400'}`}
+                        />
+                        <button
+                          type="submit"
+                          disabled={isSavingUserEmail || !editUserEmailValue.trim()}
+                          className="px-3 py-1.5 bg-brand text-[#0f172a] rounded-xl text-[9px] font-black uppercase tracking-widest disabled:opacity-60 hover:scale-105 active:scale-95 transition-all whitespace-nowrap"
+                        >
+                          {isSavingUserEmail ? '...' : 'Save'}
+                        </button>
+                        {user.notifyEmail && (
+                          <button
+                            type="button"
+                            onClick={() => handleClearUserEmail(user.id)}
+                            disabled={isSavingUserEmail}
+                            className={`px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-all disabled:opacity-60 ${isDarkMode ? 'border-white/10 text-rose-500 hover:bg-rose-500/10' : 'border-slate-200 text-rose-500 hover:bg-rose-50'}`}
+                          >
+                            Clear
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setEditingEmailUserId(null)}
+                          className={`px-3 py-1.5 rounded-xl text-[9px] font-black uppercase border transition-all ${isDarkMode ? 'border-white/10 text-slate-400 hover:bg-white/5' : 'border-slate-200 text-slate-500 hover:bg-slate-100'}`}
+                        >
+                          Cancel
+                        </button>
+                      </form>
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
                 );
               })}
             </tbody>
