@@ -447,7 +447,9 @@ const App: React.FC = () => {
 
   const handleTestEmail = async () => {
     if (!sessionUser?.notifyEmail) return;
-    await apiService.testAlertEmail(sessionUser.notifyEmail);
+    const firstEmail = sessionUser.notifyEmail.split(',')[0].trim();
+    if (!firstEmail) return;
+    await apiService.testAlertEmail(firstEmail);
   };
 
   const handleRefreshRequest = async (ticket: DigTicket, e: React.MouseEvent) => {

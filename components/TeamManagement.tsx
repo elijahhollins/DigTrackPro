@@ -46,7 +46,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
   const [isRegisteringPush, setIsRegisteringPush] = useState(false);
 
   // Email alert notification state (admin only)
-  const [alertEmail, setAlertEmail] = useState(sessionUser?.notifyEmail || '');
+  const [newAlertEmailInput, setNewAlertEmailInput] = useState('');
   const [isSavingAlertEmail, setIsSavingAlertEmail] = useState(false);
   const [isSendingTestEmail, setIsSendingTestEmail] = useState(false);
   const [testEmailResult, setTestEmailResult] = useState<{ ok: boolean; msg: string } | null>(null);
@@ -85,7 +85,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
 
   // Notification email editing state for other admin users
   const [editingEmailUserId, setEditingEmailUserId] = useState<string | null>(null);
-  const [editUserEmailValue, setEditUserEmailValue] = useState('');
+  const [newUserEmailInput, setNewUserEmailInput] = useState('');
   const [isSavingUserEmail, setIsSavingUserEmail] = useState(false);
 
   const isAdmin = sessionUser?.role === UserRole.ADMIN || isSuperAdmin;
@@ -140,16 +140,35 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
     }
   };
 
-  const handleSaveAlertEmail = async (e: React.FormEvent) => {
+  const handleAddAlertEmail = async (e: React.FormEvent) => {
     e.preventDefault();
-    const trimmed = alertEmail.trim();
+    const trimmed = newAlertEmailInput.trim();
     if (!trimmed) return;
+    const myAlertEmails = (sessionUser?.notifyEmail || '').split(',').map(em => em.trim()).filter(Boolean);
+    if (myAlertEmails.includes(trimmed)) {
+      alert('This email is already in the list.');
+      return;
+    }
+    const newList = [...myAlertEmails, trimmed].join(',');
     setIsSavingAlertEmail(true);
     try {
-      await onUpdateNotificationEmail?.(trimmed);
-      alert('Email alerts enabled. You will receive notifications for no-show and refresh requests.');
+      await onUpdateNotificationEmail?.(newList);
+      setNewAlertEmailInput('');
     } catch (err: any) {
-      alert('Failed to save alert email: ' + err.message);
+      alert('Failed to add alert email: ' + err.message);
+    } finally {
+      setIsSavingAlertEmail(false);
+    }
+  };
+
+  const handleRemoveAlertEmail = async (emailToRemove: string) => {
+    const myAlertEmails = (sessionUser?.notifyEmail || '').split(',').map(em => em.trim()).filter(Boolean);
+    const newList = myAlertEmails.filter(em => em !== emailToRemove);
+    setIsSavingAlertEmail(true);
+    try {
+      await onUpdateNotificationEmail?.(newList.length > 0 ? newList.join(',') : null);
+    } catch (err: any) {
+      alert('Failed to remove alert email: ' + err.message);
     } finally {
       setIsSavingAlertEmail(false);
     }
@@ -160,7 +179,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
     setIsSavingAlertEmail(true);
     try {
       await onUpdateNotificationEmail?.(null);
-      setAlertEmail('');
+      setNewAlertEmailInput('');
       setTestEmailResult(null);
     } catch (err: any) {
       alert('Failed to disable alert email: ' + err.message);
@@ -302,29 +321,35 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
 
   const startEditUserEmail = (user: UserRecord) => {
     setEditingEmailUserId(user.id);
-    setEditUserEmailValue(user.notifyEmail || '');
+    setNewUserEmailInput('');
   };
 
-  const handleSaveUserEmail = async (userId: string) => {
-    const trimmed = editUserEmailValue.trim();
+  const handleAddUserEmail = async (userId: string, existingEmails: string[]) => {
+    const trimmed = newUserEmailInput.trim();
+    if (!trimmed) return;
+    if (existingEmails.includes(trimmed)) {
+      alert('This email is already in the list.');
+      return;
+    }
+    const newList = [...existingEmails, trimmed].join(',');
     setIsSavingUserEmail(true);
     try {
-      await onUpdateUserNotificationEmail?.(userId, trimmed || null);
-      setEditingEmailUserId(null);
+      await onUpdateUserNotificationEmail?.(userId, newList);
+      setNewUserEmailInput('');
     } catch (err: any) {
-      alert('Failed to update notification email: ' + err.message);
+      alert('Failed to add notification email: ' + err.message);
     } finally {
       setIsSavingUserEmail(false);
     }
   };
 
-  const handleClearUserEmail = async (userId: string) => {
+  const handleRemoveUserEmail = async (userId: string, existingEmails: string[], emailToRemove: string) => {
+    const newList = existingEmails.filter(em => em !== emailToRemove);
     setIsSavingUserEmail(true);
     try {
-      await onUpdateUserNotificationEmail?.(userId, null);
-      setEditingEmailUserId(null);
+      await onUpdateUserNotificationEmail?.(userId, newList.length > 0 ? newList.join(',') : null);
     } catch (err: any) {
-      alert('Failed to clear notification email: ' + err.message);
+      alert('Failed to remove notification email: ' + err.message);
     } finally {
       setIsSavingUserEmail(false);
     }
@@ -696,85 +721,83 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                 No Show &amp; Refresh Request Notifications
               </p>
             </div>
-            {sessionUser.notifyEmail ? (
-              <div className="space-y-3">
-                <div className={`flex items-center gap-3 p-3 rounded-xl border ${isDarkMode ? 'bg-emerald-500/5 border-emerald-500/15' : 'bg-emerald-50 border-emerald-100'}`}>
-                  <div className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-[9px] font-black uppercase tracking-widest ${isDarkMode ? 'text-emerald-500' : 'text-emerald-700'}`}>Active · Sending alerts to</p>
-                    <p className={`text-[11px] font-bold truncate mt-0.5 ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>{sessionUser.notifyEmail}</p>
-                  </div>
-                </div>
-                <form onSubmit={handleSaveAlertEmail} className="flex gap-2">
-                  <input
-                    type="email"
-                    value={alertEmail}
-                    onChange={e => setAlertEmail(e.target.value)}
-                    placeholder="Change email address..."
-                    required
-                    className={`flex-1 px-3 py-2 border rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder-slate-600' : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400'}`}
-                  />
-                  <button
-                    type="submit"
-                    disabled={isSavingAlertEmail}
-                    className="px-3 py-2 bg-brand text-slate-900 rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-60 hover:scale-105 active:scale-95 transition-all whitespace-nowrap"
-                  >
-                    {isSavingAlertEmail ? '...' : 'Update'}
-                  </button>
-                </form>
-                {onTestEmail && (
-                  <div className="space-y-1.5">
-                    <button
-                      type="button"
-                      onClick={handleSendTestEmail}
-                      disabled={isSendingTestEmail || isSavingAlertEmail}
-                      className={`text-[9px] font-black uppercase tracking-widest transition-colors ${isDarkMode ? 'text-slate-500 hover:text-brand disabled:opacity-40' : 'text-slate-400 hover:text-brand disabled:opacity-40'}`}
-                    >
-                      {isSendingTestEmail ? 'Sending...' : 'Send Test Email'}
-                    </button>
-                    {testEmailResult && (
-                      <p className={`text-[9px] font-bold ${testEmailResult.ok ? 'text-emerald-500' : 'text-rose-500'}`}>
-                        {testEmailResult.ok ? '✓ ' : '✗ '}{testEmailResult.msg}
+            <div className="space-y-3">
+              {(() => {
+                const myAlertEmails = (sessionUser.notifyEmail || '').split(',').map(em => em.trim()).filter(Boolean);
+                return (
+                  <>
+                    {myAlertEmails.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {myAlertEmails.map(em => (
+                          <div key={em} className={`flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-xl border ${isDarkMode ? 'bg-emerald-500/5 border-emerald-500/15' : 'bg-emerald-50 border-emerald-100'}`}>
+                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                            <span className={`text-[10px] font-bold ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>{em}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveAlertEmail(em)}
+                              disabled={isSavingAlertEmail}
+                              className={`p-0.5 rounded-lg transition-colors disabled:opacity-40 ${isDarkMode ? 'text-slate-500 hover:text-rose-400' : 'text-slate-400 hover:text-rose-500'}`}
+                              title="Remove"
+                            >
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <form onSubmit={handleAddAlertEmail} className="flex gap-2">
+                      <input
+                        type="email"
+                        value={newAlertEmailInput}
+                        onChange={e => setNewAlertEmailInput(e.target.value)}
+                        placeholder={myAlertEmails.length > 0 ? 'Add another email...' : 'Enter email to receive alerts...'}
+                        required
+                        className={`flex-1 px-3 py-2 border rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder-slate-600' : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400'}`}
+                      />
+                      <button
+                        type="submit"
+                        disabled={isSavingAlertEmail || !newAlertEmailInput.trim()}
+                        className="px-3 py-2 bg-brand text-slate-900 rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-60 hover:scale-105 active:scale-95 transition-all whitespace-nowrap"
+                      >
+                        {isSavingAlertEmail ? '...' : 'Add'}
+                      </button>
+                    </form>
+                    {myAlertEmails.length > 0 && onTestEmail && (
+                      <div className="space-y-1.5">
+                        <button
+                          type="button"
+                          onClick={handleSendTestEmail}
+                          disabled={isSendingTestEmail || isSavingAlertEmail}
+                          className={`text-[9px] font-black uppercase tracking-widest transition-colors ${isDarkMode ? 'text-slate-500 hover:text-brand disabled:opacity-40' : 'text-slate-400 hover:text-brand disabled:opacity-40'}`}
+                        >
+                          {isSendingTestEmail ? 'Sending...' : 'Send Test Email'}
+                        </button>
+                        {testEmailResult && (
+                          <p className={`text-[9px] font-bold ${testEmailResult.ok ? 'text-emerald-500' : 'text-rose-500'}`}>
+                            {testEmailResult.ok ? '✓ ' : '✗ '}{testEmailResult.msg}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {myAlertEmails.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleClearAlertEmail}
+                        disabled={isSavingAlertEmail}
+                        className={`text-[9px] font-black uppercase tracking-widest transition-colors ${isDarkMode ? 'text-slate-600 hover:text-rose-500' : 'text-slate-400 hover:text-rose-500'}`}
+                      >
+                        Disable All Email Alerts
+                      </button>
+                    )}
+                    {myAlertEmails.length === 0 && (
+                      <p className={`text-[9px] font-bold uppercase tracking-tighter ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                        You'll receive an email whenever a crew member logs a no-show or requests a refresh.
                       </p>
                     )}
-                  </div>
-                )}
-                <button
-                  type="button"
-                  onClick={handleClearAlertEmail}
-                  disabled={isSavingAlertEmail}
-                  className={`text-[9px] font-black uppercase tracking-widest transition-colors ${isDarkMode ? 'text-slate-600 hover:text-rose-500' : 'text-slate-400 hover:text-rose-500'}`}
-                >
-                  Disable Email Alerts
-                </button>
-              </div>
-            ) : (
-              <form onSubmit={handleSaveAlertEmail} className="space-y-3">
-                <div>
-                  <label className={`block text-[9px] font-black uppercase tracking-widest mb-1.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                    Notification Email
-                  </label>
-                  <input
-                    type="email"
-                    value={alertEmail}
-                    onChange={e => setAlertEmail(e.target.value)}
-                    placeholder="Enter email to receive alerts..."
-                    required
-                    className={`w-full px-4 py-2.5 border rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder-slate-600' : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400'}`}
-                  />
-                </div>
-                <button
-                  type="submit"
-                  disabled={isSavingAlertEmail || !alertEmail.trim()}
-                  className="w-full bg-brand text-slate-900 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-60 hover:scale-105 active:scale-95 transition-all shadow-lg shadow-brand/20"
-                >
-                  {isSavingAlertEmail ? 'Saving...' : 'Enable Email Alerts'}
-                </button>
-                <p className={`text-[9px] font-bold uppercase tracking-tighter ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>
-                  You'll receive an email whenever a crew member logs a no-show or requests a refresh.
-                </p>
-              </form>
-            )}
+                  </>
+                );
+              })()}
+            </div>
           </div>
         )}
 
@@ -938,44 +961,60 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                 </tr>
                 {editingEmailUserId === user.id && (
                   <tr className={isDarkMode ? 'bg-black/20' : 'bg-slate-50/80'}>
-                    <td colSpan={isSuperAdmin ? 5 : 4} className="px-6 py-3">
-                      <form onSubmit={(e) => { e.preventDefault(); handleSaveUserEmail(user.id); }} className="flex flex-wrap items-center gap-2">
-                        <span className={`text-[9px] font-black uppercase tracking-widest shrink-0 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                          Alert email for {user.name}:
-                        </span>
-                        <input
-                          type="email"
-                          value={editUserEmailValue}
-                          onChange={e => setEditUserEmailValue(e.target.value)}
-                          placeholder="Enter notification email..."
-                          autoFocus
-                          className={`flex-1 min-w-[180px] max-w-[260px] px-3 py-1.5 border rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder-slate-600' : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400'}`}
-                        />
-                        <button
-                          type="submit"
-                          disabled={isSavingUserEmail || !editUserEmailValue.trim()}
-                          className="px-3 py-1.5 bg-brand text-[#0f172a] rounded-xl text-[9px] font-black uppercase tracking-widest disabled:opacity-60 hover:scale-105 active:scale-95 transition-all whitespace-nowrap"
-                        >
-                          {isSavingUserEmail ? '...' : 'Save'}
-                        </button>
-                        {user.notifyEmail && (
-                          <button
-                            type="button"
-                            onClick={() => handleClearUserEmail(user.id)}
-                            disabled={isSavingUserEmail}
-                            className={`px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-all disabled:opacity-60 ${isDarkMode ? 'border-white/10 text-rose-500 hover:bg-rose-500/10' : 'border-slate-200 text-rose-500 hover:bg-rose-50'}`}
-                          >
-                            Clear
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => setEditingEmailUserId(null)}
-                          className={`px-3 py-1.5 rounded-xl text-[9px] font-black uppercase border transition-all ${isDarkMode ? 'border-white/10 text-slate-400 hover:bg-white/5' : 'border-slate-200 text-slate-500 hover:bg-slate-100'}`}
-                        >
-                          Cancel
-                        </button>
-                      </form>
+                    <td colSpan={isSuperAdmin ? 5 : 4} className="px-6 py-4">
+                      {(() => {
+                        const userAlertEmails = (user.notifyEmail || '').split(',').map(em => em.trim()).filter(Boolean);
+                        return (
+                          <div className="space-y-2">
+                            <span className={`text-[9px] font-black uppercase tracking-widest ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                              Alert emails for {user.name}:
+                            </span>
+                            {userAlertEmails.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5">
+                                {userAlertEmails.map(em => (
+                                  <div key={em} className={`flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-xl border ${isDarkMode ? 'bg-emerald-500/5 border-emerald-500/15' : 'bg-emerald-50 border-emerald-100'}`}>
+                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                                    <span className={`text-[10px] font-bold ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>{em}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveUserEmail(user.id, userAlertEmails, em)}
+                                      disabled={isSavingUserEmail}
+                                      className={`p-0.5 rounded-lg transition-colors disabled:opacity-40 ${isDarkMode ? 'text-slate-500 hover:text-rose-400' : 'text-slate-400 hover:text-rose-500'}`}
+                                      title="Remove"
+                                    >
+                                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            <form onSubmit={(e) => { e.preventDefault(); handleAddUserEmail(user.id, userAlertEmails); }} className="flex flex-wrap items-center gap-2">
+                              <input
+                                type="email"
+                                value={newUserEmailInput}
+                                onChange={e => setNewUserEmailInput(e.target.value)}
+                                placeholder={userAlertEmails.length > 0 ? 'Add another email...' : 'Enter notification email...'}
+                                autoFocus
+                                className={`flex-1 min-w-[180px] max-w-[260px] px-3 py-1.5 border rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder-slate-600' : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400'}`}
+                              />
+                              <button
+                                type="submit"
+                                disabled={isSavingUserEmail || !newUserEmailInput.trim()}
+                                className="px-3 py-1.5 bg-brand text-[#0f172a] rounded-xl text-[9px] font-black uppercase tracking-widest disabled:opacity-60 hover:scale-105 active:scale-95 transition-all whitespace-nowrap"
+                              >
+                                {isSavingUserEmail ? '...' : 'Add'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditingEmailUserId(null)}
+                                className={`px-3 py-1.5 rounded-xl text-[9px] font-black uppercase border transition-all ${isDarkMode ? 'border-white/10 text-slate-400 hover:bg-white/5' : 'border-slate-200 text-slate-500 hover:bg-slate-100'}`}
+                              >
+                                Done
+                              </button>
+                            </form>
+                          </div>
+                        );
+                      })()}
                     </td>
                   </tr>
                 )}
