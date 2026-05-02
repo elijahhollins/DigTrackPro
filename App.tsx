@@ -115,6 +115,7 @@ const App: React.FC = () => {
 
   const handleShowInDashboard = useCallback((ticket: DigTicket) => {
     handleNavigate('dashboard');
+    setExpandedJobs(prev => new Set([...prev, ticket.jobNumber]));
     setHighlightedTicketId(ticket.id);
   }, []);
 

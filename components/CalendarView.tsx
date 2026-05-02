@@ -4,7 +4,7 @@ import { DigTicket } from '../types.ts';
 
 interface CalendarViewProps {
   tickets: DigTicket[];
-  onEditTicket: (ticket: DigTicket) => void;
+  onEditTicket?: (ticket: DigTicket) => void;
   onShowInDashboard?: (ticket: DigTicket) => void;
   onViewDoc?: (url: string) => void;
   onManageNoShow?: (ticket: DigTicket) => void;
@@ -30,7 +30,13 @@ const EVENT_LEGEND = Object.entries(EVENT_META) as [CalendarEvent['type'], typeo
 
 const DISMISSED_KEY = 'cal_dismissed_events';
 
-const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onShowInDashboard, onViewDoc, onManageNoShow, isDarkMode }) => {
+const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onShowInDashboard, onViewDoc, isDarkMode }) => {
+  const viewPdfBtnClass = (hasDoc: boolean) =>
+    `flex-1 text-[10px] font-black uppercase tracking-wider py-1.5 rounded-lg transition-all ${
+      hasDoc
+        ? isDarkMode ? 'bg-white/10 text-slate-200 hover:bg-white/20' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+        : isDarkMode ? 'opacity-40 cursor-not-allowed bg-white/5 text-slate-500' : 'opacity-40 cursor-not-allowed bg-slate-100 text-slate-400'
+    }`;
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState<number | null>(new Date().getDate());
   const [activeMenuKey, setActiveMenuKey] = useState<string | null>(null);
@@ -340,10 +346,11 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onSh
                         {isMenuOpen && (
                           <div className={`px-3 pb-3 flex gap-2`}>
                             <button
-                              onClick={() => { setActiveMenuKey(null); ev.type === 'noShowRequest' ? onManageNoShow?.(ev.ticket) : onEditTicket(ev.ticket); }}
-                              className={`flex-1 text-[10px] font-black uppercase tracking-wider py-1.5 rounded-lg transition-all ${isDarkMode ? 'bg-white/10 text-slate-200 hover:bg-white/20' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'}`}
+                              disabled={!ev.ticket.documentUrl}
+                              onClick={() => { setActiveMenuKey(null); if (ev.ticket.documentUrl) onViewDoc?.(ev.ticket.documentUrl); }}
+                              className={viewPdfBtnClass(!!ev.ticket.documentUrl)}
                             >
-                              View Ticket
+                              View PDF
                             </button>
                             {onShowInDashboard && (
                               <button
@@ -405,10 +412,11 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onSh
                       {isMenuOpen && (
                         <div className={`px-3 pb-3 flex gap-2`}>
                           <button
-                            onClick={() => { setActiveMenuKey(null); onEditTicket(ev.ticket); }}
-                            className={`flex-1 text-[10px] font-black uppercase tracking-wider py-1.5 rounded-lg transition-all ${isDarkMode ? 'bg-white/10 text-slate-200 hover:bg-white/20' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'}`}
+                            disabled={!ev.ticket.documentUrl}
+                            onClick={() => { setActiveMenuKey(null); if (ev.ticket.documentUrl) onViewDoc?.(ev.ticket.documentUrl); }}
+                            className={viewPdfBtnClass(!!ev.ticket.documentUrl)}
                           >
-                            View Ticket
+                            View PDF
                           </button>
                           {onShowInDashboard && (
                             <button
