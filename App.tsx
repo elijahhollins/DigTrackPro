@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, JobNote, User, UserRole, Job, UserRecord, Company, NoShowRecord } from './types.ts';
 import { getTicketStatus, getStatusColor, addDaysToDateStr, formatDateStr } from './utils/dateUtils.ts';
 import { apiService } from './services/apiService.ts';
