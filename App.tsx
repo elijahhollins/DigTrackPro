@@ -113,6 +113,11 @@ const App: React.FC = () => {
     setActiveView(view);
   };
 
+  const handleShowInDashboard = useCallback((ticket: DigTicket) => {
+    handleNavigate('dashboard');
+    setHighlightedTicketId(ticket.id);
+  }, []);
+
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
       const v = event.state?.view as AppView | undefined;
@@ -942,7 +947,7 @@ const App: React.FC = () => {
               </div>
             )}
 
-            {activeView === 'calendar' && <CalendarView tickets={tickets} onEditTicket={setEditingTicket} onViewDoc={setViewingDocUrl} onManageNoShow={setNoShowTicket} isDarkMode={isDarkMode} />}
+            {activeView === 'calendar' && <CalendarView tickets={tickets} onEditTicket={setEditingTicket} onShowInDashboard={handleShowInDashboard} onViewDoc={setViewingDocUrl} onManageNoShow={setNoShowTicket} isDarkMode={isDarkMode} />}
             {activeView === 'map' && <MapView
               tickets={activeTicketsList}
               isDarkMode={isDarkMode}
