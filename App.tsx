@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, JobNote, User, UserRole, Job, UserRecord, Company, NoShowRecord } from './types.ts';
 import { getTicketStatus, getStatusColor, addDaysToDateStr, formatDateStr } from './utils/dateUtils.ts';
 import { apiService } from './services/apiService.ts';
@@ -112,6 +112,12 @@ const App: React.FC = () => {
     window.history.pushState({ view }, '', `#${view}`);
     setActiveView(view);
   };
+
+  const handleShowInDashboard = useCallback((ticket: DigTicket) => {
+    handleNavigate('dashboard');
+    setExpandedJobs(prev => new Set([...prev, ticket.jobNumber]));
+    setHighlightedTicketId(ticket.id);
+  }, []);
 
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
@@ -949,7 +955,7 @@ const App: React.FC = () => {
               </div>
             )}
 
-            {activeView === 'calendar' && <CalendarView tickets={tickets} onEditTicket={setEditingTicket} onViewDoc={setViewingDocUrl} onManageNoShow={setNoShowTicket} isDarkMode={isDarkMode} />}
+            {activeView === 'calendar' && <CalendarView tickets={tickets} onEditTicket={setEditingTicket} onShowInDashboard={handleShowInDashboard} onViewDoc={setViewingDocUrl} onManageNoShow={setNoShowTicket} isDarkMode={isDarkMode} />}
             {activeView === 'map' && <MapView
               tickets={activeTicketsList}
               isDarkMode={isDarkMode}

@@ -1,11 +1,11 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import { DigTicket } from '../types.ts';
-import { addDaysToDateStr } from '../utils/dateUtils.ts';
 
 interface CalendarViewProps {
   tickets: DigTicket[];
-  onEditTicket: (ticket: DigTicket) => void;
+  onEditTicket?: (ticket: DigTicket) => void;
+  onShowInDashboard?: (ticket: DigTicket) => void;
   onViewDoc?: (url: string) => void;
   onManageNoShow?: (ticket: DigTicket) => void;
   isDarkMode?: boolean;
@@ -30,9 +30,16 @@ const EVENT_LEGEND = Object.entries(EVENT_META) as [CalendarEvent['type'], typeo
 
 const DISMISSED_KEY = 'cal_dismissed_events';
 
-const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onViewDoc, onManageNoShow, isDarkMode }) => {
+const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onShowInDashboard, onViewDoc, isDarkMode }) => {
+  const viewPdfBtnClass = (hasDoc: boolean) =>
+    `flex-1 text-[10px] font-black uppercase tracking-wider py-1.5 rounded-lg transition-all ${
+      hasDoc
+        ? isDarkMode ? 'bg-white/10 text-slate-200 hover:bg-white/20' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+        : isDarkMode ? 'opacity-40 cursor-not-allowed bg-white/5 text-slate-500' : 'opacity-40 cursor-not-allowed bg-slate-100 text-slate-400'
+    }`;
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState<number | null>(new Date().getDate());
+  const [activeMenuKey, setActiveMenuKey] = useState<string | null>(null);
   const [dismissedEvents, setDismissedEvents] = useState<Set<string>>(() => {
     try {
       const saved = sessionStorage.getItem(DISMISSED_KEY);
@@ -74,9 +81,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onVi
     const events: CalendarEvent[] = [];
     const now = new Date();
     tickets.forEach(t => {
-      // Ticket clears at 11:59 PM on workDate; first dig day is workDate + 1
-      const digStartStr = addDaysToDateStr(t.workDate, 1);
-      const [sy, sm, sd] = digStartStr.split('-').map(Number);
+      const [sy, sm, sd] = t.workDate.split('-').map(Number);
       const start = new Date(sy, sm - 1, sd);
       const expireParts = t.expires.split('-').map(Number);
       const expire = expireParts.length === 3
@@ -318,23 +323,111 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onVi
               <div className={`p-4 border-b ${divider}`}>
                 <p className={`text-[9px] font-black uppercase tracking-[0.15em] mb-3 text-rose-500`}>⚠ Needs Action</p>
                 <div className="flex flex-col gap-2">
-                  {priorityEvents.map((ev: CalendarEvent, idx) => (
+                  {priorityEvents.map((ev: CalendarEvent, idx) => {
+                    const menuKey = `priority:${ev.ticket.id}:${ev.type}:${idx}`;
+                    const isMenuOpen = activeMenuKey === menuKey;
+                    return (
+                      <div key={idx} className={`relative rounded-xl border-l-4 transition-all ${EVENT_META[ev.type].border} ${isDarkMode ? 'bg-white/[0.03]' : 'bg-slate-50'}`}>
+                        <button
+                          onClick={() => setActiveMenuKey(isMenuOpen ? null : menuKey)}
+                          className="w-full text-left p-3 pr-8"
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className={`text-[9px] font-black uppercase tracking-wider ${EVENT_META[ev.type].accent}`}>
+                              {EVENT_META[ev.type].label}
+                            </span>
+                            <svg className={`w-3 h-3 transition-transform ${subtle} ${isMenuOpen ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
+                          </div>
+                          <p className={`text-[11px] font-black truncate ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
+                            #{ev.ticket.jobNumber} · {ev.ticket.street}
+                          </p>
+                          <p className={`text-[9px] font-mono mt-0.5 ${subtle}`}>{ev.ticket.ticketNo}</p>
+                        </button>
+                        {isMenuOpen && (
+                          <div className={`px-3 pb-3 flex gap-2`}>
+                            <button
+                              disabled={!ev.ticket.documentUrl}
+                              onClick={() => { setActiveMenuKey(null); if (ev.ticket.documentUrl) onViewDoc?.(ev.ticket.documentUrl); }}
+                              className={viewPdfBtnClass(!!ev.ticket.documentUrl)}
+                            >
+                              View PDF
+                            </button>
+                            {onShowInDashboard && (
+                              <button
+                                onClick={() => { setActiveMenuKey(null); onShowInDashboard(ev.ticket); }}
+                                className={`flex-1 text-[10px] font-black uppercase tracking-wider py-1.5 rounded-lg transition-all ${isDarkMode ? 'bg-brand/20 text-brand hover:bg-brand/30' : 'bg-brand/10 text-brand hover:bg-brand/20'}`}
+                              >
+                                Show in Dashboard
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        <button
+                          onClick={e => {
+                            e.stopPropagation();
+                            dismissEvent(ev.ticket.id, ev.type);
+                          }}
+                          title="Acknowledge and hide"
+                          className={`absolute top-2 right-2 w-5 h-5 flex items-center justify-center rounded-full transition-all ${isDarkMode ? 'text-slate-600 hover:text-slate-300 hover:bg-white/10' : 'text-slate-300 hover:text-slate-500 hover:bg-slate-200'}`}
+                        >
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Standard events */}
+            {standardEvents.length > 0 ? (
+              <div className="p-4 flex flex-col gap-2">
+                {standardEvents.map((ev: CalendarEvent, idx) => {
+                  const menuKey = `standard:${ev.ticket.id}:${ev.type}:${idx}`;
+                  const isMenuOpen = activeMenuKey === menuKey;
+                  return (
                     <div key={idx} className={`relative rounded-xl border-l-4 transition-all ${EVENT_META[ev.type].border} ${isDarkMode ? 'bg-white/[0.03]' : 'bg-slate-50'}`}>
                       <button
-                        onClick={() => ev.type === 'noShowRequest' ? onManageNoShow?.(ev.ticket) : onEditTicket(ev.ticket)}
+                        onClick={() => setActiveMenuKey(isMenuOpen ? null : menuKey)}
                         className="w-full text-left p-3 pr-8"
                       >
                         <div className="flex items-center justify-between mb-1">
                           <span className={`text-[9px] font-black uppercase tracking-wider ${EVENT_META[ev.type].accent}`}>
                             {EVENT_META[ev.type].label}
                           </span>
-                          <svg className={`w-3 h-3 ${subtle}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={e => { e.stopPropagation(); if (ev.ticket.documentUrl) onViewDoc?.(ev.ticket.documentUrl); }}
+                              className={`text-[9px] font-mono font-bold transition-colors ${ev.ticket.documentUrl ? (isDarkMode ? 'text-slate-600 hover:text-brand' : 'text-slate-400 hover:text-brand') : `cursor-default ${subtle}`}`}
+                            >
+                              {ev.ticket.ticketNo}
+                            </button>
+                            <svg className={`w-3 h-3 transition-transform ${subtle} ${isMenuOpen ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
+                          </div>
                         </div>
                         <p className={`text-[11px] font-black truncate ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
                           #{ev.ticket.jobNumber} · {ev.ticket.street}
                         </p>
-                        <p className={`text-[9px] font-mono mt-0.5 ${subtle}`}>{ev.ticket.ticketNo}</p>
                       </button>
+                      {isMenuOpen && (
+                        <div className={`px-3 pb-3 flex gap-2`}>
+                          <button
+                            disabled={!ev.ticket.documentUrl}
+                            onClick={() => { setActiveMenuKey(null); if (ev.ticket.documentUrl) onViewDoc?.(ev.ticket.documentUrl); }}
+                            className={viewPdfBtnClass(!!ev.ticket.documentUrl)}
+                          >
+                            View PDF
+                          </button>
+                          {onShowInDashboard && (
+                            <button
+                              onClick={() => { setActiveMenuKey(null); onShowInDashboard(ev.ticket); }}
+                              className={`flex-1 text-[10px] font-black uppercase tracking-wider py-1.5 rounded-lg transition-all ${isDarkMode ? 'bg-brand/20 text-brand hover:bg-brand/30' : 'bg-brand/10 text-brand hover:bg-brand/20'}`}
+                            >
+                              Show in Dashboard
+                            </button>
+                          )}
+                        </div>
+                      )}
                       <button
                         onClick={e => {
                           e.stopPropagation();
@@ -346,47 +439,8 @@ const CalendarView: React.FC<CalendarViewProps> = ({ tickets, onEditTicket, onVi
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
                       </button>
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Standard events */}
-            {standardEvents.length > 0 ? (
-              <div className="p-4 flex flex-col gap-2">
-                {standardEvents.map((ev: CalendarEvent, idx) => (
-                  <div key={idx} className={`relative rounded-xl border-l-4 transition-all ${EVENT_META[ev.type].border} ${isDarkMode ? 'bg-white/[0.03] hover:bg-white/[0.06]' : 'bg-slate-50 hover:bg-slate-100'}`}>
-                    <button
-                      onClick={() => onEditTicket(ev.ticket)}
-                      className="w-full text-left p-3 pr-8"
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className={`text-[9px] font-black uppercase tracking-wider ${EVENT_META[ev.type].accent}`}>
-                          {EVENT_META[ev.type].label}
-                        </span>
-                        <button
-                          onClick={e => { e.stopPropagation(); if (ev.ticket.documentUrl) onViewDoc?.(ev.ticket.documentUrl); }}
-                          className={`text-[9px] font-mono font-bold transition-colors ${ev.ticket.documentUrl ? (isDarkMode ? 'text-slate-600 hover:text-brand' : 'text-slate-400 hover:text-brand') : `cursor-default ${subtle}`}`}
-                        >
-                          {ev.ticket.ticketNo}
-                        </button>
-                      </div>
-                      <p className={`text-[11px] font-black truncate ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
-                        #{ev.ticket.jobNumber} · {ev.ticket.street}
-                      </p>
-                    </button>
-                    <button
-                      onClick={e => {
-                        e.stopPropagation();
-                        dismissEvent(ev.ticket.id, ev.type);
-                      }}
-                      title="Acknowledge and hide"
-                      className={`absolute top-2 right-2 w-5 h-5 flex items-center justify-center rounded-full transition-all ${isDarkMode ? 'text-slate-600 hover:text-slate-300 hover:bg-white/10' : 'text-slate-300 hover:text-slate-500 hover:bg-slate-200'}`}
-                    >
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" /></svg>
-                    </button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : selectedDay !== null && priorityEvents.length === 0 && (
               <div className="flex flex-col items-center justify-center py-16 px-6 opacity-30">
