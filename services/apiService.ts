@@ -831,8 +831,15 @@ export const apiService = {
   },
 
   async updateNotificationEmail(userId: string, email: string | null): Promise<void> {
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      throw new Error('Invalid email address format');
+    if (email) {
+      const emails = email.split(',').map(e => e.trim()).filter(Boolean);
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      for (const e of emails) {
+        if (!emailRegex.test(e)) {
+          throw new Error('Invalid email address format');
+        }
+      }
+      email = emails.join(',');
     }
     const { error } = await supabase.from('profiles').update({ notify_email: email || null }).eq('id', userId);
     if (error) throw error;
@@ -844,7 +851,9 @@ export const apiService = {
       console.error('getAlertEmails error:', error);
       return [];
     }
-    return (data || []).map((r: { notify_email: string }) => r.notify_email).filter((e: string) => e.length > 0);
+    return (data || [])
+      .flatMap((r: { notify_email: string }) => r.notify_email.split(',').map((e: string) => e.trim()))
+      .filter((e: string) => e.length > 0);
   },
 
   async sendAlertEmail(
