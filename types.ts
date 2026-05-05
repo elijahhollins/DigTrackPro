@@ -30,6 +30,7 @@ export interface Company {
   state?: string;
   phone?: string;
   createdAt: number;
+  isActive?: boolean;
 }
 
 export interface User {
