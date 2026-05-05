@@ -705,6 +705,8 @@ export const apiService = {
       isActive: data.is_active === true
     };
   },
+
+  async updateUserCompany(userId: string, companyId: string, role?: UserRole): Promise<void> {
     // Fetch existing profile to preserve fields if not provided
     const { data: existing, error: fetchError } = await supabase
       .from('profiles')
