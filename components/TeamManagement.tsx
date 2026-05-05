@@ -615,7 +615,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                               </button>
                               <button
                                 onClick={() => {
-                                  const nextActive = co.isActive !== false ? false : true;
+                                  const nextActive = co.isActive === false;
                                   if (!confirm(nextActive ? `Restore access for ${co.name}?` : `Suspend access for ${co.name}? Their users will be locked out immediately.`)) return;
                                   onToggleCompanyActive?.(co.id, nextActive);
                                 }}

@@ -279,7 +279,7 @@ export const apiService = {
       state: data.state || '',
       phone: data.phone || '',
       createdAt: new Date(data.created_at).getTime(),
-      isActive: data.is_active !== false
+      isActive: data.is_active === true
     };
   },
 
@@ -701,11 +701,10 @@ export const apiService = {
       city: data.city || '',
       state: data.state || '',
       phone: data.phone || '',
-      createdAt: new Date(data.created_at).getTime()
+      createdAt: new Date(data.created_at).getTime(),
+      isActive: data.is_active === true
     };
   },
-
-  async updateUserCompany(userId: string, companyId: string, role?: UserRole): Promise<void> {
     // Fetch existing profile to preserve fields if not provided
     const { data: existing, error: fetchError } = await supabase
       .from('profiles')
@@ -761,7 +760,7 @@ export const apiService = {
       state: d.state || '',
       phone: d.phone || '',
       createdAt: new Date(d.created_at).getTime(),
-      isActive: d.is_active !== false
+      isActive: d.is_active === true
     }));
   },
 
@@ -789,7 +788,7 @@ export const apiService = {
       state: data.state || '',
       phone: data.phone || '',
       createdAt: new Date(data.created_at).getTime(),
-      isActive: data.is_active !== false
+      isActive: data.is_active === true
     };
   },
 

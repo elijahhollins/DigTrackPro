@@ -411,7 +411,7 @@ const App: React.FC = () => {
   const handleToggleCompanyActive = async (id: string, isActive: boolean) => {
     await apiService.setCompanyActive(id, isActive);
     setAllCompanies(prev => prev.map(co => co.id === id ? { ...co, isActive } : co));
-    if (company?.id === id) setCompany(prev => prev ? { ...prev, isActive } : prev);
+    if (company?.id === id) setCompany({ ...company, isActive });
   };
 
   const handleToggleArchive = async (ticket: DigTicket, e: React.MouseEvent) => {
