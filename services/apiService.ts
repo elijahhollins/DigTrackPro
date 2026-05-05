@@ -278,7 +278,8 @@ export const apiService = {
       city: data.city || '',
       state: data.state || '',
       phone: data.phone || '',
-      createdAt: new Date(data.created_at).getTime()
+      createdAt: new Date(data.created_at).getTime(),
+      isActive: data.is_active !== false
     };
   },
 
@@ -759,7 +760,8 @@ export const apiService = {
       city: d.city || '',
       state: d.state || '',
       phone: d.phone || '',
-      createdAt: new Date(d.created_at).getTime()
+      createdAt: new Date(d.created_at).getTime(),
+      isActive: d.is_active !== false
     }));
   },
 
@@ -786,8 +788,14 @@ export const apiService = {
       city: data.city || '',
       state: data.state || '',
       phone: data.phone || '',
-      createdAt: new Date(data.created_at).getTime()
+      createdAt: new Date(data.created_at).getTime(),
+      isActive: data.is_active !== false
     };
+  },
+
+  async setCompanyActive(id: string, isActive: boolean): Promise<void> {
+    const { error } = await supabase.from('companies').update({ is_active: isActive }).eq('id', id);
+    if (error) throw error;
   },
 
   async createInviteForCompany(companyId: string): Promise<string> {

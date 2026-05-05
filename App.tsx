@@ -408,6 +408,12 @@ const App: React.FC = () => {
     if (company?.id === id) setCompany(updated);
   };
 
+  const handleToggleCompanyActive = async (id: string, isActive: boolean) => {
+    await apiService.setCompanyActive(id, isActive);
+    setAllCompanies(prev => prev.map(co => co.id === id ? { ...co, isActive } : co));
+    if (company?.id === id) setCompany(prev => prev ? { ...prev, isActive } : prev);
+  };
+
   const handleToggleArchive = async (ticket: DigTicket, e: React.MouseEvent) => {
     e.stopPropagation();
     const willArchive = !ticket.isArchived;
@@ -582,6 +588,30 @@ const App: React.FC = () => {
 
   if (!sessionUser) return <Login authError={authError} />;
   if (showCompanyRegistration) return <CompanyRegistration onComplete={handleCompanyCreation} isDarkMode={isDarkMode} />;
+
+  if (sessionUser.role !== UserRole.SUPER_ADMIN && company?.isActive === false) {
+    return (
+      <div className={`flex flex-col items-center justify-center min-h-screen gap-6 px-6 text-center ${isDarkMode ? 'bg-[#07101f] text-slate-100' : 'bg-slate-100 text-slate-900'}`}>
+        <div className="w-16 h-16 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center">
+          <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+          </svg>
+        </div>
+        <div>
+          <h2 className="text-xl font-black uppercase tracking-tight mb-2">Account Suspended</h2>
+          <p className={`text-sm font-bold max-w-sm ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+            Your company's access has been suspended. Please contact support to restore access.
+          </p>
+        </div>
+        <button
+          onClick={handleSignOut}
+          className="px-6 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500/20 transition-all"
+        >
+          Sign Out
+        </button>
+      </div>
+    );
+  }
 
   const isSuperAdmin = sessionUser.role === UserRole.SUPER_ADMIN;
   const isAdmin = sessionUser.role === UserRole.ADMIN || isSuperAdmin;
@@ -976,7 +1006,7 @@ const App: React.FC = () => {
             />}
             {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} isAdmin={isAdmin} isDarkMode={isDarkMode} onJobSelect={(job: Job) => handleJobSelection(job.jobNumber, job)} onViewDoc={setViewingDocUrl} />}
             {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} isAdmin={isAdmin} companyId={sessionUser.companyId} onAddPhoto={(data, file) => apiService.addPhoto({ ...data, companyId: sessionUser.companyId }, file)} onDeletePhoto={(id: string) => apiService.deletePhoto(id)} onDeleteJob={async (id) => { await apiService.deleteJob(id); initApp(); }} initialSearch={mediaFolderFilter} />}
-            {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} company={company || undefined} isDarkMode={isDarkMode} isSuperAdmin={isSuperAdmin} allCompanies={allCompanies} onCompanyCreated={(co) => setAllCompanies(prev => [...prev, co])} onCompanyUpdated={handleUpdateCompany} onAddUser={async (u) => { await apiService.addUser({ ...u, companyId: sessionUser.companyId }); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onUpdateUserName={async (id, name) => { await apiService.updateUserName(id, name); initApp(); }} onSendPasswordReset={async (email) => { await apiService.sendPasswordReset(email); }} onUpdateCurrentUserPassword={async (password) => { await apiService.updateCurrentUserPassword(password); }} onUpdateNotificationEmail={handleUpdateNotificationEmail} onUpdateUserNotificationEmail={handleUpdateUserNotificationEmail} onTestEmail={handleTestEmail} />}
+            {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} company={company || undefined} isDarkMode={isDarkMode} isSuperAdmin={isSuperAdmin} allCompanies={allCompanies} onCompanyCreated={(co) => setAllCompanies(prev => [...prev, co])} onCompanyUpdated={handleUpdateCompany} onToggleCompanyActive={handleToggleCompanyActive} onAddUser={async (u) => { await apiService.addUser({ ...u, companyId: sessionUser.companyId }); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onUpdateUserName={async (id, name) => { await apiService.updateUserName(id, name); initApp(); }} onSendPasswordReset={async (email) => { await apiService.sendPasswordReset(email); }} onUpdateCurrentUserPassword={async (password) => { await apiService.updateCurrentUserPassword(password); }} onUpdateNotificationEmail={handleUpdateNotificationEmail} onUpdateUserNotificationEmail={handleUpdateUserNotificationEmail} onTestEmail={handleTestEmail} />}
             {activeView === 'asbuilt' && <AsBuiltView jobs={jobs} sessionUser={sessionUser} isAdmin={isAdmin} isDarkMode={isDarkMode} onDeleteJob={async (id) => { await apiService.deleteJob(id); initApp(); }} />}
           </div>
         </main>

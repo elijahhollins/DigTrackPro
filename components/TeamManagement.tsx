@@ -12,6 +12,7 @@ interface TeamManagementProps {
   allCompanies?: Company[];
   onCompanyCreated?: (company: Company) => void;
   onCompanyUpdated?: (id: string, updates: { name?: string; city?: string; state?: string; phone?: string }) => Promise<void>;
+  onToggleCompanyActive?: (id: string, isActive: boolean) => Promise<void>;
   onAddUser: (user: Partial<UserRecord>) => Promise<void>;
   onDeleteUser: (id: string) => void;
   onToggleRole?: (user: UserRecord) => void;
@@ -32,6 +33,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
   allCompanies = [],
   onCompanyCreated,
   onCompanyUpdated,
+  onToggleCompanyActive,
   onDeleteUser, 
   onToggleRole,
   onUpdateUserName,
@@ -566,7 +568,14 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" />
                               </svg>
                               <div>
-                                <div>{co.name}</div>
+                                <div className="flex items-center gap-2">
+                                  {co.name}
+                                  {co.isActive === false && (
+                                    <span className="px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest bg-red-500/10 text-red-500 border border-red-500/20">
+                                      Suspended
+                                    </span>
+                                  )}
+                                </div>
                                 {(co.city || co.state || co.phone) && (
                                   <div className="text-[9px] font-bold opacity-40 mt-0.5">
                                     {[co.city, co.state].filter(Boolean).join(', ')}{co.phone ? ` · ${co.phone}` : ''}
@@ -603,6 +612,21 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                                 } ${isDarkMode ? 'bg-white/10 text-slate-300' : 'bg-slate-100 text-slate-700'}`}
                               >
                                 {loadingCompanyIds.has(co.id) ? 'Generating...' : 'Get Link'}
+                              </button>
+                              <button
+                                onClick={() => {
+                                  const nextActive = co.isActive !== false ? false : true;
+                                  if (!confirm(nextActive ? `Restore access for ${co.name}?` : `Suspend access for ${co.name}? Their users will be locked out immediately.`)) return;
+                                  onToggleCompanyActive?.(co.id, nextActive);
+                                }}
+                                className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all hover:scale-105 active:scale-95 ${
+                                  co.isActive !== false
+                                    ? isDarkMode ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20' : 'bg-red-50 text-red-600 hover:bg-red-100'
+                                    : isDarkMode ? 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                }`}
+                                title={co.isActive !== false ? 'Suspend company access' : 'Restore company access'}
+                              >
+                                {co.isActive !== false ? 'Suspend' : 'Restore'}
                               </button>
                             </div>
                           </td>
