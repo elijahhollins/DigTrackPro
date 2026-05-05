@@ -600,7 +600,7 @@ const App: React.FC = () => {
         <div>
           <h2 className="text-xl font-black uppercase tracking-tight mb-2">Account Suspended</h2>
           <p className={`text-sm font-bold max-w-sm ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-            Your company's access has been suspended. Please contact support to restore access.
+            Ready for more? Your trial has ended, but your progress is saved! Upgrade now to pick up right where you left off!
           </p>
         </div>
         <button
