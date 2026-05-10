@@ -26,7 +26,7 @@ export const getEnv = (key: string): string => {
 };
 
 const supabaseUrl = getEnv('SUPABASE_URL') || "https://fusubnzndmngjfgatzrq.supabase.co";
-const supabaseAnonKey = getEnv('SUPABASE_ANON_KEY') || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1c3VibnpuZG1uZ2pmZ2F0enJxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNTQ5NzcsImV4cCI6MjA4MjkzMDk3N30.O5Vp5R_KxAUpi8esYjqCHrjmyG3PzkNj1gDxpaNuKtI";
+const supabaseAnonKey = getEnv('SUPABASE_ANON_KEY') || "SUPABASE_ANON_KEY_MISSING";
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
