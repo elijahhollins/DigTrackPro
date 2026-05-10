@@ -27,12 +27,17 @@ export const getEnv = (key: string): string => {
 
 const supabaseUrl = getEnv('SUPABASE_URL');
 const supabaseAnonKey = getEnv('SUPABASE_ANON_KEY');
-const isConfigured = !!supabaseUrl && !!supabaseAnonKey;
+const hasValidSupabaseConfig =
+  !!supabaseUrl && supabaseUrl.includes('supabase.co') && !!supabaseAnonKey && supabaseAnonKey.length > 20;
+const missingConfigError = 'Supabase is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY environment variables.';
 
-export const supabase = createClient(
-  isConfigured ? supabaseUrl : 'https://placeholder.supabase.co',
-  isConfigured ? supabaseAnonKey : 'placeholder-anon-key-not-configured'
-);
+export const supabase = hasValidSupabaseConfig
+  ? createClient(supabaseUrl, supabaseAnonKey)
+  : new Proxy({} as ReturnType<typeof createClient>, {
+      get() {
+        throw new Error(missingConfigError);
+      }
+    });
 
 export const isSupabaseConfigured = () =>
-  !!supabaseUrl && supabaseUrl.includes('supabase.co') && !!supabaseAnonKey && supabaseAnonKey.length > 20;
+  hasValidSupabaseConfig;
