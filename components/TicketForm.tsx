@@ -63,7 +63,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
   // Sync API Key state from window
   useEffect(() => {
     const check = () => {
-      const key = getEnv('API_KEY');
+      const key = getEnv('ANTHROPIC_API_KEY');
       setHasApiKey(key.length > 20 && key !== 'undefined');
     };
     check();
@@ -131,7 +131,9 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
     if (window.aistudio?.openSelectKey) {
       await window.aistudio.openSelectKey();
       setHasApiKey(true);
+      return;
     }
+    alert("Set ANTHROPIC_API_KEY (or VITE_ANTHROPIC_API_KEY) in your environment and redeploy/restart.");
   };
 
   const processFile = async (id: string, file: File) => {
@@ -438,7 +440,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
               </div>
               <h3 className="text-lg font-black uppercase tracking-[0.1em]">AI Batch Processing</h3>
               <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mt-3 max-w-xs leading-relaxed">
-                Drag & drop PDFs here. Gemini AI will handle the extraction while you review and confirm each record.
+                Drag & drop PDFs here. Anthropic AI will handle the extraction while you review and confirm each record.
               </p>
               {!hasApiKey && (
                 <button 

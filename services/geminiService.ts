@@ -1,21 +1,16 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
 import { getEnv } from "../lib/supabaseClient.ts";
 
 /**
- * Specialized service for parsing locate tickets using Gemini AI.
+ * Specialized service for parsing locate tickets using Anthropic AI.
  * This service extracts structured metadata from 811 locate tickets.
  */
 export const parseTicketData = async (input: string | { data: string; mimeType: string }) => {
-  // Initialization must happen inside the function to ensure current key is used.
-  // We use getEnv to robustly fetch the key from multiple possible sources.
-  const apiKey = getEnv('API_KEY');
+  const apiKey = getEnv('ANTHROPIC_API_KEY');
   
   if (!apiKey || apiKey === 'undefined') {
-    throw new Error("API_KEY_MISSING: Please connect your Gemini API key using the button in the dashboard.");
+    throw new Error("API_KEY_MISSING: Set ANTHROPIC_API_KEY in your environment to use AI parsing.");
   }
-
-  const ai = new GoogleGenAI({ apiKey });
   
   try {
     const isMedia = typeof input !== 'string';
@@ -37,87 +32,136 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
     If a field is missing or illegible, return null for that field.
     Return a clean JSON object according to the requested schema.`;
 
-    const parts = isMedia 
-      ? [
-          { 
-            inlineData: { 
-              data: (input as any).data, 
-              mimeType: (input as any).mimeType 
-            } 
-          }, 
-          { text: promptText }
-        ]
-      : [{ text: promptText }];
-
-    // Using gemini-3-flash-preview for balanced speed and accuracy in OCR tasks.
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview", 
-      contents: { parts },
-      config: {
-        systemInstruction: "You are a professional construction document analyzer. Convert locate tickets into precise JSON data. If a field is illegible, leave it blank. Never hallucinate ticket numbers.",
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            jobNumber: { type: Type.STRING },
-            ticketNo: { type: Type.STRING },
-            street: { type: Type.STRING },
-            crossStreet: { type: Type.STRING },
-            place: { type: Type.STRING },
-            extent: { type: Type.STRING },
-            county: { type: Type.STRING },
-            city: { type: Type.STRING },
-            state: { type: Type.STRING },
-            callInDate: { type: Type.STRING },
-            workDate: { type: Type.STRING },
-            digByDate: { type: Type.STRING },
-            expires: { type: Type.STRING },
-            siteContact: { type: Type.STRING },
-            lat: { type: Type.NUMBER },
-            lng: { type: Type.NUMBER },
-            boundingBox: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  lat: { type: Type.NUMBER },
-                  lng: { type: Type.NUMBER },
-                },
-              },
+    const inputSchema = {
+      type: "object",
+      properties: {
+        jobNumber: { type: "string" },
+        ticketNo: { type: "string" },
+        street: { type: "string" },
+        crossStreet: { type: "string" },
+        place: { type: "string" },
+        extent: { type: "string" },
+        county: { type: "string" },
+        city: { type: "string" },
+        state: { type: "string" },
+        callInDate: { type: "string" },
+        workDate: { type: "string" },
+        digByDate: { type: "string" },
+        expires: { type: "string" },
+        siteContact: { type: "string" },
+        lat: { type: "number" },
+        lng: { type: "number" },
+        boundingBox: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              lat: { type: "number" },
+              lng: { type: "number" },
             },
           },
         },
-        temperature: 0,
+      },
+    } as const;
+
+    const content = (() => {
+      if (!isMedia) {
+        return [{
+          type: "text",
+          text: `${promptText}\n\nTicket content:\n${String(input)}`
+        }];
       }
+
+      const media = input as { data: string; mimeType: string };
+      const mediaBlock =
+        media.mimeType === 'application/pdf'
+          ? {
+              type: "document",
+              source: {
+                type: "base64",
+                media_type: media.mimeType,
+                data: media.data,
+              },
+            }
+          : {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: media.mimeType,
+                data: media.data,
+              },
+            };
+
+      return [
+        mediaBlock,
+        {
+          type: "text",
+          text: promptText,
+        },
+      ];
+    })();
+
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "pdfs-2024-09-25",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-3-5-sonnet-latest",
+        max_tokens: 1200,
+        temperature: 0,
+        system: "You are a professional construction document analyzer. Convert locate tickets into precise JSON data. If a field is illegible, leave it blank. Never hallucinate ticket numbers.",
+        tools: [
+          {
+            name: "extract_ticket",
+            description: "Extract structured locate-ticket metadata exactly to schema.",
+            input_schema: inputSchema,
+          },
+        ],
+        tool_choice: { type: "tool", name: "extract_ticket" },
+        messages: [
+          {
+            role: "user",
+            content,
+          },
+        ],
+      }),
     });
 
-    const text = response.text;
-    if (!text) {
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(errText || `Anthropic request failed with status ${response.status}`);
+    }
+
+    const body = await response.json();
+    const toolUse = Array.isArray(body?.content)
+      ? body.content.find((item: any) => item?.type === "tool_use" && item?.name === "extract_ticket")
+      : null;
+
+    const parsed = toolUse?.input;
+    if (!parsed || typeof parsed !== "object") {
       throw new Error("The AI returned an empty response. Please try a clearer image or document.");
     }
 
-    const jsonStr = text.trim();
-    const cleanJson = jsonStr.replace(/^```json\n?/, '').replace(/\n?```$/, '');
-    
-    try {
-      const parsed = JSON.parse(cleanJson);
-      // Basic validation: we at least need a ticket number or street to be useful
-      if (!parsed.ticketNo && !parsed.street) {
-        throw new Error("Could not identify key ticket information. Please ensure the ticket number and address are visible.");
-      }
-      return parsed;
-    } catch (e: any) {
-      console.error("Gemini returned malformed response:", jsonStr);
-      throw new Error(e.message.includes("Could not identify") ? e.message : "Analysis failed: The AI response was malformed. Please ensure the image is clear.");
+    if (!parsed.ticketNo && !parsed.street) {
+      throw new Error("Could not identify key ticket information. Please ensure the ticket number and address are visible.");
     }
+
+    return parsed;
   } catch (error: any) {
-    console.error("[Gemini] OCR Extraction Failure:", error);
+    console.error("[Anthropic] OCR Extraction Failure:", error);
     
     const msg = error.message?.toLowerCase() || '';
-    if (msg.includes('403') || msg.includes('404') || msg.includes('entity was not found') || msg.includes('permission')) {
-      throw new Error("ACCESS_DENIED: Your current project does not have permission for the Gemini 3 model. Ensure billing is enabled in the Google Cloud Console.");
+    if (msg.includes('401') || msg.includes('403') || msg.includes('permission') || msg.includes('invalid x-api-key')) {
+      throw new Error("ACCESS_DENIED: Your Anthropic API key is missing, invalid, or lacks permission.");
     }
-    
-    throw new Error(error.message || "AI Analysis failed. Check your internet connection or API project status.");
+    if (msg.includes('429') || msg.includes('rate limit')) {
+      throw new Error("RATE_LIMITED: Anthropic rate limit reached. Please retry in a moment.");
+    }
+
+    throw new Error(error.message || "AI analysis failed. Check your Anthropic API key and network connection.");
   }
 };

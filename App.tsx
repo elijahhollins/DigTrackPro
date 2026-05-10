@@ -57,7 +57,7 @@ const App: React.FC = () => {
   const [isSigningOut, setIsSigningOut] = useState(false);
   
   const [hasApiKey, setHasApiKey] = useState(() => {
-    const key = getEnv('API_KEY');
+    const key = getEnv('ANTHROPIC_API_KEY');
     return key.length > 20 && key !== 'undefined';
   });
   
@@ -527,7 +527,7 @@ const App: React.FC = () => {
       await window.aistudio.openSelectKey();
       setHasApiKey(true);
     } else {
-      alert("Missing AI credentials.");
+      alert("Set ANTHROPIC_API_KEY (or VITE_ANTHROPIC_API_KEY) in your environment and redeploy/restart.");
     }
   };
 
