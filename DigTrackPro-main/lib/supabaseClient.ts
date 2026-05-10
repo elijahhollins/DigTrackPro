@@ -26,7 +26,11 @@ export const getEnv = (key: string): string => {
 };
 
 const supabaseUrl = getEnv('SUPABASE_URL') || "https://fusubnzndmngjfgatzrq.supabase.co";
-const supabaseAnonKey = getEnv('SUPABASE_ANON_KEY') || "SUPABASE_ANON_KEY_MISSING";
+const supabaseAnonKey = getEnv('SUPABASE_ANON_KEY');
+
+if (!supabaseAnonKey) {
+  throw new Error('SUPABASE_ANON_KEY environment variable is required.');
+}
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
