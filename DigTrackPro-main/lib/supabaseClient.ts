@@ -27,16 +27,12 @@ export const getEnv = (key: string): string => {
 
 const supabaseUrl = getEnv('SUPABASE_URL');
 const supabaseAnonKey = getEnv('SUPABASE_ANON_KEY');
+const isConfigured = !!supabaseUrl && !!supabaseAnonKey;
 
-if (!supabaseUrl) {
-  throw new Error('SUPABASE_URL environment variable is required.');
-}
+export const supabase = createClient(
+  isConfigured ? supabaseUrl : 'https://placeholder.supabase.co',
+  isConfigured ? supabaseAnonKey : 'placeholder-anon-key-not-configured'
+);
 
-if (!supabaseAnonKey) {
-  throw new Error('SUPABASE_ANON_KEY environment variable is required.');
-}
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
-export const isSupabaseConfigured = () => 
-  supabaseUrl && supabaseUrl.includes('supabase.co') && supabaseAnonKey && supabaseAnonKey.length > 20;
+export const isSupabaseConfigured = () =>
+  !!supabaseUrl && supabaseUrl.includes('supabase.co') && !!supabaseAnonKey && supabaseAnonKey.length > 20;
