@@ -114,14 +114,6 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
     }
   }, [activeIndex, queue, isBatchMode]);
 
-  const handleOpenSelectKey = async () => {
-    if (window.aistudio?.openSelectKey) {
-      await window.aistudio.openSelectKey();
-      return;
-    }
-    alert("AI parsing now uses a server-side key in Vercel. Ensure ANTHROPIC_API_KEY is set and redeploy.");
-  };
-
   const processFile = async (id: string, file: File) => {
     try {
       setQueue(prev => prev.map(item => item.id === id ? { ...item, status: 'analyzing' } : item));
@@ -443,13 +435,6 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
               <h3 className="text-lg font-black uppercase tracking-widest text-rose-500">Scan Failed</h3>
               <p className="text-xs font-bold text-slate-400 mt-2">{currentItem.error}</p>
               
-              <button 
-                onClick={handleOpenSelectKey}
-                className="mt-6 px-8 py-3 bg-brand text-slate-900 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg active:scale-95"
-              >
-                Check AI Configuration
-              </button>
-
               <div className="flex gap-3 mt-10 w-full max-w-sm">
                  <button onClick={() => removeFromQueue(activeIndex)} className="flex-1 py-5 bg-rose-500 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest">Discard</button>
                  <button onClick={moveToNext} className="flex-1 py-5 bg-white/5 text-slate-500 border border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest">Retry Next</button>

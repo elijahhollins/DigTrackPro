@@ -67,6 +67,9 @@ Return a clean JSON object according to the requested schema.`;
       }
 
       const media = input || {};
+      if (!media?.data || !media?.mimeType || typeof media.data !== 'string' || typeof media.mimeType !== 'string') {
+        throw new Error('INVALID_INPUT: Media input must include base64 data and a valid mimeType.');
+      }
       const mediaBlock = media.mimeType === 'application/pdf'
         ? {
             type: 'document',
