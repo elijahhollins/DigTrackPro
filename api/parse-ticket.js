@@ -159,16 +159,17 @@ Return a clean JSON object according to the requested schema.`;
         ((response.status === 401 ||
           response.status === 403 ||
           normalizedMessage.includes('invalid x-api-key') ||
-          normalizedMessage.includes('authentication') ||
-          normalizedMessage.includes('unauthorized')) &&
+          normalizedMessage.includes('api key')) &&
           !hasModelHint);
+      const isModelInvalidRequest =
+        response.status === 400 &&
+        errorType === 'invalid_request_error' &&
+        normalizedMessage.includes('model');
       const isModelError =
         isModelErrorType ||
         hasModelHint ||
         response.status === 404 ||
-        (response.status === 400 &&
-          errorType === 'invalid_request_error' &&
-          hasModelHint);
+        isModelInvalidRequest;
       if (isModelError && i < modelCandidates.length - 1) {
         continue;
       }
