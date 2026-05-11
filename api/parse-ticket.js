@@ -97,34 +97,55 @@ Return a clean JSON object according to the requested schema.`;
       return [mediaBlock, { type: 'text', text: promptText }];
     })();
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-beta': 'pdfs-2024-09-25',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'claude-3-5-sonnet-latest',
-        max_tokens: 1200,
-        temperature: 0,
-        system: 'You are a professional construction document analyzer. Convert locate tickets into precise JSON data. If a field is illegible, leave it blank. Never hallucinate ticket numbers.',
-        tools: [
-          {
-            name: 'extract_ticket',
-            description: 'Extract structured locate-ticket metadata exactly to schema.',
-            input_schema: inputSchema,
-          },
-        ],
-        tool_choice: { type: 'tool', name: 'extract_ticket' },
-        messages: [{ role: 'user', content }],
-      }),
-    });
+    const rawModelCandidates = [
+      process.env.ANTHROPIC_MODEL,
+      'claude-3-5-sonnet-latest',
+      'claude-3-5-sonnet-20241022',
+      'claude-3-5-haiku-latest',
+    ];
+    const modelCandidates = Array.from(
+      new Set(rawModelCandidates.filter((model) => typeof model === 'string' && model.trim().length > 0)),
+    );
 
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) {
+    let body = {};
+    for (let i = 0; i < modelCandidates.length; i += 1) {
+      const model = modelCandidates[i];
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-beta': 'pdfs-2024-09-25',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 1200,
+          temperature: 0,
+          system: 'You are a professional construction document analyzer. Convert locate tickets into precise JSON data. If a field is illegible, leave it blank. Never hallucinate ticket numbers.',
+          tools: [
+            {
+              name: 'extract_ticket',
+              description: 'Extract structured locate-ticket metadata exactly to schema.',
+              input_schema: inputSchema,
+            },
+          ],
+          tool_choice: { type: 'tool', name: 'extract_ticket' },
+          messages: [{ role: 'user', content }],
+        }),
+      });
+
+      body = await response.json().catch(() => ({}));
+      if (response.ok) {
+        break;
+      }
+
       const message = body?.error?.message || (typeof body?.error === 'string' ? body.error : JSON.stringify(body?.error)) || `Anthropic request failed with status ${response.status}`;
+      const isModelError = response.status === 404 || response.status === 400 || /\bmodel\b/i.test(String(message));
+      if (isModelError && i < modelCandidates.length - 1) {
+        continue;
+      }
+
       return res.status(response.status).json({ error: String(message) });
     }
 
