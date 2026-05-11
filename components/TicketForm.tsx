@@ -3,7 +3,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { DigTicket } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
 import { parseTicketData } from '../services/geminiService.ts';
-import { getEnv } from '../lib/supabaseClient.ts';
 import { addDaysToDateStr } from '../utils/dateUtils.ts';
 
 interface IngestionItem {
@@ -47,7 +46,6 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
   const [isBatchMode, setIsBatchMode] = useState(false);
   const [isSubmittingManual, setIsSubmittingManual] = useState(false);
   const [isSavingAll, setIsSavingAll] = useState(false);
-  const [hasApiKey, setHasApiKey] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeletingTicket, setIsDeletingTicket] = useState(false);
   
@@ -59,17 +57,6 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
   const [activeIndex, setActiveIndex] = useState<number>(0);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Sync API Key state from window
-  useEffect(() => {
-    const check = () => {
-      const key = getEnv('ANTHROPIC_API_KEY');
-      setHasApiKey(key.length > 20 && key !== 'undefined');
-    };
-    check();
-    const interval = setInterval(check, 2000);
-    return () => clearInterval(interval);
-  }, []);
 
   useEffect(() => {
     if (initialData) {
@@ -130,10 +117,9 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
   const handleOpenSelectKey = async () => {
     if (window.aistudio?.openSelectKey) {
       await window.aistudio.openSelectKey();
-      setHasApiKey(true);
       return;
     }
-    alert("Set ANTHROPIC_API_KEY (or VITE_ANTHROPIC_API_KEY) in your environment and redeploy/restart.");
+    alert("AI parsing now uses a server-side key in Vercel. Ensure ANTHROPIC_API_KEY is set and redeploy.");
   };
 
   const processFile = async (id: string, file: File) => {
@@ -442,14 +428,6 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
               <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mt-3 max-w-xs leading-relaxed">
                 Drag & drop PDFs here. Anthropic AI will handle the extraction while you review and confirm each record.
               </p>
-              {!hasApiKey && (
-                <button 
-                  onClick={(e) => { e.stopPropagation(); handleOpenSelectKey(); }}
-                  className="mt-10 px-8 py-4 bg-brand text-slate-900 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-brand/20 animate-pulse active:scale-95"
-                >
-                  ⚠️ Connect AI Service to Begin
-                </button>
-              )}
             </div>
           ) : isBatchMode && (currentItem?.status === 'analyzing' || currentItem?.status === 'uploading') ? (
             <div className="p-32 flex flex-col items-center justify-center text-center">
@@ -469,7 +447,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
                 onClick={handleOpenSelectKey}
                 className="mt-6 px-8 py-3 bg-brand text-slate-900 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg active:scale-95"
               >
-                Reconnect AI Service
+                Check AI Configuration
               </button>
 
               <div className="flex gap-3 mt-10 w-full max-w-sm">
