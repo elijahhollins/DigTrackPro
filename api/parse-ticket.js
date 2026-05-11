@@ -102,6 +102,8 @@ Return a clean JSON object according to the requested schema.`;
       'claude-3-5-sonnet-latest',
       'claude-3-5-sonnet-20241022',
       'claude-3-5-haiku-latest',
+      'claude-3-5-haiku-20241022',
+      'claude-3-haiku-20240307',
     ];
     const modelCandidates = Array.from(
       new Set(rawModelCandidates.filter((model) => typeof model === 'string' && model.trim().length > 0)),
@@ -143,13 +145,35 @@ Return a clean JSON object according to the requested schema.`;
       const message = body?.error?.message || (typeof body?.error === 'string' ? body.error : JSON.stringify(body?.error)) || `Anthropic request failed with status ${response.status}`;
       const errorType = body?.error?.type;
       const normalizedMessage = String(message).toLowerCase();
+      const isModelErrorType = errorType === 'model_not_found_error';
+      const isAuthErrorType = errorType === 'authentication_error' || errorType === 'permission_error';
+      const hasModelHint =
+        normalizedMessage.includes('model:') ||
+        (normalizedMessage.includes('model') &&
+          (normalizedMessage.includes('not found') ||
+            normalizedMessage.includes('does not exist') ||
+            normalizedMessage.includes('unsupported') ||
+            normalizedMessage.includes('invalid')));
+      const isAuthError =
+        isAuthErrorType ||
+        ((response.status === 401 ||
+          response.status === 403 ||
+          normalizedMessage.includes('invalid x-api-key') ||
+          normalizedMessage.includes('authentication') ||
+          normalizedMessage.includes('unauthorized')) &&
+          !hasModelHint);
       const isModelError =
+        isModelErrorType ||
+        hasModelHint ||
         response.status === 404 ||
         (response.status === 400 &&
           errorType === 'invalid_request_error' &&
           (normalizedMessage.includes('model') || normalizedMessage.includes('not found')));
       if (isModelError && i < modelCandidates.length - 1) {
         continue;
+      }
+      if (isAuthError) {
+        return res.status(403).json({ error: 'ACCESS_DENIED: Your server Anthropic API key is missing, invalid, or lacks permission.' });
       }
 
       return res.status(response.status).json({ error: String(message) });
