@@ -149,11 +149,11 @@ Return a clean JSON object according to the requested schema.`;
       const isAuthErrorType = errorType === 'authentication_error' || errorType === 'permission_error';
       const hasModelHint =
         normalizedMessage.includes('model:') ||
-        (normalizedMessage.includes('model') &&
-          (normalizedMessage.includes('not found') ||
-            normalizedMessage.includes('does not exist') ||
-            normalizedMessage.includes('unsupported') ||
-            normalizedMessage.includes('invalid')));
+        normalizedMessage.includes('model not found') ||
+        normalizedMessage.includes('model does not exist') ||
+        normalizedMessage.includes('unsupported model') ||
+        normalizedMessage.includes('invalid model') ||
+        normalizedMessage.includes('unknown model');
       const isAuthError =
         isAuthErrorType ||
         ((response.status === 401 ||
@@ -168,7 +168,7 @@ Return a clean JSON object according to the requested schema.`;
         response.status === 404 ||
         (response.status === 400 &&
           errorType === 'invalid_request_error' &&
-          (normalizedMessage.includes('model') || normalizedMessage.includes('not found')));
+          hasModelHint);
       if (isModelError && i < modelCandidates.length - 1) {
         continue;
       }
