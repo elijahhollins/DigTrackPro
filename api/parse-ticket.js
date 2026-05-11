@@ -107,7 +107,7 @@ Return a clean JSON object according to the requested schema.`;
       new Set(rawModelCandidates.filter((model) => typeof model === 'string' && model.trim().length > 0)),
     );
 
-    let body = {};
+    let body = null;
     for (let i = 0; i < modelCandidates.length; i += 1) {
       const model = modelCandidates[i];
       const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -141,7 +141,13 @@ Return a clean JSON object according to the requested schema.`;
       }
 
       const message = body?.error?.message || (typeof body?.error === 'string' ? body.error : JSON.stringify(body?.error)) || `Anthropic request failed with status ${response.status}`;
-      const isModelError = response.status === 404 || response.status === 400 || /\bmodel\b/i.test(String(message));
+      const errorType = body?.error?.type;
+      const normalizedMessage = String(message).toLowerCase();
+      const isModelError =
+        response.status === 404 ||
+        (response.status === 400 &&
+          errorType === 'invalid_request_error' &&
+          (normalizedMessage.includes('model') || normalizedMessage.includes('not found')));
       if (isModelError && i < modelCandidates.length - 1) {
         continue;
       }
