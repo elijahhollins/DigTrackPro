@@ -155,7 +155,7 @@ Return a clean JSON object according to the requested schema.`;
         normalizedMessage.includes('invalid model') ||
         normalizedMessage.includes('unknown model');
       const isAuthError =
-        isAuthErrorType ||
+        (isAuthErrorType && !hasModelHint) ||
         ((response.status === 401 ||
           response.status === 403 ||
           normalizedMessage.includes('invalid x-api-key') ||
