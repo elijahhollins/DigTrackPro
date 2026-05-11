@@ -13,7 +13,12 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
       body: JSON.stringify({ input }),
     });
 
-    const body = await response.json().catch(() => ({}));
+    let body: any = {};
+    try {
+      body = await response.json();
+    } catch (jsonError) {
+      console.error("[AI Parse] Invalid JSON response:", jsonError);
+    }
     if (!response.ok) {
       throw new Error(body?.error || `AI parsing failed with status ${response.status}`);
     }

@@ -66,10 +66,10 @@ Return a clean JSON object according to the requested schema.`;
 
     const content = (() => {
       if (!isMedia) {
-        return [{ type: 'text', text: `${promptText}\n\nTicket content:\n${String(input || '')}` }];
+        return [{ type: 'text', text: `${promptText}\n\nTicket content:\n${String(input)}` }];
       }
 
-      const media = input || {};
+      const media = input;
       if (typeof media.data !== 'string' || media.data.length === 0) {
         throw new Error('INVALID_INPUT: Media input must include non-empty base64 data.');
       }
