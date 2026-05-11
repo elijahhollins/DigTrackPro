@@ -10,6 +10,9 @@ export default async function handler(req, res) {
 
   try {
     const input = req.body?.input;
+    if (input == null) {
+      return res.status(400).json({ error: 'INVALID_INPUT: Request body must include input.' });
+    }
     const isMedia = typeof input !== 'string';
 
     const promptText = `Extract structured locate ticket metadata from the provided ${isMedia ? 'document' : 'text'}.
@@ -67,8 +70,11 @@ Return a clean JSON object according to the requested schema.`;
       }
 
       const media = input || {};
-      if (!media?.data || !media?.mimeType || typeof media.data !== 'string' || typeof media.mimeType !== 'string') {
-        throw new Error('INVALID_INPUT: Media input must include base64 data and a valid mimeType.');
+      if (typeof media.data !== 'string' || media.data.length === 0) {
+        throw new Error('INVALID_INPUT: Media input must include non-empty base64 data.');
+      }
+      if (typeof media.mimeType !== 'string' || media.mimeType.length === 0) {
+        throw new Error('INVALID_INPUT: Media input must include a valid mimeType.');
       }
       const mediaBlock = media.mimeType === 'application/pdf'
         ? {
@@ -118,7 +124,7 @@ Return a clean JSON object according to the requested schema.`;
 
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
-      const message = body?.error?.message || body?.error || `Anthropic request failed with status ${response.status}`;
+      const message = body?.error?.message || (typeof body?.error === 'string' ? body.error : JSON.stringify(body?.error)) || `Anthropic request failed with status ${response.status}`;
       return res.status(response.status).json({ error: String(message) });
     }
 
