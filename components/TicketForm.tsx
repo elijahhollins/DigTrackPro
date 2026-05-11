@@ -135,7 +135,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
           !t.isArchived &&
           t.ticketNo.trim().toUpperCase() === (extracted.ticketNo || "").trim().toUpperCase() &&
           t.jobNumber.trim().toUpperCase() === (extracted.jobNumber || "").trim().toUpperCase() &&
-          normalizeDateStr(t.workDate) === normalizeDateStr(extracted.workDate)
+          normalizeDateStr(t.workDate) === normalizeDateStr(extracted.workDate || '')
         );
 
         if (matched) {
