@@ -1,3 +1,4 @@
+import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenAI, Type } from '@google/genai';
 
 const systemInstruction =
@@ -158,6 +159,7 @@ const parseWithAnthropic = async (input, apiKey) => {
   const promptText = buildPromptText(isMedia);
   const media = getValidatedMediaInput(input);
   const isPdfMediaInput = media?.mimeType === 'application/pdf';
+  const anthropic = new Anthropic({ apiKey });
 
   const content = !isMedia
     ? [{ type: 'text', text: `${promptText}\n\nTicket content:\n${String(input)}` }]
@@ -181,6 +183,13 @@ const parseWithAnthropic = async (input, apiKey) => {
             },
         { type: 'text', text: promptText },
       ];
+  const requestOptions = isPdfMediaInput
+    ? {
+        headers: {
+          'anthropic-beta': 'pdfs-2024-09-25',
+        },
+      }
+    : undefined;
 
   const rawModelCandidates = [
     process.env.ANTHROPIC_MODEL,
@@ -200,75 +209,62 @@ const parseWithAnthropic = async (input, apiKey) => {
   let body = null;
   for (let i = 0; i < modelCandidates.length; i += 1) {
     const model = modelCandidates[i];
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-        ...(isPdfMediaInput ? { 'anthropic-beta': 'pdfs-2024-09-25' } : {}),
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 1200,
-        temperature: 0,
-        system: systemInstruction,
-        tools: [
-          {
-            name: 'extract_ticket',
-            description: 'Extract structured locate-ticket metadata exactly to schema.',
-            input_schema: anthropicInputSchema,
-          },
-        ],
-        tool_choice: { type: 'tool', name: 'extract_ticket' },
-        messages: [{ role: 'user', content }],
-      }),
-    });
-
-    body = await response.json().catch(() => ({}));
-    if (response.ok) {
+    try {
+      body = await anthropic.messages.create(
+        {
+          model,
+          max_tokens: 1200,
+          temperature: 0,
+          system: systemInstruction,
+          tools: [
+            {
+              name: 'extract_ticket',
+              description: 'Extract structured locate-ticket metadata exactly to schema.',
+              input_schema: anthropicInputSchema,
+            },
+          ],
+          tool_choice: { type: 'tool', name: 'extract_ticket' },
+          messages: [{ role: 'user', content }],
+        },
+        requestOptions,
+      );
       break;
-    }
+    } catch (error) {
+      const status = Number(error?.status) || 500;
+      const errorType = error?.type || error?.error?.type;
+      const message = String(error?.error?.message || error?.message || `Anthropic request failed with status ${status}`);
+      const normalizedMessage = message.toLowerCase();
+      const isModelErrorType = errorType === 'model_not_found_error';
+      const hasModelHint =
+        normalizedMessage.includes('model:') ||
+        normalizedMessage.includes('model not found') ||
+        normalizedMessage.includes('model does not exist') ||
+        normalizedMessage.includes('unsupported model') ||
+        normalizedMessage.includes('invalid model') ||
+        normalizedMessage.includes('unknown model');
+      const isAuthError =
+        (error instanceof Anthropic.AuthenticationError || error instanceof Anthropic.PermissionDeniedError) && !hasModelHint;
+      const isModelInvalidRequest =
+        status === 400 &&
+        errorType === 'invalid_request_error' &&
+        normalizedMessage.includes('model');
+      const isModelError =
+        isModelErrorType ||
+        hasModelHint ||
+        error instanceof Anthropic.NotFoundError ||
+        isModelInvalidRequest;
+      if (isModelError && i < modelCandidates.length - 1) {
+        continue;
+      }
+      if (isAuthError) {
+        throw createHttpError(403, 'ACCESS_DENIED: Your Anthropic API key is missing, invalid, or lacks permission.', 'anthropic_auth');
+      }
+      if (error instanceof Anthropic.RateLimitError) {
+        throw createHttpError(429, 'RATE_LIMITED: Anthropic rate limit reached. Please retry in a moment.', 'anthropic_rate_limit');
+      }
 
-    const message =
-      body?.error?.message ||
-      (typeof body?.error === 'string' ? body.error : JSON.stringify(body?.error)) ||
-      `Anthropic request failed with status ${response.status}`;
-    const errorType = body?.error?.type;
-    const normalizedMessage = String(message).toLowerCase();
-    const isModelErrorType = errorType === 'model_not_found_error';
-    const isAuthErrorType = errorType === 'authentication_error' || errorType === 'permission_error';
-    const hasModelHint =
-      normalizedMessage.includes('model:') ||
-      normalizedMessage.includes('model not found') ||
-      normalizedMessage.includes('model does not exist') ||
-      normalizedMessage.includes('unsupported model') ||
-      normalizedMessage.includes('invalid model') ||
-      normalizedMessage.includes('unknown model');
-    const isAuthError =
-      (isAuthErrorType && !hasModelHint) ||
-      ((response.status === 401 ||
-        response.status === 403 ||
-        normalizedMessage.includes('invalid x-api-key') ||
-        normalizedMessage.includes('api key')) &&
-        !hasModelHint);
-    const isModelInvalidRequest =
-      response.status === 400 &&
-      errorType === 'invalid_request_error' &&
-      normalizedMessage.includes('model');
-    const isModelError =
-      isModelErrorType ||
-      hasModelHint ||
-      response.status === 404 ||
-      isModelInvalidRequest;
-    if (isModelError && i < modelCandidates.length - 1) {
-      continue;
+      throw createHttpError(status, message, isModelError ? 'anthropic_model' : 'anthropic_request');
     }
-    if (isAuthError) {
-      throw createHttpError(403, 'ACCESS_DENIED: Your Anthropic API key is missing, invalid, or lacks permission.', 'anthropic_auth');
-    }
-
-    throw createHttpError(response.status, String(message), isModelError ? 'anthropic_model' : 'anthropic_request');
   }
 
   const toolUse = Array.isArray(body?.content)
