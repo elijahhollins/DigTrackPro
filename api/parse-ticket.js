@@ -318,21 +318,13 @@ export default async function handler(req, res) {
     }
 
     let parsed = null;
-    let anthropicError = null;
 
     if (anthropicApiKey) {
-      try {
-        parsed = await parseWithAnthropic(input, anthropicApiKey);
-      } catch (error) {
-        anthropicError = error;
-      }
+      parsed = await parseWithAnthropic(input, anthropicApiKey);
+    } else if (geminiApiKey) {
+      parsed = await parseWithGemini(input, geminiApiKey);
     }
 
-    if (!parsed && geminiApiKey) {
-      parsed = await parseWithGemini(input, geminiApiKey);
-    } else if (anthropicError) {
-      throw anthropicError;
-    }
     if (!parsed) {
       throw createHttpError(502, 'The AI returned an empty response. Please try a clearer image or document.', 'empty_response');
     }
