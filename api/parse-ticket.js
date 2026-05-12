@@ -304,7 +304,7 @@ export default async function handler(req, res) {
   }
 
   const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
-  const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.API_KEY;
+  const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
 
   if (!anthropicApiKey && !geminiApiKey) {
     return res.status(500).json({
@@ -333,6 +333,9 @@ export default async function handler(req, res) {
       parsed = await parseWithGemini(input, geminiApiKey);
     } else if (anthropicError) {
       throw anthropicError;
+    }
+    if (!parsed) {
+      throw createHttpError(502, 'The AI returned an empty response. Please try a clearer image or document.', 'empty_response');
     }
 
     return res.status(200).json({ data: validateParsedData(parsed) });
