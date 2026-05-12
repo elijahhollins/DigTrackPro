@@ -3,7 +3,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { DigTicket } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
 import { parseTicketData } from '../services/geminiService.ts';
-import { getEnv } from '../lib/supabaseClient.ts';
 import { addDaysToDateStr } from '../utils/dateUtils.ts';
 
 interface IngestionItem {
@@ -47,7 +46,6 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
   const [isBatchMode, setIsBatchMode] = useState(false);
   const [isSubmittingManual, setIsSubmittingManual] = useState(false);
   const [isSavingAll, setIsSavingAll] = useState(false);
-  const [hasApiKey, setHasApiKey] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeletingTicket, setIsDeletingTicket] = useState(false);
   
@@ -59,17 +57,6 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
   const [activeIndex, setActiveIndex] = useState<number>(0);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Sync API Key state from window
-  useEffect(() => {
-    const check = () => {
-      const key = getEnv('API_KEY');
-      setHasApiKey(key.length > 20 && key !== 'undefined');
-    };
-    check();
-    const interval = setInterval(check, 2000);
-    return () => clearInterval(interval);
-  }, []);
 
   useEffect(() => {
     if (initialData) {
@@ -127,13 +114,6 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
     }
   }, [activeIndex, queue, isBatchMode]);
 
-  const handleOpenSelectKey = async () => {
-    if (window.aistudio?.openSelectKey) {
-      await window.aistudio.openSelectKey();
-      setHasApiKey(true);
-    }
-  };
-
   const processFile = async (id: string, file: File) => {
     try {
       setQueue(prev => prev.map(item => item.id === id ? { ...item, status: 'analyzing' } : item));
@@ -155,7 +135,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
           !t.isArchived &&
           t.ticketNo.trim().toUpperCase() === (extracted.ticketNo || "").trim().toUpperCase() &&
           t.jobNumber.trim().toUpperCase() === (extracted.jobNumber || "").trim().toUpperCase() &&
-          normalizeDateStr(t.workDate) === normalizeDateStr(extracted.workDate)
+          normalizeDateStr(t.workDate) === normalizeDateStr(extracted.workDate || '')
         );
 
         if (matched) {
@@ -438,16 +418,8 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
               </div>
               <h3 className="text-lg font-black uppercase tracking-[0.1em]">AI Batch Processing</h3>
               <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mt-3 max-w-xs leading-relaxed">
-                Drag & drop PDFs here. Gemini AI will handle the extraction while you review and confirm each record.
+                Drag & drop PDFs here. Anthropic AI will handle the extraction while you review and confirm each record.
               </p>
-              {!hasApiKey && (
-                <button 
-                  onClick={(e) => { e.stopPropagation(); handleOpenSelectKey(); }}
-                  className="mt-10 px-8 py-4 bg-brand text-slate-900 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-brand/20 animate-pulse active:scale-95"
-                >
-                  ⚠️ Connect AI Service to Begin
-                </button>
-              )}
             </div>
           ) : isBatchMode && (currentItem?.status === 'analyzing' || currentItem?.status === 'uploading') ? (
             <div className="p-32 flex flex-col items-center justify-center text-center">
@@ -463,13 +435,6 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
               <h3 className="text-lg font-black uppercase tracking-widest text-rose-500">Scan Failed</h3>
               <p className="text-xs font-bold text-slate-400 mt-2">{currentItem.error}</p>
               
-              <button 
-                onClick={handleOpenSelectKey}
-                className="mt-6 px-8 py-3 bg-brand text-slate-900 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg active:scale-95"
-              >
-                Reconnect AI Service
-              </button>
-
               <div className="flex gap-3 mt-10 w-full max-w-sm">
                  <button onClick={() => removeFromQueue(activeIndex)} className="flex-1 py-5 bg-rose-500 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest">Discard</button>
                  <button onClick={moveToNext} className="flex-1 py-5 bg-white/5 text-slate-500 border border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest">Retry Next</button>
