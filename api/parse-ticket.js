@@ -320,7 +320,12 @@ export default async function handler(req, res) {
     let parsed = null;
 
     if (anthropicApiKey) {
-      parsed = await parseWithAnthropic(input, anthropicApiKey);
+      try {
+        parsed = await parseWithAnthropic(input, anthropicApiKey);
+      } catch (error) {
+        console.error('[AI Parse] Anthropic request failed:', error);
+        throw error;
+      }
     } else if (geminiApiKey) {
       parsed = await parseWithGemini(input, geminiApiKey);
     }
