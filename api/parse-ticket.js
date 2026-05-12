@@ -92,20 +92,9 @@ const createHttpError = (status, message, code) => {
   return error;
 };
 
-let anthropicClient = null;
-let anthropicClientApiKey = null;
-
-const getAnthropicClient = (apiKey) => {
-  if (!anthropicClient || anthropicClientApiKey !== apiKey) {
-    anthropicClient = new Anthropic({ apiKey });
-    anthropicClientApiKey = apiKey;
-  }
-
-  return anthropicClient;
-};
-
 const clientSafeErrorCodes = new Set(['invalid_input', 'empty_response', 'missing_ticket_fields', 'gemini_malformed_json']);
 const authErrorCodes = new Set(['anthropic_auth', 'gemini_auth']);
+const rateLimitErrorCodes = new Set(['anthropic_rate_limit', 'gemini_rate_limit']);
 
 const getPublicErrorResponse = (error) => {
   const status = Number(error?.status) || 500;
@@ -131,7 +120,7 @@ const getPublicErrorResponse = (error) => {
     };
   }
 
-  if (status === 429 || code === 'gemini_rate_limit' || normalizedMessage.includes('rate limit') || normalizedMessage.includes('quota')) {
+  if (status === 429 || rateLimitErrorCodes.has(code) || normalizedMessage.includes('rate limit') || normalizedMessage.includes('quota')) {
     return {
       status: 429,
       error: 'RATE_LIMITED: AI provider rate limit reached. Please retry in a moment.',
@@ -171,7 +160,7 @@ const parseWithAnthropic = async (input, apiKey) => {
   const promptText = buildPromptText(isMedia);
   const media = getValidatedMediaInput(input);
   const isPdfMediaInput = media?.mimeType === 'application/pdf';
-  const anthropic = getAnthropicClient(apiKey);
+  const anthropic = new Anthropic({ apiKey });
 
   const content = !isMedia
     ? [{ type: 'text', text: `${promptText}\n\nTicket content:\n${String(input)}` }]
