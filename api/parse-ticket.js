@@ -91,7 +91,7 @@ const createHttpError = (status, message, code) => {
   return error;
 };
 
-const safeClientErrorCodes = new Set(['invalidinput', 'empty_response', 'missing_ticket_fields', 'gemini_malformed_json']);
+const safeClientErrorCodes = new Set(['invalid_input', 'empty_response', 'missing_ticket_fields', 'gemini_malformed_json']);
 
 const getPublicErrorResponse = (error) => {
   const status = Number(error?.status) || 500;
@@ -118,13 +118,14 @@ const getPublicErrorResponse = (error) => {
     };
   }
 
-  if (
-    code === 'gemini_rate_limit' ||
-    status === 429 ||
-    normalizedMessage.includes('429') ||
-    normalizedMessage.includes('rate limit') ||
-    normalizedMessage.includes('quota')
-  ) {
+  if (status === 429 || code === 'gemini_rate_limit') {
+    return {
+      status: 429,
+      error: 'RATE_LIMITED: AI provider rate limit reached. Please retry in a moment.',
+    };
+  }
+
+  if (normalizedMessage.includes('rate limit') || normalizedMessage.includes('quota')) {
     return {
       status: 429,
       error: 'RATE_LIMITED: AI provider rate limit reached. Please retry in a moment.',
@@ -150,10 +151,10 @@ const getValidatedMediaInput = (input) => {
   }
 
   if (typeof input?.data !== 'string' || input.data.length === 0) {
-    throw createHttpError(400, 'INVALID_INPUT: Media input must include non-empty base64 data.', 'invalidinput');
+    throw createHttpError(400, 'INVALID_INPUT: Media input must include non-empty base64 data.', 'invalid_input');
   }
   if (typeof input?.mimeType !== 'string' || input.mimeType.length === 0) {
-    throw createHttpError(400, 'INVALID_INPUT: Media input must include a valid mimeType.', 'invalidinput');
+    throw createHttpError(400, 'INVALID_INPUT: Media input must include a valid mimeType.', 'invalid_input');
   }
 
   return input;
