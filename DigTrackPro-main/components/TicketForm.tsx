@@ -42,7 +42,6 @@ const getSafeMimeType = (file: File): string => {
 export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initialData, isDarkMode, existingTickets }) => {
   const [isBatchMode, setIsBatchMode] = useState(false);
   const [isSubmittingManual, setIsSubmittingManual] = useState(false);
-  const [hasApiKey, setHasApiKey] = useState(false);
   
   const [formData, setFormData] = useState({
     jobNumber: '', ticketNo: '', street: '', crossStreet: '', place: '', extent: '', county: '', city: '', state: '', callInDate: '', workDate: '', expires: '', siteContact: '', documentUrl: '',
@@ -52,17 +51,6 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
   const [activeIndex, setActiveIndex] = useState<number>(0);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Sync API Key state from window
-  useEffect(() => {
-    const check = () => {
-      const key = (window as any).process?.env?.API_KEY || '';
-      setHasApiKey(key.length > 20 && !key.includes('API_KEY'));
-    };
-    check();
-    const interval = setInterval(check, 2000);
-    return () => clearInterval(interval);
-  }, []);
 
   useEffect(() => {
     if (initialData) {
@@ -111,10 +99,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
   }, [activeIndex, queue, isBatchMode]);
 
   const handleOpenSelectKey = async () => {
-    if (window.aistudio?.openSelectKey) {
-      await window.aistudio.openSelectKey();
-      setHasApiKey(true);
-    }
+    alert("AI parsing now runs server-side. Configure ANTHROPIC_API_KEY or GEMINI_API_KEY in your deployment environment and redeploy.");
   };
 
   const processFile = async (id: string, file: File) => {
@@ -345,16 +330,8 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
               </div>
               <h3 className="text-lg font-black uppercase tracking-[0.1em]">AI Batch Processing</h3>
               <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mt-3 max-w-xs leading-relaxed">
-                Drag & drop PDFs here. Gemini AI will handle the extraction while you review and confirm each record.
+                Drag & drop PDFs here. AI parsing will handle the extraction while you review and confirm each record.
               </p>
-              {!hasApiKey && (
-                <button 
-                  onClick={(e) => { e.stopPropagation(); handleOpenSelectKey(); }}
-                  className="mt-10 px-8 py-4 bg-brand text-slate-900 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-brand/20 animate-pulse active:scale-95"
-                >
-                  ⚠️ Connect AI Service to Begin
-                </button>
-              )}
             </div>
           ) : isBatchMode && (currentItem?.status === 'analyzing' || currentItem?.status === 'uploading') ? (
             <div className="p-32 flex flex-col items-center justify-center text-center">

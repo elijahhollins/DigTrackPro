@@ -18,12 +18,7 @@ import NoShowForm from './components/NoShowForm.tsx';
 import Login from './components/Login.tsx';
 
 declare global {
-  interface AIStudio {
-    hasSelectedApiKey: () => Promise<boolean>;
-    openSelectKey: () => Promise<void>;
-  }
   interface Window {
-    aistudio?: AIStudio;
     process?: { env: Record<string, string> };
   }
 }
@@ -40,11 +35,7 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   
-  // Robust check for the Injected API Key
-  const [hasApiKey, setHasApiKey] = useState(() => {
-    const key = process.env.API_KEY || '';
-    return key.length > 20 && key !== 'undefined';
-  });
+  const hasApiKey = true;
   
   const [viewingDocUrl, setViewingDocUrl] = useState<string | null>(null);
   const [mediaFolderFilter, setMediaFolderFilter] = useState<string | null>(null);
@@ -74,30 +65,6 @@ const App: React.FC = () => {
         .then(reg => console.log('DigTrack Pro: SW Sync Ready', reg.scope))
         .catch(err => console.warn('DigTrack Pro: SW Failed', err));
     }
-  }, []);
-
-  // Monitor for Key Updates (if using AI Studio Bridge)
-  useEffect(() => {
-    const check = async () => {
-      // 1. Injected Build-time key
-      const buildKey = process.env.API_KEY || '';
-      if (buildKey.length > 20 && buildKey !== 'undefined') {
-        setHasApiKey(true);
-        return;
-      }
-
-      // 2. Runtime Bridge (for Preview/AI Studio)
-      if (window.aistudio?.hasSelectedApiKey) {
-        try {
-          const selected = await window.aistudio.hasSelectedApiKey();
-          if (selected) setHasApiKey(true);
-        } catch (e) {}
-      }
-    };
-
-    check();
-    const interval = setInterval(check, 5000);
-    return () => clearInterval(interval);
   }, []);
 
   const handleNavigate = (view: AppView) => {
@@ -159,12 +126,7 @@ const App: React.FC = () => {
   };
 
   const handleOpenSelectKey = async () => {
-    if (window.aistudio?.openSelectKey) {
-      await window.aistudio.openSelectKey();
-      setHasApiKey(true);
-    } else {
-      alert("Missing AI credentials. Please ensure your Vercel/GitHub secrets include API_KEY and then REDEPLOY the project.");
-    }
+    alert("AI parsing now runs server-side. Configure ANTHROPIC_API_KEY or GEMINI_API_KEY in your deployment environment and redeploy.");
   };
 
   const initApp = async () => {

@@ -24,6 +24,32 @@ interface ParsedTicketResponse {
   error?: string;
 }
 
+const sanitizeAiParseErrorMessage = (message: string): string => {
+  const normalizedMessage = message.toLowerCase();
+
+  if (
+    normalizedMessage.includes("consumer suspended") ||
+    normalizedMessage.includes("permission denied") ||
+    normalizedMessage.includes("permission_denied") ||
+    normalizedMessage.includes("api key") ||
+    normalizedMessage.includes("unauthorized") ||
+    normalizedMessage.includes("access_denied")
+  ) {
+    return "ACCESS_DENIED: The configured AI provider credentials were rejected. Check the server-side API key and billing status.";
+  }
+
+  if (
+    normalizedMessage.includes("rate limit") ||
+    normalizedMessage.includes("quota") ||
+    normalizedMessage.includes("429") ||
+    normalizedMessage.includes("resource exhausted")
+  ) {
+    return "RATE_LIMITED: AI provider rate limit reached. Please retry in a moment.";
+  }
+
+  return message;
+};
+
 /**
  * Specialized service for parsing locate tickets through the server AI endpoint.
  * This service extracts structured metadata from 811 locate tickets.
@@ -45,7 +71,7 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
       console.error("[AI Parse] Invalid JSON response:", jsonError);
     }
     if (!response.ok) {
-      throw new Error(body?.error || `AI parsing failed with status ${response.status}`);
+      throw new Error(sanitizeAiParseErrorMessage(body?.error || `AI parsing failed with status ${response.status}`));
     }
 
     if (!body?.data || typeof body.data !== "object") {
@@ -55,6 +81,8 @@ export const parseTicketData = async (input: string | { data: string; mimeType: 
     return body.data;
   } catch (error: unknown) {
     console.error("[AI Parse] Extraction Failure:", error);
-    throw new Error(error instanceof Error ? error.message : "AI analysis failed. Please try again.");
+    throw new Error(
+      sanitizeAiParseErrorMessage(error instanceof Error ? error.message : "AI analysis failed. Please try again."),
+    );
   }
 };
