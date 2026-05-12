@@ -261,9 +261,8 @@ const parseWithGemini = async (input, apiKey) => {
     });
 
     const jsonStr = response.text?.trim() || '{}';
-    const cleanJson = jsonStr.replace(/^```json\s*/, '').replace(/\s*```$/, '');
     try {
-      return JSON.parse(cleanJson);
+      return JSON.parse(jsonStr);
     } catch {
       throw createHttpError(502, 'The AI returned malformed JSON. Please try a clearer image or document.', 'gemini_malformed_json');
     }
@@ -304,7 +303,7 @@ export default async function handler(req, res) {
   }
 
   const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
-  const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  const geminiApiKey = process.env.GEMINI_API_KEY;
 
   if (!anthropicApiKey && !geminiApiKey) {
     return res.status(500).json({
