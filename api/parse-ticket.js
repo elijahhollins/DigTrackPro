@@ -91,13 +91,15 @@ const createHttpError = (status, message, code) => {
   return error;
 };
 
+const safeClientErrorCodes = new Set(['invalidinput', 'empty_response', 'missing_ticket_fields', 'gemini_malformed_json']);
+
 const getPublicErrorResponse = (error) => {
   const status = Number(error?.status) || 500;
   const code = String(error?.code || '');
   const message = String(error?.message || '');
   const normalizedMessage = message.toLowerCase();
 
-  if (code === 'invalidinput' || code === 'empty_response' || code === 'missing_ticket_fields' || code === 'gemini_malformed_json') {
+  if (safeClientErrorCodes.has(code)) {
     return { status, error: message };
   }
 
@@ -137,7 +139,7 @@ const getPublicErrorResponse = (error) => {
   }
 
   return {
-    status: status >= 400 && status < 500 ? status : 500,
+    status: 500,
     error: 'AI analysis failed. Check server configuration.',
   };
 };
