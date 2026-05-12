@@ -91,6 +91,57 @@ const createHttpError = (status, message, code) => {
   return error;
 };
 
+const getPublicErrorResponse = (error) => {
+  const status = Number(error?.status) || 500;
+  const code = String(error?.code || '');
+  const message = String(error?.message || '');
+  const normalizedMessage = message.toLowerCase();
+
+  if (code === 'invalidinput' || code === 'empty_response' || code === 'missing_ticket_fields' || code === 'gemini_malformed_json') {
+    return { status, error: message };
+  }
+
+  if (
+    code === 'anthropic_auth' ||
+    code === 'gemini_auth' ||
+    status === 401 ||
+    status === 403 ||
+    normalizedMessage.includes('permission') ||
+    normalizedMessage.includes('invalid x-api-key') ||
+    normalizedMessage.includes('api key')
+  ) {
+    return {
+      status: 403,
+      error: 'ACCESS_DENIED: The configured AI provider credentials were rejected. Check the server-side API key and billing status.',
+    };
+  }
+
+  if (
+    code === 'gemini_rate_limit' ||
+    status === 429 ||
+    normalizedMessage.includes('429') ||
+    normalizedMessage.includes('rate limit') ||
+    normalizedMessage.includes('quota')
+  ) {
+    return {
+      status: 429,
+      error: 'RATE_LIMITED: AI provider rate limit reached. Please retry in a moment.',
+    };
+  }
+
+  if (code === 'anthropic_model') {
+    return {
+      status: 502,
+      error: 'AI_CONFIGURATION_ERROR: The configured Anthropic model is unavailable. Check the server-side model setting.',
+    };
+  }
+
+  return {
+    status: status >= 400 && status < 500 ? status : 500,
+    error: 'AI analysis failed. Check server configuration.',
+  };
+};
+
 const getValidatedMediaInput = (input) => {
   if (typeof input === 'string') {
     return null;
@@ -336,14 +387,8 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ data: validateParsedData(parsed) });
   } catch (error) {
-    const status = Number(error?.status) || 500;
-    const msg = String(error?.message || '').toLowerCase();
-    if (status === 429 || msg.includes('429') || msg.includes('rate limit')) {
-      return res.status(429).json({ error: error?.message || 'RATE_LIMITED: AI provider rate limit reached. Please retry in a moment.' });
-    }
-    if (status === 403 || msg.includes('401') || msg.includes('403') || msg.includes('permission') || msg.includes('invalid x-api-key')) {
-      return res.status(403).json({ error: error?.message || 'ACCESS_DENIED: Your AI provider API key is missing, invalid, or lacks permission.' });
-    }
-    return res.status(status).json({ error: error?.message || 'AI analysis failed. Check server configuration.' });
+    console.error('[AI Parse] Request failed:', error);
+    const publicError = getPublicErrorResponse(error);
+    return res.status(publicError.status).json({ error: publicError.error });
   }
 }
