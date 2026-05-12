@@ -194,6 +194,7 @@ const parseWithAnthropic = async (input, apiKey) => {
 
   const rawModelCandidates = [
     process.env.ANTHROPIC_MODEL,
+    'claude-haiku-4-5-20251001',
     'claude-3-7-sonnet-latest',
     'claude-3-7-sonnet-20250219',
     'claude-sonnet-4-20250514',
