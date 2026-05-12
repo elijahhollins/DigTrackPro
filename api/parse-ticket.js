@@ -91,7 +91,8 @@ const createHttpError = (status, message, code) => {
   return error;
 };
 
-const safeClientErrorCodes = new Set(['invalid_input', 'empty_response', 'missing_ticket_fields', 'gemini_malformed_json']);
+const clientSafeErrorCodes = new Set(['invalid_input', 'empty_response', 'missing_ticket_fields', 'gemini_malformed_json']);
+const authErrorCodes = new Set(['anthropic_auth', 'gemini_auth']);
 
 const getPublicErrorResponse = (error) => {
   const status = Number(error?.status) || 500;
@@ -99,13 +100,12 @@ const getPublicErrorResponse = (error) => {
   const message = String(error?.message || '');
   const normalizedMessage = message.toLowerCase();
 
-  if (safeClientErrorCodes.has(code)) {
+  if (clientSafeErrorCodes.has(code)) {
     return { status, error: message };
   }
 
   if (
-    code === 'anthropic_auth' ||
-    code === 'gemini_auth' ||
+    authErrorCodes.has(code) ||
     status === 401 ||
     status === 403 ||
     normalizedMessage.includes('permission') ||
