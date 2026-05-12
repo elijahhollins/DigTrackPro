@@ -118,14 +118,7 @@ const getPublicErrorResponse = (error) => {
     };
   }
 
-  if (status === 429 || code === 'gemini_rate_limit') {
-    return {
-      status: 429,
-      error: 'RATE_LIMITED: AI provider rate limit reached. Please retry in a moment.',
-    };
-  }
-
-  if (normalizedMessage.includes('rate limit') || normalizedMessage.includes('quota')) {
+  if (status === 429 || code === 'gemini_rate_limit' || normalizedMessage.includes('rate limit') || normalizedMessage.includes('quota')) {
     return {
       status: 429,
       error: 'RATE_LIMITED: AI provider rate limit reached. Please retry in a moment.',
