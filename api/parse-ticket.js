@@ -97,10 +97,10 @@ const getValidatedMediaInput = (input) => {
   }
 
   if (typeof input?.data !== 'string' || input.data.length === 0) {
-    throw createHttpError(400, 'INVALID_INPUT: Media input must include non-empty base64 data.', 'invalid_input');
+    throw createHttpError(400, 'INVALID_INPUT: Media input must include non-empty base64 data.', 'invalidinput');
   }
   if (typeof input?.mimeType !== 'string' || input.mimeType.length === 0) {
-    throw createHttpError(400, 'INVALID_INPUT: Media input must include a valid mimeType.', 'invalid_input');
+    throw createHttpError(400, 'INVALID_INPUT: Media input must include a valid mimeType.', 'invalidinput');
   }
 
   return input;
@@ -262,8 +262,15 @@ const parseWithGemini = async (input, apiKey) => {
 
     const jsonStr = response.text?.trim() || '{}';
     const cleanJson = jsonStr.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-    return JSON.parse(cleanJson);
+    try {
+      return JSON.parse(cleanJson);
+    } catch {
+      throw createHttpError(502, 'The AI returned malformed JSON. Please try a clearer image or document.', 'gemini_malformed_json');
+    }
   } catch (error) {
+    if (error?.status) {
+      throw error;
+    }
     const message = String(error?.message || 'AI analysis failed. Check server configuration.');
     const normalizedMessage = message.toLowerCase();
     if (
@@ -324,7 +331,7 @@ export default async function handler(req, res) {
 
     if (!parsed && geminiApiKey) {
       parsed = await parseWithGemini(input, geminiApiKey);
-    } else if (!parsed && anthropicError) {
+    } else if (anthropicError) {
       throw anthropicError;
     }
 
