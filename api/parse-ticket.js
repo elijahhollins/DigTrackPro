@@ -63,6 +63,7 @@ Return a clean JSON object according to the requested schema.`;
         },
       },
     };
+    const isPdfMediaInput = isMedia && input !== null && typeof input === 'object' && input.mimeType === 'application/pdf';
 
     const content = (() => {
       if (!isMedia) {
@@ -120,8 +121,8 @@ Return a clean JSON object according to the requested schema.`;
         headers: {
           'x-api-key': apiKey,
           'anthropic-version': '2023-06-01',
-          'anthropic-beta': 'pdfs-2024-09-25',
           'content-type': 'application/json',
+          ...(isPdfMediaInput ? { 'anthropic-beta': 'pdfs-2024-09-25' } : {}),
         },
         body: JSON.stringify({
           model,
