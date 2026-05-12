@@ -92,6 +92,18 @@ const createHttpError = (status, message, code) => {
   return error;
 };
 
+let anthropicClient = null;
+let anthropicClientApiKey = null;
+
+const getAnthropicClient = (apiKey) => {
+  if (!anthropicClient || anthropicClientApiKey !== apiKey) {
+    anthropicClient = new Anthropic({ apiKey });
+    anthropicClientApiKey = apiKey;
+  }
+
+  return anthropicClient;
+};
+
 const clientSafeErrorCodes = new Set(['invalid_input', 'empty_response', 'missing_ticket_fields', 'gemini_malformed_json']);
 const authErrorCodes = new Set(['anthropic_auth', 'gemini_auth']);
 
@@ -159,7 +171,7 @@ const parseWithAnthropic = async (input, apiKey) => {
   const promptText = buildPromptText(isMedia);
   const media = getValidatedMediaInput(input);
   const isPdfMediaInput = media?.mimeType === 'application/pdf';
-  const anthropic = new Anthropic({ apiKey });
+  const anthropic = getAnthropicClient(apiKey);
 
   const content = !isMedia
     ? [{ type: 'text', text: `${promptText}\n\nTicket content:\n${String(input)}` }]
@@ -230,7 +242,7 @@ const parseWithAnthropic = async (input, apiKey) => {
       );
       break;
     } catch (error) {
-      const status = Number(error?.status) || 500;
+      const status = typeof error?.status === 'number' && Number.isFinite(error.status) ? error.status : 500;
       const errorType = error?.type || error?.error?.type;
       const message = String(error?.error?.message || error?.message || `Anthropic request failed with status ${status}`);
       const normalizedMessage = message.toLowerCase();
