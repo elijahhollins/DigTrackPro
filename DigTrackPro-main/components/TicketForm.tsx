@@ -99,7 +99,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
   }, [activeIndex, queue, isBatchMode]);
 
   const handleOpenSelectKey = async () => {
-    alert("AI parsing now runs server-side. Configure ANTHROPIC_API_KEY or GEMINI_API_KEY in your deployment environment and redeploy.");
+    alert("AI ticket parsing is now managed server-side. To enable batch scanning, configure ANTHROPIC_API_KEY or GEMINI_API_KEY in your deployment environment and redeploy.");
   };
 
   const processFile = async (id: string, file: File) => {
