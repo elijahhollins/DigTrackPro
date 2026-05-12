@@ -99,6 +99,9 @@ Return a clean JSON object according to the requested schema.`;
 
     const rawModelCandidates = [
       process.env.ANTHROPIC_MODEL,
+      'claude-3-7-sonnet-latest',
+      'claude-3-7-sonnet-20250219',
+      'claude-sonnet-4-20250514',
       'claude-3-5-sonnet-latest',
       'claude-3-5-sonnet-20241022',
       'claude-3-5-haiku-latest',
