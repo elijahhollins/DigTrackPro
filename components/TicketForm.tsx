@@ -418,7 +418,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
               </div>
               <h3 className="text-lg font-black uppercase tracking-[0.1em]">AI Batch Processing</h3>
               <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mt-3 max-w-xs leading-relaxed">
-                Drag & drop PDFs here. Anthropic AI will handle the extraction while you review and confirm each record.
+                Drag & drop PDFs here. AI parsing will handle the extraction while you review and confirm each record.
               </p>
             </div>
           ) : isBatchMode && (currentItem?.status === 'analyzing' || currentItem?.status === 'uploading') ? (

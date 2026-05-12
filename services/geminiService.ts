@@ -25,7 +25,7 @@ interface ParsedTicketResponse {
 }
 
 /**
- * Specialized service for parsing locate tickets using Anthropic AI.
+ * Specialized service for parsing locate tickets through the server AI endpoint.
  * This service extracts structured metadata from 811 locate tickets.
  */
 export const parseTicketData = async (input: string | { data: string; mimeType: string }): Promise<ParsedTicketData> => {
