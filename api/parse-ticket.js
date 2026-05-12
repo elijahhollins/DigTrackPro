@@ -218,7 +218,7 @@ const parseWithAnthropic = async (input, apiKey) => {
       continue;
     }
     if (isAuthError) {
-      throw createHttpError(403, 'ACCESS_DENIED: Your server Anthropic API key is missing, invalid, or lacks permission.', 'anthropic_auth');
+      throw createHttpError(403, 'ACCESS_DENIED: Your Anthropic API key is missing, invalid, or lacks permission.', 'anthropic_auth');
     }
 
     throw createHttpError(response.status, String(message), isModelError ? 'anthropic_model' : 'anthropic_request');
@@ -278,7 +278,7 @@ const parseWithGemini = async (input, apiKey) => {
       normalizedMessage.includes('unauthorized') ||
       normalizedMessage.includes('403')
     ) {
-      throw createHttpError(403, 'ACCESS_DENIED: Your server Gemini API key is missing, invalid, or lacks permission.', 'gemini_auth');
+      throw createHttpError(403, 'ACCESS_DENIED: Your Gemini API key is missing, invalid, or lacks permission.', 'gemini_auth');
     }
     if (normalizedMessage.includes('429') || normalizedMessage.includes('rate limit') || normalizedMessage.includes('quota')) {
       throw createHttpError(429, 'RATE_LIMITED: Gemini rate limit reached. Please retry in a moment.', 'gemini_rate_limit');
@@ -307,7 +307,7 @@ export default async function handler(req, res) {
 
   if (!anthropicApiKey && !geminiApiKey) {
     return res.status(500).json({
-      error: 'API_KEY_MISSING: Configure ANTHROPIC_API_KEY or GEMINI_API_KEY on the server.',
+      error: 'API_KEY_MISSING: Configure ANTHROPIC_API_KEY or GEMINI_API_KEY.',
     });
   }
 
