@@ -7,7 +7,6 @@ interface TeamManagementProps {
   users: UserRecord[];
   sessionUser: User;
   isDarkMode?: boolean;
-  hasApiKey: boolean;
   onAddUser: (user: Partial<UserRecord>) => Promise<void>;
   onDeleteUser: (id: string) => void;
   onThemeChange?: (color: string) => void;
@@ -32,7 +31,6 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
   users = [], 
   sessionUser, 
   isDarkMode, 
-  hasApiKey,
   onDeleteUser, 
   onThemeChange, 
   onToggleRole,
@@ -127,21 +125,21 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
               <div className="flex items-center gap-2">
                 <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
                   <svg className="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                  Gemini AI Status
+                  AI Parsing Status
                 </h3>
-                <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase ${hasApiKey ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-500 border border-rose-500/20 animate-pulse'}`}>
-                  {hasApiKey ? 'Connected' : 'Action Required'}
+                <span className="px-2 py-0.5 rounded-full text-[8px] font-black uppercase bg-slate-500/10 text-slate-500 border border-slate-500/20">
+                  Managed
                 </span>
               </div>
               <p className={`text-[10px] font-bold uppercase tracking-tighter mt-1 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                {hasApiKey ? 'Extraction Engine Ready' : 'Authentication Needed'}
+                Configure provider keys in deployment settings
               </p>
             </div>
             <button 
               onClick={onOpenSelectKey}
-              className={`px-4 py-2 border rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-purple-500 hover:text-white transition-all shadow-lg active:scale-95 ${hasApiKey ? 'bg-purple-500/10 text-purple-500 border-purple-500/20' : 'bg-purple-600 text-white border-purple-700 animate-bounce'}`}
+              className="px-4 py-2 border rounded-xl text-[10px] font-black uppercase tracking-widest bg-purple-500/10 text-purple-500 border-purple-500/20 hover:bg-purple-500 hover:text-white transition-all shadow-lg active:scale-95"
             >
-              {hasApiKey ? 'Switch AI Project' : 'Handshake AI'}
+              View Setup
             </button>
           </div>
         </div>

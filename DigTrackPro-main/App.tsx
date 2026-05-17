@@ -18,12 +18,7 @@ import NoShowForm from './components/NoShowForm.tsx';
 import Login from './components/Login.tsx';
 
 declare global {
-  interface AIStudio {
-    hasSelectedApiKey: () => Promise<boolean>;
-    openSelectKey: () => Promise<void>;
-  }
   interface Window {
-    aistudio?: AIStudio;
     process?: { env: Record<string, string> };
   }
 }
@@ -39,12 +34,6 @@ const App: React.FC = () => {
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
-  
-  // Robust check for the Injected API Key
-  const [hasApiKey, setHasApiKey] = useState(() => {
-    const key = process.env.API_KEY || '';
-    return key.length > 20 && key !== 'undefined';
-  });
   
   const [viewingDocUrl, setViewingDocUrl] = useState<string | null>(null);
   const [mediaFolderFilter, setMediaFolderFilter] = useState<string | null>(null);
@@ -74,30 +63,6 @@ const App: React.FC = () => {
         .then(reg => console.log('DigTrack Pro: SW Sync Ready', reg.scope))
         .catch(err => console.warn('DigTrack Pro: SW Failed', err));
     }
-  }, []);
-
-  // Monitor for Key Updates (if using AI Studio Bridge)
-  useEffect(() => {
-    const check = async () => {
-      // 1. Injected Build-time key
-      const buildKey = process.env.API_KEY || '';
-      if (buildKey.length > 20 && buildKey !== 'undefined') {
-        setHasApiKey(true);
-        return;
-      }
-
-      // 2. Runtime Bridge (for Preview/AI Studio)
-      if (window.aistudio?.hasSelectedApiKey) {
-        try {
-          const selected = await window.aistudio.hasSelectedApiKey();
-          if (selected) setHasApiKey(true);
-        } catch (e) {}
-      }
-    };
-
-    check();
-    const interval = setInterval(check, 5000);
-    return () => clearInterval(interval);
   }, []);
 
   const handleNavigate = (view: AppView) => {
@@ -159,12 +124,7 @@ const App: React.FC = () => {
   };
 
   const handleOpenSelectKey = async () => {
-    if (window.aistudio?.openSelectKey) {
-      await window.aistudio.openSelectKey();
-      setHasApiKey(true);
-    } else {
-      alert("Missing AI credentials. Please ensure your Vercel/GitHub secrets include API_KEY and then REDEPLOY the project.");
-    }
+    alert("AI parsing configuration is now managed server-side. To enable parsing, configure ANTHROPIC_API_KEY or GEMINI_API_KEY in your deployment environment and redeploy.");
   };
 
   const initApp = async () => {
@@ -394,11 +354,6 @@ const App: React.FC = () => {
                 <h2 className="text-2xl font-black uppercase tracking-tight">Locate Vault</h2>
                 <div className="flex items-center gap-2 mt-1">
                   <p className={`text-[10px] font-bold uppercase tracking-widest ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Real-time Field Compliance</p>
-                  {!hasApiKey && (
-                    <button onClick={handleOpenSelectKey} className="bg-brand text-slate-900 text-[9px] font-black uppercase px-3 py-1 rounded-lg shadow-lg shadow-brand/20 animate-pulse hover:scale-105 transition-all">
-                      ⚠️ Connect Paid AI Project
-                    </button>
-                  )}
                 </div>
               </div>
               <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
@@ -488,7 +443,7 @@ const App: React.FC = () => {
         {activeView === 'calendar' && <CalendarView tickets={tickets} onEditTicket={setEditingTicket} onViewDoc={setViewingDocUrl} />}
         {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} isAdmin={isAdmin} isDarkMode={isDarkMode} onJobSelect={(job: Job) => handleJobSelection(job.jobNumber, job)} onViewDoc={setViewingDocUrl} />}
         {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} onAddPhoto={(data, file) => apiService.addPhoto(data, file)} onDeletePhoto={(id: string) => apiService.deletePhoto(id)} initialSearch={mediaFolderFilter} />}
-        {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} isDarkMode={isDarkMode} hasApiKey={hasApiKey} onAddUser={async (u) => { await apiService.addUser(u); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onThemeChange={applyThemeColor} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onOpenSelectKey={handleOpenSelectKey} />}
+        {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} isDarkMode={isDarkMode} onAddUser={async (u) => { await apiService.addUser(u); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onThemeChange={applyThemeColor} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onOpenSelectKey={handleOpenSelectKey} />}
         {(showTicketForm || editingTicket) && <TicketForm onSave={handleSaveTicket} onClose={() => { setShowTicketForm(false); setEditingTicket(null); }} initialData={editingTicket} isDarkMode={isDarkMode} existingTickets={tickets} />}
         {(showJobForm || editingJob) && <JobForm onSave={async (data) => { const job: Job = editingJob ? { ...editingJob, ...data } : { ...data, id: crypto.randomUUID(), createdAt: Date.now(), isComplete: false }; const saved = await apiService.saveJob(job); setJobs(prev => [...prev.filter(j => j.id !== saved.id), saved]); setShowJobForm(false); setEditingJob(null); }} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} isDarkMode={isDarkMode} />}
         {selectedJobSummary && <JobSummaryModal job={selectedJobSummary} tickets={tickets.filter(t => t.jobNumber === selectedJobSummary.jobNumber)} onClose={() => setSelectedJobSummary(null)} onEdit={() => { setEditingJob(selectedJobSummary); setShowJobForm(true); setSelectedJobSummary(null); }} onDelete={() => { apiService.deleteJob(selectedJobSummary.id).then(() => initApp()); setSelectedJobSummary(null); }} onToggleComplete={async () => { await apiService.saveJob({ ...selectedJobSummary, isComplete: !selectedJobSummary.isComplete }); initApp(); }} onViewMedia={() => { setMediaFolderFilter(selectedJobSummary.jobNumber); handleNavigate('photos'); }} onViewMarkup={() => { setShowMarkup(selectedJobSummary); setSelectedJobSummary(null); }} isDarkMode={isDarkMode} />}
