@@ -206,6 +206,8 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingManual || isSavingAll) return;
+    setIsSubmittingManual(true);
     
     const submitData: Omit<DigTicket, 'id' | 'createdAt' | 'companyId'> & { boundingBox?: Array<{ lat: number; lng: number }> } = {
       ...formData,
@@ -214,26 +216,25 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
       lng: formData.lng !== '' && !isNaN(parseFloat(formData.lng)) ? parseFloat(formData.lng) : undefined,
     };
 
-    if (isBatchMode) {
-      const currentItem = queue[activeIndex];
-      const bbox = currentItem?.extractedData?.boundingBox;
-      if (Array.isArray(bbox) && bbox.length >= 3) submitData.boundingBox = bbox;
-      const currentId = queue[activeIndex]?.id;
-      await onSave(submitData);
-      if (currentId) {
-        setQueue(prev => prev.map(item => item.id === currentId ? { ...item, status: 'saved' } : item));
-      }
-      moveToNext();
-    } else {
-      setIsSubmittingManual(true);
-      try {
+    try {
+      if (isBatchMode) {
+        const currentItem = queue[activeIndex];
+        const bbox = currentItem?.extractedData?.boundingBox;
+        if (Array.isArray(bbox) && bbox.length >= 3) submitData.boundingBox = bbox;
+        const currentId = queue[activeIndex]?.id;
+        await onSave(submitData);
+        if (currentId) {
+          setQueue(prev => prev.map(item => item.id === currentId ? { ...item, status: 'saved' } : item));
+        }
+        moveToNext();
+      } else {
         await onSave(submitData);
         onClose();
-      } catch (err: any) {
-        alert(err.message);
-      } finally {
-        setIsSubmittingManual(false);
       }
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setIsSubmittingManual(false);
     }
   };
 

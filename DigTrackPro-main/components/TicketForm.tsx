@@ -193,24 +193,25 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (isBatchMode) {
-      const currentId = queue[activeIndex]?.id;
-      await onSave(formData);
-      if (currentId) {
-        setQueue(prev => prev.map(item => item.id === currentId ? { ...item, status: 'saved' } : item));
-      }
-      moveToNext();
-    } else {
-      setIsSubmittingManual(true);
-      try {
+    if (isSubmittingManual) return;
+    setIsSubmittingManual(true);
+
+    try {
+      if (isBatchMode) {
+        const currentId = queue[activeIndex]?.id;
+        await onSave(formData);
+        if (currentId) {
+          setQueue(prev => prev.map(item => item.id === currentId ? { ...item, status: 'saved' } : item));
+        }
+        moveToNext();
+      } else {
         await onSave(formData);
         onClose();
-      } catch (err: any) {
-        alert(err.message);
-      } finally {
-        setIsSubmittingManual(false);
       }
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setIsSubmittingManual(false);
     }
   };
 
