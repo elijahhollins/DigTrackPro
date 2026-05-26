@@ -209,7 +209,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
     e.preventDefault();
     if (submitLockRef.current || isSavingAll) return;
     submitLockRef.current = true;
-    const wasBatchMode = isBatchMode;
+    const isBatchModeAtSubmit = isBatchMode;
     
     const submitData: Omit<DigTicket, 'id' | 'createdAt' | 'companyId'> & { boundingBox?: Array<{ lat: number; lng: number }> } = {
       ...formData,
@@ -237,7 +237,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
     } catch (err: any) {
       alert(err.message);
     } finally {
-      if (!wasBatchMode) {
+      if (!isBatchModeAtSubmit) {
         setIsSubmittingManual(false);
       }
       submitLockRef.current = false;

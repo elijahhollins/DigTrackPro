@@ -196,7 +196,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
     e.preventDefault();
     if (submitLockRef.current) return;
     submitLockRef.current = true;
-    const wasBatchMode = isBatchMode;
+    const isBatchModeAtSubmit = isBatchMode;
 
     try {
       if (isBatchMode) {
@@ -214,7 +214,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
     } catch (err: any) {
       alert(err.message);
     } finally {
-      if (!wasBatchMode) {
+      if (!isBatchModeAtSubmit) {
         setIsSubmittingManual(false);
       }
       submitLockRef.current = false;
