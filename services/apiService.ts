@@ -86,6 +86,8 @@ create table if not exists tickets (
     bbox_lng3 double precision,
     bbox_lat4 double precision,
     bbox_lng4 double precision,
+    assigned_crew_id uuid references profiles(id),
+    assigned_at timestamp with time zone,
     created_at timestamp with time zone default now()
 );
 
@@ -238,7 +240,9 @@ ALTER TABLE tickets ADD COLUMN IF NOT EXISTS bbox_lng2 double precision;
 ALTER TABLE tickets ADD COLUMN IF NOT EXISTS bbox_lat3 double precision;
 ALTER TABLE tickets ADD COLUMN IF NOT EXISTS bbox_lng3 double precision;
 ALTER TABLE tickets ADD COLUMN IF NOT EXISTS bbox_lat4 double precision;
-ALTER TABLE tickets ADD COLUMN IF NOT EXISTS bbox_lng4 double precision;`;
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS bbox_lng4 double precision;
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS assigned_crew_id uuid REFERENCES profiles(id);
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS assigned_at timestamp with time zone;`;
 
 const generateUUID = () => crypto.randomUUID();
 
@@ -253,6 +257,81 @@ const mapJob = (data: any): Job => ({
   county: data.county || '',
   createdAt: data.created_at ? new Date(data.created_at).getTime() : Date.now(),
   isComplete: data.is_complete ?? false
+});
+
+type TicketRow = {
+  id: string;
+  company_id: string;
+  job_number: string;
+  ticket_no: string;
+  street: string;
+  cross_street?: string | null;
+  place?: string | null;
+  extent?: string | null;
+  county: string;
+  city: string;
+  state: string;
+  call_in_date: string;
+  work_date: string;
+  dig_by_date?: string | null;
+  expires: string;
+  site_contact: string;
+  refresh_requested?: boolean | null;
+  no_show_requested?: boolean | null;
+  is_archived?: boolean | null;
+  work_begun?: boolean | null;
+  document_url?: string | null;
+  geotag_lat?: number | null;
+  geotag_lng?: number | null;
+  bbox_lat1?: number | null;
+  bbox_lng1?: number | null;
+  bbox_lat2?: number | null;
+  bbox_lng2?: number | null;
+  bbox_lat3?: number | null;
+  bbox_lng3?: number | null;
+  bbox_lat4?: number | null;
+  bbox_lng4?: number | null;
+  assigned_crew_id?: string | null;
+  assigned_at?: string | null;
+  created_at: string;
+};
+
+const mapTicket = (t: TicketRow): DigTicket => ({
+  id: t.id,
+  companyId: t.company_id,
+  jobNumber: t.job_number,
+  ticketNo: t.ticket_no,
+  street: t.street,
+  crossStreet: t.cross_street || '',
+  place: t.place || '',
+  extent: t.extent || '',
+  county: t.county,
+  city: t.city,
+  state: t.state,
+  callInDate: t.call_in_date,
+  workDate: t.work_date,
+  digByDate: t.dig_by_date || undefined,
+  expires: t.expires,
+  siteContact: t.site_contact,
+  refreshRequested: t.refresh_requested ?? false,
+  noShowRequested: t.no_show_requested ?? false,
+  isArchived: t.is_archived ?? false,
+  workBegun: t.work_begun ?? undefined,
+  documentUrl: t.document_url || '',
+  lat: t.geotag_lat ?? undefined,
+  lng: t.geotag_lng ?? undefined,
+  boundingBox: (() => {
+    const points = [
+      { lat: t.bbox_lat1, lng: t.bbox_lng1 },
+      { lat: t.bbox_lat2, lng: t.bbox_lng2 },
+      { lat: t.bbox_lat3, lng: t.bbox_lng3 },
+      { lat: t.bbox_lat4, lng: t.bbox_lng4 },
+    ].filter((p): p is { lat: number; lng: number } => p.lat != null && p.lng != null);
+    return points.length > 0 ? points : undefined;
+  })(),
+  assignedCrewId: t.assigned_crew_id || undefined,
+  assignedAt: t.assigned_at ? new Date(t.assigned_at).getTime() : undefined,
+  createdAt: new Date(t.created_at).getTime()
 });
 
 function throwIfEmailFailed(error: unknown, data: Record<string, unknown> | null, logLabel: string): void {
@@ -361,40 +440,7 @@ export const apiService = {
   async getTickets(): Promise<DigTicket[]> {
     const { data, error } = await supabase.from('tickets').select('*');
     if (error) return [];
-    return (data || []).map(t => ({
-        id: t.id,
-        companyId: t.company_id,
-        jobNumber: t.job_number,
-        ticketNo: t.ticket_no,
-        street: t.street,
-        crossStreet: t.cross_street || '',
-        place: t.place || '',
-        extent: t.extent || '',
-        county: t.county,
-        city: t.city,
-        state: t.state,
-        callInDate: t.call_in_date,
-        workDate: t.work_date,
-        digByDate: t.dig_by_date || undefined,
-        expires: t.expires,
-        siteContact: t.site_contact,
-        refreshRequested: t.refresh_requested ?? false,
-        noShowRequested: t.no_show_requested ?? false,
-        isArchived: t.is_archived ?? false,
-        workBegun: t.work_begun ?? undefined,
-        documentUrl: t.document_url || '',
-        lat: t.geotag_lat ?? undefined,
-        lng: t.geotag_lng ?? undefined,
-        boundingBox: (t.bbox_lat1 != null && t.bbox_lng1 != null)
-          ? [
-              { lat: t.bbox_lat1, lng: t.bbox_lng1 },
-              { lat: t.bbox_lat2, lng: t.bbox_lng2 },
-              { lat: t.bbox_lat3, lng: t.bbox_lng3 },
-              { lat: t.bbox_lat4, lng: t.bbox_lng4 },
-            ].filter(p => p.lat != null && p.lng != null)
-          : undefined,
-        createdAt: new Date(t.created_at).getTime()
-    } as any));
+    return ((data || []) as TicketRow[]).map(mapTicket);
   },
 
   async saveTicket(ticket: DigTicket, archiveExisting: boolean = false): Promise<DigTicket> {
@@ -433,42 +479,11 @@ export const apiService = {
       bbox_lng3: ticket.boundingBox?.[2]?.lng ?? null,
       bbox_lat4: ticket.boundingBox?.[3]?.lat ?? null,
       bbox_lng4: ticket.boundingBox?.[3]?.lng ?? null,
+      assigned_crew_id: ticket.assignedCrewId ?? null,
+      assigned_at: ticket.assignedAt ? new Date(ticket.assignedAt).toISOString() : null,
     }).select().single();
     if (error) throw error;
-    return {
-        id: data.id,
-        companyId: data.company_id,
-        jobNumber: data.job_number,
-        ticketNo: data.ticket_no,
-        street: data.street,
-        crossStreet: data.cross_street || '',
-        place: data.place || '',
-        extent: data.extent,
-        county: data.county,
-        city: data.city,
-        state: data.state,
-        callInDate: data.call_in_date,
-        workDate: data.work_date,
-        digByDate: data.dig_by_date || undefined,
-        expires: data.expires,
-        siteContact: data.site_contact,
-        refreshRequested: data.refresh_requested ?? false,
-        noShowRequested: data.no_show_requested ?? false,
-        isArchived: data.is_archived ?? false,
-        workBegun: data.work_begun ?? undefined,
-        documentUrl: data.document_url || '',
-        lat: data.geotag_lat ?? undefined,
-        lng: data.geotag_lng ?? undefined,
-        boundingBox: (data.bbox_lat1 != null && data.bbox_lng1 != null)
-          ? [
-              { lat: data.bbox_lat1, lng: data.bbox_lng1 },
-              { lat: data.bbox_lat2, lng: data.bbox_lng2 },
-              { lat: data.bbox_lat3, lng: data.bbox_lng3 },
-              { lat: data.bbox_lat4, lng: data.bbox_lng4 },
-            ].filter(p => p.lat != null && p.lng != null)
-          : undefined,
-        createdAt: new Date(data.created_at).getTime()
-    };
+    return mapTicket(data);
   },
 
   async deleteTicket(id: string): Promise<void> {

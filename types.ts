@@ -125,6 +125,8 @@ export interface DigTicket {
   lat?: number;
   lng?: number;
   boundingBox?: Array<{ lat: number; lng: number }>;
+  assignedCrewId?: string;
+  assignedAt?: number;
 }
 
 export interface NoShowRecord {
@@ -159,4 +161,4 @@ export interface JobNote {
 
 export type SortField = keyof DigTicket | 'status';
 export type SortOrder = 'asc' | 'desc';
-export type AppView = 'dashboard' | 'calendar' | 'jobs' | 'photos' | 'team' | 'map' | 'asbuilt';
+export type AppView = 'dashboard' | 'operations' | 'calendar' | 'jobs' | 'photos' | 'team' | 'map' | 'asbuilt';
