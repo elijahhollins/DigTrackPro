@@ -57,6 +57,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
   const [activeIndex, setActiveIndex] = useState<number>(0);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const submitLockRef = useRef(false);
 
   useEffect(() => {
     if (initialData) {
@@ -206,8 +207,8 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isSubmittingManual || isSavingAll) return;
-    setIsSubmittingManual(true);
+    if (submitLockRef.current || isSubmittingManual || isSavingAll) return;
+    submitLockRef.current = true;
     
     const submitData: Omit<DigTicket, 'id' | 'createdAt' | 'companyId'> & { boundingBox?: Array<{ lat: number; lng: number }> } = {
       ...formData,
@@ -228,13 +229,17 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
         }
         moveToNext();
       } else {
+        setIsSubmittingManual(true);
         await onSave(submitData);
         onClose();
       }
     } catch (err: any) {
       alert(err.message);
     } finally {
-      setIsSubmittingManual(false);
+      if (!isBatchMode) {
+        setIsSubmittingManual(false);
+      }
+      submitLockRef.current = false;
     }
   };
 

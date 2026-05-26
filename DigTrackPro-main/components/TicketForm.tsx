@@ -51,6 +51,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
   const [activeIndex, setActiveIndex] = useState<number>(0);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const submitLockRef = useRef(false);
 
   useEffect(() => {
     if (initialData) {
@@ -193,8 +194,8 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isSubmittingManual) return;
-    setIsSubmittingManual(true);
+    if (submitLockRef.current || isSubmittingManual) return;
+    submitLockRef.current = true;
 
     try {
       if (isBatchMode) {
@@ -205,13 +206,17 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
         }
         moveToNext();
       } else {
+        setIsSubmittingManual(true);
         await onSave(formData);
         onClose();
       }
     } catch (err: any) {
       alert(err.message);
     } finally {
-      setIsSubmittingManual(false);
+      if (!isBatchMode) {
+        setIsSubmittingManual(false);
+      }
+      submitLockRef.current = false;
     }
   };
 
