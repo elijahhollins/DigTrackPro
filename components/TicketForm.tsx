@@ -220,18 +220,19 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
 
     try {
       if (isBatchMode) {
-        const currentItem = queue[activeIndex];
+        const currentIndexAtSubmit = activeIndex;
+        const currentItem = queue[currentIndexAtSubmit];
         const bbox = currentItem?.extractedData?.boundingBox;
         if (Array.isArray(bbox) && bbox.length >= 3) submitData.boundingBox = bbox;
-        const currentId = queue[activeIndex]?.id;
+        const currentId = queue[currentIndexAtSubmit]?.id;
         await onSave(submitData);
-        const nextQueue: IngestionItem[] = currentId
-          ? queue.map(item => item.id === currentId ? { ...item, status: 'saved' as const } : item)
-          : queue;
-        if (currentId) {
-          setQueue(nextQueue);
-        }
-        moveToNext(nextQueue, activeIndex);
+        setQueue(prev => {
+          const nextQueue: IngestionItem[] = currentId
+            ? prev.map(item => item.id === currentId ? { ...item, status: 'saved' as const } : item)
+            : prev;
+          moveToNext(nextQueue, currentIndexAtSubmit);
+          return nextQueue;
+        });
       } else {
         setIsSubmittingManual(true);
         await onSave(submitData);
