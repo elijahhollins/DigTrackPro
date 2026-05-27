@@ -177,16 +177,16 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const moveToNext = () => {
-    const nextUnsaved = queue.findIndex((item, idx) => idx > activeIndex && item.status !== 'saved');
+  const moveToNext = (items: IngestionItem[], currentIndex: number) => {
+    const nextUnsaved = items.findIndex((item, idx) => idx > currentIndex && item.status !== 'saved');
     if (nextUnsaved !== -1) {
       setActiveIndex(nextUnsaved);
     } else {
-      const priorUnsaved = queue.findIndex((item) => item.status !== 'saved' && (item.status === 'ready' || item.status === 'duplicate' || item.status === 'error'));
+      const priorUnsaved = items.findIndex((item) => item.status !== 'saved' && (item.status === 'ready' || item.status === 'duplicate' || item.status === 'error'));
       if (priorUnsaved !== -1) {
         setActiveIndex(priorUnsaved);
       } else {
-        const allDone = queue.every(i => i.status === 'saved');
+        const allDone = items.every(i => i.status === 'saved');
         if (allDone) onClose();
       }
     }
@@ -202,10 +202,13 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
       if (isBatchMode) {
         const currentId = queue[activeIndex]?.id;
         await onSave(formData);
+        const nextQueue: IngestionItem[] = currentId
+          ? queue.map(item => item.id === currentId ? { ...item, status: 'saved' as const } : item)
+          : queue;
         if (currentId) {
-          setQueue(prev => prev.map(item => item.id === currentId ? { ...item, status: 'saved' } : item));
+          setQueue(nextQueue);
         }
-        moveToNext();
+        moveToNext(nextQueue, activeIndex);
       } else {
         setIsSubmittingManual(true);
         await onSave(formData);
@@ -363,7 +366,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onClose, initial
 
               <div className="flex gap-3 mt-10 w-full max-w-sm">
                  <button onClick={() => removeFromQueue(activeIndex)} className="flex-1 py-5 bg-rose-500 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest">Discard</button>
-                 <button onClick={moveToNext} className="flex-1 py-5 bg-white/5 text-slate-500 border border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest">Retry Next</button>
+                 <button onClick={() => moveToNext(queue, activeIndex)} className="flex-1 py-5 bg-white/5 text-slate-500 border border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest">Retry Next</button>
               </div>
             </div>
           ) : (
