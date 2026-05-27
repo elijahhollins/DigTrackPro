@@ -20,6 +20,8 @@ import Login from './components/Login.tsx';
 import CompanyRegistration from './components/CompanyRegistration.tsx';
 import MapView from './components/MapView.tsx';
 import { AsBuiltView } from './components/AsBuiltView.tsx';
+import InboundTicketsDashboard from './components/InboundTicketsDashboard.tsx';
+import InboundTechQueue from './components/InboundTechQueue.tsx';
 
 declare global {
   interface AIStudio {
@@ -68,6 +70,7 @@ const App: React.FC = () => {
   const [noShowTicket, setNoShowTicket] = useState<DigTicket | null>(null);
   const [notesTicket, setNotesTicket] = useState<DigTicket | null>(null);
   const [digConfirmTicket, setDigConfirmTicket] = useState<DigTicket | null>(null);
+  const [showInbound, setShowInbound] = useState(false);
   const [snoozedDigConfirmIds, setSnoozedDigConfirmIds] = useState<Set<string>>(new Set());
   const [globalSearch, setGlobalSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<TicketStatus | 'NO_SHOW' | null>(null);
@@ -94,6 +97,7 @@ const App: React.FC = () => {
   };
 
   const handleNavigate = (view: AppView) => {
+    setShowInbound(false);
     setShowTicketForm(false);
     setEditingTicket(null);
     setShowJobForm(false);
@@ -109,6 +113,7 @@ const App: React.FC = () => {
   };
 
   const handleShowInDashboard = useCallback((ticket: DigTicket) => {
+    setShowInbound(false);
     handleNavigate('dashboard');
     setExpandedJobs(prev => new Set([...prev, ticket.jobNumber]));
     setHighlightedTicketId(ticket.id);
@@ -657,6 +662,26 @@ const App: React.FC = () => {
               </button>
             );
           })}
+          {/* Inbound Tickets nav item */}
+          <button
+            onClick={() => { setShowInbound(true); setActiveView('dashboard'); }}
+            className={`w-full flex items-center justify-center lg:justify-start gap-3 px-0 lg:px-3 py-3 rounded-xl transition-all relative group ${
+              showInbound
+                ? isDarkMode
+                  ? 'bg-brand/10 text-brand border border-brand/20 sidebar-active'
+                  : 'bg-brand text-white shadow-md shadow-brand/20'
+                : isDarkMode
+                ? 'text-slate-600 hover:text-slate-200 hover:bg-white/[0.04]'
+                : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
+            }`}
+          >
+            <span className={`transition-transform ${showInbound ? 'scale-110' : 'group-hover:scale-105'}`}>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
+              </svg>
+            </span>
+            <span className="hidden lg:block text-[10px] font-black uppercase tracking-[0.12em]">Inbound</span>
+          </button>
         </nav>
 
         {/* Admin CTA buttons */}
@@ -712,8 +737,21 @@ const App: React.FC = () => {
           </div>
           {/* Desktop: view name */}
           <div className="hidden sm:flex flex-1 items-center gap-2">
-            <span className="text-brand opacity-50">{NAV_ITEMS.find(n => n.id === activeView)?.icon}</span>
-            <span className={`text-sm font-black uppercase tracking-[0.1em] ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{NAV_ITEMS.find(n => n.id === activeView)?.label}</span>
+            {showInbound ? (
+              <>
+                <span className="text-brand opacity-50">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
+                  </svg>
+                </span>
+                <span className={`text-sm font-black uppercase tracking-[0.1em] ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Inbound</span>
+              </>
+            ) : (
+              <>
+                <span className="text-brand opacity-50">{NAV_ITEMS.find(n => n.id === activeView)?.icon}</span>
+                <span className={`text-sm font-black uppercase tracking-[0.1em] ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{NAV_ITEMS.find(n => n.id === activeView)?.label}</span>
+              </>
+            )}
           </div>
 
           {/* Search (dashboard only, desktop) */}
@@ -986,6 +1024,20 @@ const App: React.FC = () => {
             {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} isAdmin={isAdmin} companyId={sessionUser.companyId} onAddPhoto={(data, file) => apiService.addPhoto({ ...data, companyId: sessionUser.companyId }, file)} onDeletePhoto={(id: string) => apiService.deletePhoto(id)} onDeleteJob={async (id) => { await apiService.deleteJob(id); initApp(); }} initialSearch={mediaFolderFilter} />}
             {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} company={company || undefined} isDarkMode={isDarkMode} isSuperAdmin={isSuperAdmin} allCompanies={allCompanies} onCompanyCreated={(co) => setAllCompanies(prev => [...prev, co])} onCompanyUpdated={handleUpdateCompany} onToggleCompanyActive={handleToggleCompanyActive} onAddUser={async (u) => { await apiService.addUser({ ...u, companyId: sessionUser.companyId }); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onUpdateUserName={async (id, name) => { await apiService.updateUserName(id, name); initApp(); }} onSendPasswordReset={async (email) => { await apiService.sendPasswordReset(email); }} onUpdateCurrentUserPassword={async (password) => { await apiService.updateCurrentUserPassword(password); }} onUpdateNotificationEmail={handleUpdateNotificationEmail} onUpdateUserNotificationEmail={handleUpdateUserNotificationEmail} onTestEmail={handleTestEmail} />}
             {activeView === 'asbuilt' && <AsBuiltView jobs={jobs} sessionUser={sessionUser} isAdmin={isAdmin} isDarkMode={isDarkMode} onDeleteJob={async (id) => { await apiService.deleteJob(id); initApp(); }} />}
+            {showInbound && isAdmin && (
+              <InboundTicketsDashboard
+                sessionUser={sessionUser}
+                users={users}
+                isDarkMode={isDarkMode}
+              />
+            )}
+            {showInbound && !isAdmin && (
+              <InboundTechQueue
+                sessionUser={sessionUser}
+                users={users}
+                isDarkMode={isDarkMode}
+              />
+            )}
           </div>
         </main>
       </div>
@@ -1001,6 +1053,18 @@ const App: React.FC = () => {
             </button>
           );
         })}
+          {/* Inbound mobile nav button */}
+          <button
+            onClick={() => { setShowInbound(true); setActiveView('dashboard'); }}
+            className={`flex flex-col items-center gap-1 transition-all px-3 py-1 rounded-xl ${showInbound ? 'text-brand' : isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}
+          >
+            <div className={`p-1.5 rounded-xl transition-all ${showInbound ? 'bg-brand/10' : ''}`}>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
+              </svg>
+            </div>
+            <span className="text-[8px] font-black uppercase tracking-widest">Inbound</span>
+          </button>
       </nav>
 
       {/* ── MODALS ── */}
