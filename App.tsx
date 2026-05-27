@@ -755,7 +755,7 @@ const App: React.FC = () => {
           </div>
 
           {/* Search (dashboard only, desktop) */}
-          {activeView === 'dashboard' && (
+          {!showInbound && activeView === 'dashboard' && (
             <div className="relative hidden md:block">
               <input
                 type="text"
@@ -799,10 +799,10 @@ const App: React.FC = () => {
         </header>
 
         {/* Scrollable content */}
-        <main key={activeView} className="flex-1 overflow-y-auto view-transition pb-20 sm:pb-0">
+        <main key={showInbound ? 'inbound' : activeView} className="flex-1 overflow-y-auto view-transition pb-20 sm:pb-0">
           <div className="max-w-[1400px] mx-auto px-5 py-6">
 
-            {activeView === 'dashboard' && (
+            {!showInbound && activeView === 'dashboard' && (
               <div className="space-y-6">
 
                 {/* Page header */}
@@ -1001,8 +1001,8 @@ const App: React.FC = () => {
               </div>
             )}
 
-            {activeView === 'calendar' && <CalendarView tickets={tickets} onEditTicket={setEditingTicket} onShowInDashboard={handleShowInDashboard} onViewDoc={setViewingDocUrl} onManageNoShow={setNoShowTicket} isDarkMode={isDarkMode} />}
-            {activeView === 'map' && <MapView
+            {!showInbound && activeView === 'calendar' && <CalendarView tickets={tickets} onEditTicket={setEditingTicket} onShowInDashboard={handleShowInDashboard} onViewDoc={setViewingDocUrl} onManageNoShow={setNoShowTicket} isDarkMode={isDarkMode} />}
+            {!showInbound && activeView === 'map' && <MapView
               tickets={activeTicketsList}
               isDarkMode={isDarkMode}
               onEditTicket={isAdmin ? setEditingTicket : undefined}
@@ -1020,10 +1020,10 @@ const App: React.FC = () => {
                 setHighlightedTicketId(ticket.id);
               }}
             />}
-            {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} isAdmin={isAdmin} isDarkMode={isDarkMode} onJobSelect={(job: Job) => handleJobSelection(job.jobNumber, job)} onViewDoc={setViewingDocUrl} />}
-            {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} isAdmin={isAdmin} companyId={sessionUser.companyId} onAddPhoto={(data, file) => apiService.addPhoto({ ...data, companyId: sessionUser.companyId }, file)} onDeletePhoto={(id: string) => apiService.deletePhoto(id)} onDeleteJob={async (id) => { await apiService.deleteJob(id); initApp(); }} initialSearch={mediaFolderFilter} />}
-            {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} company={company || undefined} isDarkMode={isDarkMode} isSuperAdmin={isSuperAdmin} allCompanies={allCompanies} onCompanyCreated={(co) => setAllCompanies(prev => [...prev, co])} onCompanyUpdated={handleUpdateCompany} onToggleCompanyActive={handleToggleCompanyActive} onAddUser={async (u) => { await apiService.addUser({ ...u, companyId: sessionUser.companyId }); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onUpdateUserName={async (id, name) => { await apiService.updateUserName(id, name); initApp(); }} onSendPasswordReset={async (email) => { await apiService.sendPasswordReset(email); }} onUpdateCurrentUserPassword={async (password) => { await apiService.updateCurrentUserPassword(password); }} onUpdateNotificationEmail={handleUpdateNotificationEmail} onUpdateUserNotificationEmail={handleUpdateUserNotificationEmail} onTestEmail={handleTestEmail} />}
-            {activeView === 'asbuilt' && <AsBuiltView jobs={jobs} sessionUser={sessionUser} isAdmin={isAdmin} isDarkMode={isDarkMode} onDeleteJob={async (id) => { await apiService.deleteJob(id); initApp(); }} />}
+            {!showInbound && activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} isAdmin={isAdmin} isDarkMode={isDarkMode} onJobSelect={(job: Job) => handleJobSelection(job.jobNumber, job)} onViewDoc={setViewingDocUrl} />}
+            {!showInbound && activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} isAdmin={isAdmin} companyId={sessionUser.companyId} onAddPhoto={(data, file) => apiService.addPhoto({ ...data, companyId: sessionUser.companyId }, file)} onDeletePhoto={(id: string) => apiService.deletePhoto(id)} onDeleteJob={async (id) => { await apiService.deleteJob(id); initApp(); }} initialSearch={mediaFolderFilter} />}
+            {!showInbound && activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} company={company || undefined} isDarkMode={isDarkMode} isSuperAdmin={isSuperAdmin} allCompanies={allCompanies} onCompanyCreated={(co) => setAllCompanies(prev => [...prev, co])} onCompanyUpdated={handleUpdateCompany} onToggleCompanyActive={handleToggleCompanyActive} onAddUser={async (u) => { await apiService.addUser({ ...u, companyId: sessionUser.companyId }); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onUpdateUserName={async (id, name) => { await apiService.updateUserName(id, name); initApp(); }} onSendPasswordReset={async (email) => { await apiService.sendPasswordReset(email); }} onUpdateCurrentUserPassword={async (password) => { await apiService.updateCurrentUserPassword(password); }} onUpdateNotificationEmail={handleUpdateNotificationEmail} onUpdateUserNotificationEmail={handleUpdateUserNotificationEmail} onTestEmail={handleTestEmail} />}
+            {!showInbound && activeView === 'asbuilt' && <AsBuiltView jobs={jobs} sessionUser={sessionUser} isAdmin={isAdmin} isDarkMode={isDarkMode} onDeleteJob={async (id) => { await apiService.deleteJob(id); initApp(); }} />}
             {showInbound && isAdmin && (
               <InboundTicketsDashboard
                 sessionUser={sessionUser}
