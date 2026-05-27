@@ -57,6 +57,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
   const [activeIndex, setActiveIndex] = useState<number>(0);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const submitLockRef = useRef(false);
 
   useEffect(() => {
     if (initialData) {
@@ -189,16 +190,16 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const moveToNext = () => {
-    const nextUnsaved = queue.findIndex((item, idx) => idx > activeIndex && item.status !== 'saved');
+  const moveToNext = (items: IngestionItem[], currentIndex: number) => {
+    const nextUnsaved = items.findIndex((item, idx) => idx > currentIndex && item.status !== 'saved');
     if (nextUnsaved !== -1) {
       setActiveIndex(nextUnsaved);
     } else {
-      const priorUnsaved = queue.findIndex((item) => item.status !== 'saved' && (item.status === 'ready' || item.status === 'duplicate' || item.status === 'error'));
+      const priorUnsaved = items.findIndex((item) => item.status !== 'saved' && (item.status === 'ready' || item.status === 'duplicate' || item.status === 'error'));
       if (priorUnsaved !== -1) {
         setActiveIndex(priorUnsaved);
       } else {
-        const allDone = queue.every(i => i.status === 'saved');
+        const allDone = items.every(i => i.status === 'saved');
         if (allDone) onClose();
       }
     }
@@ -206,6 +207,9 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitLockRef.current || isSavingAll) return;
+    submitLockRef.current = true;
+    const isBatchModeAtSubmit = isBatchMode;
     
     const submitData: Omit<DigTicket, 'id' | 'createdAt' | 'companyId'> & { boundingBox?: Array<{ lat: number; lng: number }> } = {
       ...formData,
@@ -214,26 +218,33 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
       lng: formData.lng !== '' && !isNaN(parseFloat(formData.lng)) ? parseFloat(formData.lng) : undefined,
     };
 
-    if (isBatchMode) {
-      const currentItem = queue[activeIndex];
-      const bbox = currentItem?.extractedData?.boundingBox;
-      if (Array.isArray(bbox) && bbox.length >= 3) submitData.boundingBox = bbox;
-      const currentId = queue[activeIndex]?.id;
-      await onSave(submitData);
-      if (currentId) {
-        setQueue(prev => prev.map(item => item.id === currentId ? { ...item, status: 'saved' } : item));
-      }
-      moveToNext();
-    } else {
-      setIsSubmittingManual(true);
-      try {
+    try {
+      if (isBatchMode) {
+        const currentIndexAtSubmit = activeIndex;
+        const currentItem = queue[currentIndexAtSubmit];
+        const bbox = currentItem?.extractedData?.boundingBox;
+        if (Array.isArray(bbox) && bbox.length >= 3) submitData.boundingBox = bbox;
+        const currentId = queue[currentIndexAtSubmit]?.id;
+        await onSave(submitData);
+        setQueue(prev => {
+          const nextQueue: IngestionItem[] = currentId
+            ? prev.map(item => item.id === currentId ? { ...item, status: 'saved' as const } : item)
+            : prev;
+          moveToNext(nextQueue, currentIndexAtSubmit);
+          return nextQueue;
+        });
+      } else {
+        setIsSubmittingManual(true);
         await onSave(submitData);
         onClose();
-      } catch (err: any) {
-        alert(err.message);
-      } finally {
+      }
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      if (!isBatchModeAtSubmit) {
         setIsSubmittingManual(false);
       }
+      submitLockRef.current = false;
     }
   };
 
@@ -437,7 +448,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
               
               <div className="flex gap-3 mt-10 w-full max-w-sm">
                  <button onClick={() => removeFromQueue(activeIndex)} className="flex-1 py-5 bg-rose-500 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest">Discard</button>
-                 <button onClick={moveToNext} className="flex-1 py-5 bg-white/5 text-slate-500 border border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest">Retry Next</button>
+                 <button onClick={() => moveToNext(queue, activeIndex)} className="flex-1 py-5 bg-white/5 text-slate-500 border border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest">Retry Next</button>
               </div>
             </div>
           ) : (
