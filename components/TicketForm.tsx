@@ -50,7 +50,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
   const [isDeletingTicket, setIsDeletingTicket] = useState(false);
   
   const [formData, setFormData] = useState({
-    jobNumber: '', ticketNo: '', street: '', crossStreet: '', place: '', extent: '', county: '', city: '', state: '', callInDate: '', workDate: '', digByDate: '', expires: '', siteContact: '', documentUrl: '', lat: '' as string, lng: '' as string, workBegun: undefined as boolean | undefined,
+    jobNumber: '', ticketNo: '', street: '', crossStreet: '', place: '', extent: '', county: '', city: '', state: '', callInDate: '', workDate: '', digByDate: '', expires: '', siteContact: '', documentUrl: '', lat: '' as string, lng: '' as string, workBegun: undefined as boolean | undefined, ticketType: 'standard' as 'standard' | 'inbound',
   });
   
   const [queue, setQueue] = useState<IngestionItem[]>([]);
@@ -79,6 +79,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
         lat: initialData.lat != null ? String(initialData.lat) : '',
         lng: initialData.lng != null ? String(initialData.lng) : '',
         workBegun: initialData.workBegun,
+        ticketType: initialData.ticketType || 'standard',
       });
       setIsBatchMode(false);
     }
@@ -109,6 +110,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
           lat: activeItem.extractedData.lat != null ? String(activeItem.extractedData.lat) : '',
           lng: activeItem.extractedData.lng != null ? String(activeItem.extractedData.lng) : '',
           workBegun: undefined,
+          ticketType: 'standard',
         });
       }
     }
@@ -292,6 +294,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
         isArchived: false,
         refreshRequested: false,
         noShowRequested: false,
+        ticketType: 'standard' as const,
       };
       try {
         await onSave(submitData);
@@ -515,6 +518,18 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
                   <label className="text-[10px] font-black uppercase tracking-widest ml-1 text-slate-500">Expires Date <span className="normal-case font-normal text-slate-400">(if work begun)</span></label>
                   <input type="date" required className={`w-full px-5 py-4 border rounded-2xl text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-300 text-black'}`} value={formData.expires} onChange={e => setFormData({...formData, expires: e.target.value})} />
                 </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase tracking-widest ml-1 text-slate-500">Ticket Type</label>
+                <select
+                  value={formData.ticketType}
+                  onChange={e => setFormData({ ...formData, ticketType: e.target.value as 'standard' | 'inbound' })}
+                  className={`w-full px-5 py-4 border rounded-2xl text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-300 text-black'}`}
+                >
+                  <option value="standard">Standard Locate</option>
+                  <option value="inbound">Inbound Locate</option>
+                </select>
               </div>
 
               {initialData && (

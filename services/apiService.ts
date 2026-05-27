@@ -88,6 +88,7 @@ create table if not exists tickets (
     bbox_lng4 double precision,
     assigned_crew_id uuid references profiles(id),
     assigned_at timestamp with time zone,
+    ticket_type text default 'standard',
     created_at timestamp with time zone default now()
 );
 
@@ -242,7 +243,8 @@ ALTER TABLE tickets ADD COLUMN IF NOT EXISTS bbox_lng3 double precision;
 ALTER TABLE tickets ADD COLUMN IF NOT EXISTS bbox_lat4 double precision;
 ALTER TABLE tickets ADD COLUMN IF NOT EXISTS bbox_lng4 double precision;
 ALTER TABLE tickets ADD COLUMN IF NOT EXISTS assigned_crew_id uuid REFERENCES profiles(id);
-ALTER TABLE tickets ADD COLUMN IF NOT EXISTS assigned_at timestamp with time zone;`;
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS assigned_at timestamp with time zone;
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS ticket_type text DEFAULT 'standard';`;
 
 const generateUUID = () => crypto.randomUUID();
 
@@ -293,6 +295,7 @@ type TicketRow = {
   bbox_lng4?: number | null;
   assigned_crew_id?: string | null;
   assigned_at?: string | null;
+  ticket_type?: string | null;
   created_at: string;
 };
 
@@ -331,6 +334,7 @@ const mapTicket = (t: TicketRow): DigTicket => ({
   })(),
   assignedCrewId: t.assigned_crew_id || undefined,
   assignedAt: t.assigned_at ? new Date(t.assigned_at).getTime() : undefined,
+  ticketType: t.ticket_type === 'inbound' ? 'inbound' : 'standard',
   createdAt: new Date(t.created_at).getTime()
 });
 
@@ -481,6 +485,7 @@ export const apiService = {
       bbox_lng4: ticket.boundingBox?.[3]?.lng ?? null,
       assigned_crew_id: ticket.assignedCrewId ?? null,
       assigned_at: ticket.assignedAt ? new Date(ticket.assignedAt).toISOString() : null,
+      ticket_type: ticket.ticketType === 'inbound' ? 'inbound' : 'standard',
     }).select().single();
     if (error) throw error;
     return mapTicket(data);

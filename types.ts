@@ -127,6 +127,7 @@ export interface DigTicket {
   boundingBox?: Array<{ lat: number; lng: number }>;
   assignedCrewId?: string;
   assignedAt?: number;
+  ticketType?: 'standard' | 'inbound';
 }
 
 export interface NoShowRecord {

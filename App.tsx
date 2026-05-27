@@ -513,6 +513,30 @@ const App: React.FC = () => {
     }
   };
 
+  const handleUpdateTicketType = async (ticketId: string, ticketType: 'standard' | 'inbound') => {
+    const target = tickets.find(t => t.id === ticketId);
+    if (!target) return;
+    try {
+      const saved = await apiService.saveTicket({ ...target, ticketType });
+      setTickets(prev => prev.map(t => t.id === saved.id ? saved : t));
+    } catch (error: any) {
+      alert(`Ticket type update failed: ${error.message}`);
+    }
+  };
+
+  const handleUploadTicketPhoto = async (ticketId: string, file: File) => {
+    const target = tickets.find(t => t.id === ticketId);
+    if (!target || !sessionUser?.companyId) return;
+    const caption = `${target.ticketNo || target.jobNumber} · dispatch upload`;
+    const saved = await apiService.addPhoto({
+      companyId: sessionUser.companyId,
+      jobNumber: target.jobNumber,
+      caption,
+      timestamp: Date.now(),
+    }, file);
+    setPhotos(prev => [saved, ...prev]);
+  };
+
   const handleJobSelection = async (jobNumber: string, jobEntity?: Job) => {
     if (jobEntity) { setSelectedJobSummary(jobEntity); return; }
     const existing = jobs.find(j => j.jobNumber === jobNumber);
@@ -570,6 +594,14 @@ const App: React.FC = () => {
   }, [filteredTickets]);
 
   const ticketIdsWithNotes = useMemo(() => new Set(notes.map(n => n.ticketId).filter(Boolean)), [notes]);
+  const photoCountsByJob = useMemo(() => {
+    const map = new Map<string, number>();
+    photos.forEach(photo => {
+      if (!photo.jobNumber) return;
+      map.set(photo.jobNumber, (map.get(photo.jobNumber) || 0) + 1);
+    });
+    return map;
+  }, [photos]);
 
   const toggleJobExpansion = (jobNumber: string) => {
     const next = new Set(expandedJobs);
@@ -989,6 +1021,11 @@ const App: React.FC = () => {
                 isDarkMode={isDarkMode}
                 isAdmin={isAdmin}
                 onAssignTicket={handleAssignTicket}
+                onUpdateTicketType={handleUpdateTicketType}
+                onOpenNotes={setNotesTicket}
+                onUploadPhoto={handleUploadTicketPhoto}
+                ticketIdsWithNotes={ticketIdsWithNotes}
+                photoCountsByJob={photoCountsByJob}
               />
             )}
 
