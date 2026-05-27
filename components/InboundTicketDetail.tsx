@@ -8,6 +8,7 @@ import {
   InboundTicketStatus,
   INBOUND_STATUS_LABELS,
   INBOUND_UTILITIES,
+  statusAfterAssign,
 } from '../services/inboundTypes.ts';
 import { inboundTicketService } from '../services/inboundTicketService.ts';
 import { statusBadge } from './InboundTicketRow.tsx';
@@ -177,9 +178,7 @@ const InboundTicketDetail: React.FC<InboundTicketDetailProps> = ({
         callerPhone:  editCallerPhone.trim(),
         utilityTypes: editUtilities,
         assignedTo:   editAssignedTo,
-        status:       editAssignedTo
-          ? (ticket.status === InboundTicketStatus.UNASSIGNED ? InboundTicketStatus.ASSIGNED : ticket.status)
-          : (ticket.status === InboundTicketStatus.ASSIGNED ? InboundTicketStatus.UNASSIGNED : ticket.status),
+        status:       statusAfterAssign(ticket.status, editAssignedTo),
       };
       const updated = await inboundTicketService.updateTicket(ticket.id, updates);
       onTicketUpdated(updated);

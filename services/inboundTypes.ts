@@ -65,3 +65,23 @@ export const INBOUND_STATUS_LABELS: Record<InboundTicketStatus, string> = {
   [InboundTicketStatus.IN_PROGRESS]: 'In Progress',
   [InboundTicketStatus.COMPLETED]:   'Completed',
 };
+
+/**
+ * Determines the new status when a ticket's assigned user changes.
+ * - Assigning a user to an unassigned ticket promotes it to ASSIGNED.
+ * - Removing a user from an assigned ticket reverts it to UNASSIGNED.
+ * - Any other existing status is preserved as-is.
+ */
+export function statusAfterAssign(
+  currentStatus: InboundTicketStatus,
+  newUserId: string | null,
+): InboundTicketStatus {
+  if (newUserId) {
+    return currentStatus === InboundTicketStatus.UNASSIGNED
+      ? InboundTicketStatus.ASSIGNED
+      : currentStatus;
+  }
+  return currentStatus === InboundTicketStatus.ASSIGNED
+    ? InboundTicketStatus.UNASSIGNED
+    : currentStatus;
+}

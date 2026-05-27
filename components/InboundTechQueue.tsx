@@ -22,9 +22,11 @@ const fmtDate = (iso: string) => {
   return `${months[parseInt(m,10)-1]} ${parseInt(d,10)}, ${y}`;
 };
 
+const MS_PER_DAY = 86_400_000;
+
 const urgencyColor = (iso: string, dm: boolean): string => {
   if (!iso) return '';
-  const diff = Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
+  const diff = Math.ceil((new Date(iso).getTime() - Date.now()) / MS_PER_DAY);
   if (diff <= 1) return dm ? 'text-rose-400' : 'text-rose-600';
   if (diff <= 3) return dm ? 'text-amber-400' : 'text-amber-600';
   return '';

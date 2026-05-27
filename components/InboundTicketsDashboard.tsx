@@ -6,6 +6,7 @@ import {
   InboundTicketStatus,
   INBOUND_STATUS_LABELS,
   INBOUND_UTILITIES,
+  statusAfterAssign,
 } from '../services/inboundTypes.ts';
 import { inboundTicketService } from '../services/inboundTicketService.ts';
 import InboundTicketRow from './InboundTicketRow.tsx';
@@ -158,9 +159,7 @@ const InboundTicketsDashboard: React.FC<InboundTicketsDashboardProps> = ({
             ? {
                 ...t,
                 assignedTo: userId,
-                status: userId
-                  ? (t.status === InboundTicketStatus.UNASSIGNED ? InboundTicketStatus.ASSIGNED : t.status)
-                  : InboundTicketStatus.UNASSIGNED,
+                status: statusAfterAssign(t.status, userId),
               }
             : t,
         ),
