@@ -42,6 +42,8 @@ const getSafeMimeType = (file: File): string => {
   }
 };
 
+const DEFAULT_TICKET_TYPE: 'standard' | 'inbound' = 'standard';
+
 export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClose, initialData, isDarkMode, existingTickets }) => {
   const [isBatchMode, setIsBatchMode] = useState(false);
   const [isSubmittingManual, setIsSubmittingManual] = useState(false);
@@ -49,8 +51,46 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeletingTicket, setIsDeletingTicket] = useState(false);
   
-  const [formData, setFormData] = useState({
-    jobNumber: '', ticketNo: '', street: '', crossStreet: '', place: '', extent: '', county: '', city: '', state: '', callInDate: '', workDate: '', digByDate: '', expires: '', siteContact: '', documentUrl: '', lat: '' as string, lng: '' as string, workBegun: undefined as boolean | undefined, ticketType: 'standard' as 'standard' | 'inbound',
+  const [formData, setFormData] = useState<{
+    jobNumber: string;
+    ticketNo: string;
+    street: string;
+    crossStreet: string;
+    place: string;
+    extent: string;
+    county: string;
+    city: string;
+    state: string;
+    callInDate: string;
+    workDate: string;
+    digByDate: string;
+    expires: string;
+    siteContact: string;
+    documentUrl: string;
+    lat: string;
+    lng: string;
+    workBegun: boolean | undefined;
+    ticketType: 'standard' | 'inbound';
+  }>({
+    jobNumber: '',
+    ticketNo: '',
+    street: '',
+    crossStreet: '',
+    place: '',
+    extent: '',
+    county: '',
+    city: '',
+    state: '',
+    callInDate: '',
+    workDate: '',
+    digByDate: '',
+    expires: '',
+    siteContact: '',
+    documentUrl: '',
+    lat: '',
+    lng: '',
+    workBegun: undefined,
+    ticketType: DEFAULT_TICKET_TYPE,
   });
   
   const [queue, setQueue] = useState<IngestionItem[]>([]);
@@ -79,7 +119,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
         lat: initialData.lat != null ? String(initialData.lat) : '',
         lng: initialData.lng != null ? String(initialData.lng) : '',
         workBegun: initialData.workBegun,
-        ticketType: initialData.ticketType || 'standard',
+        ticketType: initialData.ticketType || DEFAULT_TICKET_TYPE,
       });
       setIsBatchMode(false);
     }
@@ -110,7 +150,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
           lat: activeItem.extractedData.lat != null ? String(activeItem.extractedData.lat) : '',
           lng: activeItem.extractedData.lng != null ? String(activeItem.extractedData.lng) : '',
           workBegun: undefined,
-          ticketType: 'standard',
+          ticketType: DEFAULT_TICKET_TYPE,
         });
       }
     }
@@ -294,7 +334,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
         isArchived: false,
         refreshRequested: false,
         noShowRequested: false,
-        ticketType: 'standard' as const,
+        ticketType: DEFAULT_TICKET_TYPE,
       };
       try {
         await onSave(submitData);

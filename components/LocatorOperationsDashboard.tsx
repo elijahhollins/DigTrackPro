@@ -39,7 +39,7 @@ const LocatorOperationsDashboard = ({
   ticketIdsWithNotes,
   photoCountsByJob,
 }: LocatorOperationsDashboardProps) => {
-  const crewMembers = users.filter(u => u.role === UserRole.CREW);
+  const crewMembers = useMemo(() => users.filter(u => u.role === UserRole.CREW), [users]);
   const crewNameById = useMemo(() => {
     const map = new Map<string, string>();
     crewMembers.forEach(crew => map.set(crew.id, crew.name || crew.username));
@@ -53,7 +53,8 @@ const LocatorOperationsDashboard = ({
   const [sortBy, setSortBy] = useState<DispatchSort>('priority');
   const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
   const [uploadingTicketId, setUploadingTicketId] = useState<string | null>(null);
-  const fileInputsRef = useRef<Record<string, HTMLInputElement | null>>({});
+  const [pendingUploadTicketId, setPendingUploadTicketId] = useState<string | null>(null);
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const activeTickets = tickets.filter(t => !t.isArchived);
   const inboundTickets = activeTickets.filter(t => (t.ticketType || 'standard') === 'inbound');
@@ -114,18 +115,30 @@ const LocatorOperationsDashboard = ({
       const bLocation = `${b.street} ${b.city} ${b.state}`;
       return direction * aLocation.localeCompare(bLocation);
     });
-  }, [activeTickets, crewFilter, crewNameById, dueFilter, search, sortBy, sortOrder, ticketTypeFilter]);
+  }, [activeTickets, crewFilter, crewNameById, dueFilter, jobs, search, sortBy, sortOrder, ticketTypeFilter]);
 
-  const handlePhotoSelect = async (ticket: DigTicket, event: ChangeEvent<HTMLInputElement>) => {
+  const openPhotoPicker = (ticketId: string) => {
+    setPendingUploadTicketId(ticketId);
+    uploadInputRef.current?.click();
+  };
+
+  const handlePhotoSelect = async (event: ChangeEvent<HTMLInputElement>) => {
+    const ticketId = pendingUploadTicketId;
     const file = event.target.files?.[0];
     if (!file) return;
-    setUploadingTicketId(ticket.id);
+    if (!ticketId) {
+      alert('Please choose a ticket before uploading a photo.');
+      event.target.value = '';
+      return;
+    }
+    setUploadingTicketId(ticketId);
     try {
-      await onUploadPhoto(ticket.id, file);
+      await onUploadPhoto(ticketId, file);
     } catch (error: any) {
       alert(`Photo upload failed: ${error.message}`);
     } finally {
       setUploadingTicketId(null);
+      setPendingUploadTicketId(null);
       event.target.value = '';
     }
   };
@@ -148,7 +161,7 @@ const LocatorOperationsDashboard = ({
           { label: 'Total Bucket', value: activeTickets.length, tone: 'text-brand border-brand/20 bg-brand/10' },
           { label: 'Inbound Tickets', value: inboundTickets.length, tone: 'text-amber-500 border-amber-500/20 bg-amber-500/10' },
           { label: 'Unassigned', value: unassignedTickets.length, tone: 'text-rose-500 border-rose-500/20 bg-rose-500/10' },
-          { label: 'Crew Active', value: activeCrewCount, tone: 'text-emerald-500 border-emerald-500/20 bg-emerald-500/10' },
+          { label: 'Active Crews', value: activeCrewCount, tone: 'text-emerald-500 border-emerald-500/20 bg-emerald-500/10' },
         ].map(card => (
           <div key={card.label} className={`rounded-2xl border p-4 ${isDarkMode ? 'bg-[#0b1629] border-white/[0.06]' : 'bg-white border-slate-200 shadow-sm'}`}>
             <p className={`text-[9px] font-black uppercase tracking-[0.18em] ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>{card.label}</p>
@@ -210,7 +223,7 @@ const LocatorOperationsDashboard = ({
                 const dueDate = getDueDate(ticket);
                 const hasNotes = ticketIdsWithNotes.has(ticket.id);
                 const photoCount = photoCountsByJob.get(ticket.jobNumber) || 0;
-                const isInbound = (ticket.ticketType || 'standard') === 'inbound';
+                const location = [ticket.street, ticket.city, ticket.state].filter(Boolean).join(', ');
                 return (
                   <tr key={ticket.id} className={`${isDarkMode ? 'hover:bg-white/[0.02]' : 'hover:bg-slate-50/70'} transition-colors`}>
                     <td className="px-5 py-3">
@@ -219,7 +232,7 @@ const LocatorOperationsDashboard = ({
                     </td>
                     <td className="px-5 py-3">
                       <p className={`text-[11px] font-semibold truncate max-w-[260px] ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>{getClientLabel(ticket)}</p>
-                      <p className={`text-[10px] truncate max-w-[260px] ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>{ticket.street}, {ticket.city} {ticket.state}</p>
+                      <p className={`text-[10px] truncate max-w-[260px] ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>{location || 'No location on file'}</p>
                     </td>
                     <td className="px-5 py-3">
                       <span className={`text-[10px] font-bold uppercase tracking-widest ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
@@ -241,11 +254,6 @@ const LocatorOperationsDashboard = ({
                           {ticket.refreshRequested && <span className="inline-flex px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest border bg-amber-500/10 text-amber-500 border-amber-500/25">Refresh</span>}
                           {ticket.noShowRequested && <span className="inline-flex px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest border bg-rose-500/10 text-rose-500 border-rose-500/25">No Show</span>}
                         </div>
-                      )}
-                      {!ticket.refreshRequested && !ticket.noShowRequested && (
-                        <span className={`mt-1.5 inline-flex px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest border ${isInbound ? 'bg-brand/10 text-brand border-brand/30' : isDarkMode ? 'bg-white/5 text-slate-600 border-white/10' : 'bg-slate-100 text-slate-400 border-slate-200'}`}>
-                          {isInbound ? 'Inbound' : 'Standard'}
-                        </span>
                       )}
                     </td>
                     <td className="px-5 py-3">
@@ -270,19 +278,12 @@ const LocatorOperationsDashboard = ({
                           Notes{hasNotes ? ' ✓' : ''}
                         </button>
                         <button
-                          onClick={() => fileInputsRef.current[ticket.id]?.click()}
+                          onClick={() => openPhotoPicker(ticket.id)}
                           disabled={uploadingTicketId === ticket.id}
                           className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold border transition-all ${isDarkMode ? 'text-slate-300 border-white/10 hover:border-brand/30 hover:text-brand' : 'text-slate-600 border-slate-200 hover:border-brand/30 hover:text-brand'} ${uploadingTicketId === ticket.id ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
                           {uploadingTicketId === ticket.id ? 'Uploading…' : `Photos (${photoCount})`}
                         </button>
-                        <input
-                          ref={el => { fileInputsRef.current[ticket.id] = el; }}
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={(e) => handlePhotoSelect(ticket, e)}
-                        />
                       </div>
                     </td>
                   </tr>
@@ -299,6 +300,7 @@ const LocatorOperationsDashboard = ({
           </table>
         </div>
       </div>
+      <input ref={uploadInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoSelect} />
     </div>
   );
 };
