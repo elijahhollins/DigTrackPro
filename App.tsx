@@ -276,15 +276,11 @@ const App: React.FC = () => {
     return () => { supabase.removeChannel(channel); };
   }, [sessionUser?.id, sessionUser?.role, sessionUser?.companyId]);
 
-  // Prompt the user about any unarchived tickets on the day before their dig-by date
-  // and haven't yet been answered about whether work has begun.
-  // Only admins are prompted; crew users are not asked this question.
-  useEffect(() => {
-    if (digConfirmTicket) return;
-    if (!sessionUser || (sessionUser.role !== UserRole.ADMIN && sessionUser.role !== UserRole.SUPER_ADMIN)) return;
+  const pendingDigConfirmTickets = useMemo(() => {
+    if (!sessionUser || (sessionUser.role !== UserRole.ADMIN && sessionUser.role !== UserRole.SUPER_ADMIN)) return [];
     const today = new Date();
     const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const pending = tickets.find(t => {
+    return tickets.filter(t => {
       if (t.isArchived || t.workBegun !== undefined) return false;
       if (snoozedDigConfirmIds.has(t.id)) return false;
       const digByDateStr = t.digByDate || (t.workDate ? addDaysToDateStr(t.workDate, 9) : '');
@@ -295,8 +291,17 @@ const App: React.FC = () => {
       const thresholdStart = new Date(y, m - 1, d);
       return todayStart >= thresholdStart;
     });
-    if (pending) setDigConfirmTicket(pending);
-  }, [tickets, digConfirmTicket, snoozedDigConfirmIds, sessionUser]);
+  }, [tickets, snoozedDigConfirmIds, sessionUser]);
+
+  // Prompt the user about any unarchived tickets on the day before their dig-by date
+  // and haven't yet been answered about whether work has begun.
+  // Only admins are prompted; crew users are not asked this question.
+  useEffect(() => {
+    if (digConfirmTicket) return;
+    if (pendingDigConfirmTickets.length > 0) {
+      setDigConfirmTicket(pendingDigConfirmTickets[0]);
+    }
+  }, [digConfirmTicket, pendingDigConfirmTickets]);
 
   useEffect(() => {
     if (!highlightedTicketId || activeView !== 'dashboard') return;
@@ -494,6 +499,22 @@ const App: React.FC = () => {
     } finally {
       setDigConfirmTicket(null);
     }
+  };
+
+  const handleSnoozeDigConfirm = () => {
+    if (!digConfirmTicket) return;
+    setSnoozedDigConfirmIds(prev => new Set(prev).add(digConfirmTicket.id));
+    setDigConfirmTicket(null);
+  };
+
+  const handleSnoozeAllDigConfirms = () => {
+    if (pendingDigConfirmTickets.length === 0) return;
+    setSnoozedDigConfirmIds(prev => {
+      const next = new Set(prev);
+      pendingDigConfirmTickets.forEach(ticket => next.add(ticket.id));
+      return next;
+    });
+    setDigConfirmTicket(null);
   };
 
   const handleJobSelection = async (jobNumber: string, jobEntity?: Job) => {
@@ -1044,12 +1065,22 @@ const App: React.FC = () => {
                 Yes — Work Begun
               </button>
             </div>
-            <button
-              onClick={() => { setSnoozedDigConfirmIds(prev => new Set(prev).add(digConfirmTicket.id)); setDigConfirmTicket(null); }}
-              className={`w-full py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${isDarkMode ? 'text-slate-500 hover:text-slate-400' : 'text-slate-400 hover:text-slate-500'}`}
-            >
-              Save for Later
-            </button>
+            <div className="space-y-2">
+              <button
+                onClick={handleSnoozeDigConfirm}
+                className={`w-full py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${isDarkMode ? 'text-slate-500 hover:text-slate-400' : 'text-slate-400 hover:text-slate-500'}`}
+              >
+                Save for Later
+              </button>
+              {pendingDigConfirmTickets.length > 1 && (
+                <button
+                  onClick={handleSnoozeAllDigConfirms}
+                  className={`w-full py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${isDarkMode ? 'text-amber-400 hover:text-amber-300' : 'text-amber-600 hover:text-amber-500'}`}
+                >
+                  Save All for Later
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
