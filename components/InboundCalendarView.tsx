@@ -1,6 +1,5 @@
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { User, UserRecord } from '../types.ts';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';import { User, UserRecord } from '../types.ts';
 import { InboundTicket, InboundTicketStatus } from '../services/inboundTypes.ts';
 import { inboundTicketService } from '../services/inboundTicketService.ts';
 import InboundTicketDetail from './InboundTicketDetail.tsx';
@@ -57,7 +56,8 @@ const InboundCalendarView: React.FC<InboundCalendarViewProps> = ({
   isDarkMode = false,
 }) => {
   const dm = isDarkMode;
-  const today = useMemo(() => new Date(), []);
+  // Computed fresh on each render so urgency/today highlighting is always accurate
+  const today = new Date();
 
   const [currentDate, setCurrentDate]   = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
   const [selectedDay, setSelectedDay]   = useState<number | null>(today.getDate());
@@ -115,10 +115,13 @@ const InboundCalendarView: React.FC<InboundCalendarViewProps> = ({
   }, [selectedDay, year, month, getEventsForDate]);
 
   const overdueTickets = useMemo(
-    () => tickets.filter(
-      t => t.status !== InboundTicketStatus.COMPLETED && t.dueDate && parseLocalDate(t.dueDate) < today
-    ),
-    [tickets, today]
+    () => {
+      const now = new Date();
+      return tickets.filter(
+        t => t.status !== InboundTicketStatus.COMPLETED && t.dueDate && parseLocalDate(t.dueDate) < now,
+      );
+    },
+    [tickets],
   );
 
   const divider = dm ? 'border-white/[0.05]' : 'border-slate-100';

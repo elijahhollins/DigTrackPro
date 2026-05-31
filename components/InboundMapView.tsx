@@ -1,5 +1,5 @@
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { User, UserRecord } from '../types.ts';
@@ -118,6 +118,12 @@ const InboundMapView: React.FC<InboundMapViewProps> = ({
   useEffect(() => { loadTickets(); }, [loadTickets]);
 
   // ── Geocode tickets once after loading ───────────────────────────────────
+  // Memoize a stable key so the effect only re-runs when tickets are added/removed
+  const ticketIdKey = useMemo(
+    () => tickets.map(t => t.id).sort().join(','),
+    [tickets],
+  );
+
   useEffect(() => {
     if (tickets.length === 0) return;
 
@@ -150,8 +156,7 @@ const InboundMapView: React.FC<InboundMapViewProps> = ({
     })();
 
     return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tickets.map(t => t.id).sort().join(',')]);
+  }, [ticketIdKey]);
 
   // ── Initialize Leaflet map once ──────────────────────────────────────────
   useEffect(() => {
@@ -207,7 +212,7 @@ const InboundMapView: React.FC<InboundMapViewProps> = ({
           </div>
           ${utilities !== '—' ? `<div style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.06em;">${utilities}</div>` : ''}
           <button
-            onclick="window._inboundMapOpenDetail && window._inboundMapOpenDetail('${ticket.id}')"
+            class="inbound-map-open-detail"
             style="margin-top:8px;width:100%;padding:4px 0;background:#7c3aed;color:white;border:none;border-radius:6px;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.08em;cursor:pointer;"
           >
             Open Detail
@@ -217,6 +222,13 @@ const InboundMapView: React.FC<InboundMapViewProps> = ({
       const marker = L.marker([lat, lng], { icon: createMarkerIcon(ticket) })
         .bindPopup(popupHtml)
         .addTo(map);
+
+      // Attach click handler via Leaflet's popupopen event to avoid global callbacks
+      marker.on('popupopen', () => {
+        const popupEl = marker.getPopup()?.getElement();
+        const btn = popupEl?.querySelector('.inbound-map-open-detail') as HTMLButtonElement | null;
+        if (btn) btn.onclick = () => detailTicketRef.current?.(ticket);
+      });
 
       markersRef.current.push(marker);
       bounds.push([lat, lng]);
@@ -228,24 +240,15 @@ const InboundMapView: React.FC<InboundMapViewProps> = ({
     }
   }, [pinnedTickets]);
 
-  // ── Wire global popup callback ───────────────────────────────────────────
-  useEffect(() => {
-    (window as any)._inboundMapOpenDetail = (id: string) => {
-      const ticket = tickets.find(t => t.id === id);
-      if (ticket && detailTicketRef.current) detailTicketRef.current(ticket);
-    };
-    return () => { delete (window as any)._inboundMapOpenDetail; };
-  }, [tickets]);
-
   const subtitle = dm ? 'text-slate-500' : 'text-slate-400';
 
   return (
     <div className="flex flex-col gap-4">
       {/* Progress banner while geocoding */}
       {isGeocoding && (
-        <div className={`rounded-xl border px-5 py-3 flex items-center gap-3 ${dm ? 'bg-brand/5 border-brand/10' : 'bg-brand/5 border-brand/10'}`}>
+        <div className="rounded-xl border px-5 py-3 flex items-center gap-3 bg-brand/5 border-brand/10">
           <div className="w-4 h-4 border-2 border-brand border-t-transparent rounded-full animate-spin shrink-0" />
-          <p className={`text-[11px] font-black uppercase tracking-widest ${dm ? 'text-brand' : 'text-brand'}`}>
+          <p className="text-[11px] font-black uppercase tracking-widest text-brand">
             Geocoding addresses… {geocodedCount} / {totalToGeocode}
           </p>
         </div>
