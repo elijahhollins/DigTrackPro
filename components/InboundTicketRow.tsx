@@ -78,6 +78,23 @@ const URGENCY_BORDER: Record<UrgencyLevel, string> = {
   done:     'border-l-emerald-500/40',
 };
 
+function getDueBadge(
+  isCompleted: boolean,
+  level: UrgencyLevel,
+  dueDate: string,
+  dm: boolean,
+): { label: string; cls: string } | null {
+  if (isCompleted) return null;
+  const roseCls = dm ? 'bg-rose-500/15 text-rose-400 border-rose-500/30' : 'bg-rose-100 text-rose-600 border-rose-200';
+  if (level === 'overdue')  return { label: 'OVERDUE', cls: roseCls };
+  if (level === 'critical') return { label: 'TODAY',   cls: roseCls };
+  if (level === 'warning') {
+    const diff = Math.ceil((new Date(dueDate).getTime() - Date.now()) / MS_PER_DAY);
+    return { label: `${diff}d`, cls: dm ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-amber-50 text-amber-600 border-amber-200' };
+  }
+  return null;
+}
+
 const InboundTicketRow: React.FC<InboundTicketRowProps> = ({
   ticket,
   users,
@@ -104,19 +121,7 @@ const InboundTicketRow: React.FC<InboundTicketRowProps> = ({
       ? (dm ? 'bg-rose-500/[0.04]' : 'bg-rose-50/60')
       : '';
 
-  // Small urgency badge shown next to the due date
-  const dueBadge = (): { label: string; cls: string } | null => {
-    if (isCompleted) return null;
-    if (level === 'overdue')  return { label: 'OVERDUE', cls: dm ? 'bg-rose-500/15 text-rose-400 border-rose-500/30' : 'bg-rose-100 text-rose-600 border-rose-200' };
-    if (level === 'critical') return { label: 'TODAY',   cls: dm ? 'bg-rose-500/15 text-rose-400 border-rose-500/30' : 'bg-rose-100 text-rose-600 border-rose-200' };
-    if (level === 'warning') {
-      const diff = Math.ceil((new Date(ticket.dueDate).getTime() - Date.now()) / MS_PER_DAY);
-      return { label: `${diff}d`, cls: dm ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-amber-50 text-amber-600 border-amber-200' };
-    }
-    return null;
-  };
-
-  const badge = dueBadge();
+  const badge = getDueBadge(isCompleted, level, ticket.dueDate, dm);
 
   const dueDateColor =
     level === 'overdue' || level === 'critical'
@@ -220,7 +225,7 @@ const InboundTicketRow: React.FC<InboundTicketRowProps> = ({
             className={`px-2 py-1 rounded-lg border text-[9px] font-black uppercase tracking-widest outline-none cursor-pointer transition-all ${statusBadge(ticket.status, dm)}`}
           >
             {Object.values(InboundTicketStatus).map(s => (
-              <option key={s} value={s} className="normal-case text-[11px] font-normal bg-white text-slate-900">
+              <option key={s} value={s} className={`normal-case text-[11px] font-normal ${dm ? 'bg-slate-800 text-slate-100' : 'bg-white text-slate-900'}`}>
                 {INBOUND_STATUS_LABELS[s]}
               </option>
             ))}

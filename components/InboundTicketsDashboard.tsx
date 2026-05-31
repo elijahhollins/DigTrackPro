@@ -18,9 +18,16 @@ interface InboundTicketsDashboardProps {
   isDarkMode?: boolean;
 }
 
-type SortKey      = 'dueDate' | 'digStartDate' | 'siteAddress' | 'assignedTo';
-type SortDir      = 'asc' | 'desc';
+type SortKey = 'dueDate' | 'digStartDate' | 'siteAddress' | 'assignedTo';
+type SortDir = 'asc' | 'desc';
 type UrgencyFilter = 'all' | 'overdue' | 'today' | 'week';
+
+function relativeTime(d: Date): string {
+  const secs = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (secs < 60)   return 'just now';
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+  return `${Math.floor(secs / 3600)}h ago`;
+}
 
 const InboundTicketsDashboard: React.FC<InboundTicketsDashboardProps> = ({
   sessionUser,
@@ -305,13 +312,6 @@ const InboundTicketsDashboard: React.FC<InboundTicketsDashboardProps> = ({
       .filter(t => t.status === InboundTicketStatus.UNASSIGNED || t.status === InboundTicketStatus.ASSIGNED)
       .every(t => selectedIds.has(t.id));
 
-  const relativeTime = (d: Date): string => {
-    const secs = Math.floor((Date.now() - d.getTime()) / 1000);
-    if (secs < 60)   return 'just now';
-    if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
-    return `${Math.floor(secs / 3600)}h ago`;
-  };
-
   // ── Shared style helpers ──────────────────────────────────────────────────
 
   const inputCls = `px-3 py-2 border rounded-xl text-[11px] font-medium outline-none transition-all ${
@@ -424,7 +424,7 @@ const InboundTicketsDashboard: React.FC<InboundTicketsDashboardProps> = ({
               setFilterStatus('');
             },
           },
-        ] as const).map(card => (
+        ] ).map(card => (
           <button
             key={card.key}
             onClick={card.onClick}
