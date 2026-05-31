@@ -528,12 +528,12 @@ const InboundTicketsDashboard: React.FC<InboundTicketsDashboardProps> = ({
         <div className="flex flex-wrap gap-2 items-center">
           <span className={`text-[8px] font-black uppercase tracking-widest shrink-0 ${dm ? 'text-slate-600' : 'text-slate-400'}`}>Status:</span>
           {([
-            { value: '' as const,                     label: 'All',         count: stats.total },
-            { value: InboundTicketStatus.UNASSIGNED,  label: 'Unassigned',  count: stats.unassigned },
-            { value: InboundTicketStatus.ASSIGNED,    label: 'Assigned',    count: stats.assigned },
-            { value: InboundTicketStatus.IN_PROGRESS, label: 'In Progress', count: stats.inProgress },
-            { value: InboundTicketStatus.COMPLETED,   label: 'Completed',   count: stats.completed },
-          ] as const).map(pill => {
+            { value: '' as InboundTicketStatus | '',      label: 'All',         count: stats.total },
+            { value: InboundTicketStatus.UNASSIGNED,      label: 'Unassigned',  count: stats.unassigned },
+            { value: InboundTicketStatus.ASSIGNED,        label: 'Assigned',    count: stats.assigned },
+            { value: InboundTicketStatus.IN_PROGRESS,     label: 'In Progress', count: stats.inProgress },
+            { value: InboundTicketStatus.COMPLETED,       label: 'Completed',   count: stats.completed },
+          ]).map(pill => {
             const active = filterStatus === pill.value;
             return (
               <button
