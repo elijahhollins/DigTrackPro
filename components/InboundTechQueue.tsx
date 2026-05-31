@@ -4,6 +4,7 @@ import { User, UserRecord } from '../types.ts';
 import {
   InboundTicket,
   InboundTicketStatus,
+  INBOUND_STATUS_LABELS,
 } from '../services/inboundTypes.ts';
 import { inboundTicketService } from '../services/inboundTicketService.ts';
 import InboundTicketDetail from './InboundTicketDetail.tsx';
@@ -159,7 +160,9 @@ const InboundTechQueue: React.FC<InboundTechQueueProps> = ({ sessionUser, users,
                     <span className={`text-[10px] font-black uppercase tracking-widest ${dm ? 'text-slate-600' : 'text-slate-400'}`}>
                       #{ticket.ticketNumber}
                     </span>
-                    {statusBadge(ticket.status, dm)}
+                    <span className={`inline-flex px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest border ${statusBadge(ticket.status, dm)}`}>
+                      {INBOUND_STATUS_LABELS[ticket.status]}
+                    </span>
                   </div>
                   <p className={`text-[14px] font-bold leading-snug truncate ${dm ? 'text-slate-100' : 'text-slate-900'}`}>
                     {ticket.siteAddress}
