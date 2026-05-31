@@ -22,6 +22,8 @@ import MapView from './components/MapView.tsx';
 import { AsBuiltView } from './components/AsBuiltView.tsx';
 import InboundTicketsDashboard from './components/InboundTicketsDashboard.tsx';
 import InboundTechQueue from './components/InboundTechQueue.tsx';
+import InboundCalendarView from './components/InboundCalendarView.tsx';
+import InboundMapView from './components/InboundMapView.tsx';
 
 declare global {
   interface AIStudio {
@@ -70,7 +72,7 @@ const App: React.FC = () => {
   const [noShowTicket, setNoShowTicket] = useState<DigTicket | null>(null);
   const [notesTicket, setNotesTicket] = useState<DigTicket | null>(null);
   const [digConfirmTicket, setDigConfirmTicket] = useState<DigTicket | null>(null);
-  const [showInbound, setShowInbound] = useState(false);
+  const [ticketMode, setTicketMode] = useState<'regular' | 'inbound'>('regular');
   const [snoozedDigConfirmIds, setSnoozedDigConfirmIds] = useState<Set<string>>(new Set());
   const [globalSearch, setGlobalSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<TicketStatus | 'NO_SHOW' | null>(null);
@@ -97,7 +99,6 @@ const App: React.FC = () => {
   };
 
   const handleNavigate = (view: AppView) => {
-    setShowInbound(false);
     setShowTicketForm(false);
     setEditingTicket(null);
     setShowJobForm(false);
@@ -113,7 +114,7 @@ const App: React.FC = () => {
   };
 
   const handleShowInDashboard = useCallback((ticket: DigTicket) => {
-    setShowInbound(false);
+    setTicketMode('regular');
     handleNavigate('dashboard');
     setExpandedJobs(prev => new Set([...prev, ticket.jobNumber]));
     setHighlightedTicketId(ticket.id);
@@ -662,26 +663,6 @@ const App: React.FC = () => {
               </button>
             );
           })}
-          {/* Inbound Tickets nav item */}
-          <button
-            onClick={() => { setShowInbound(true); setActiveView('dashboard'); }}
-            className={`w-full flex items-center justify-center lg:justify-start gap-3 px-0 lg:px-3 py-3 rounded-xl transition-all relative group ${
-              showInbound
-                ? isDarkMode
-                  ? 'bg-brand/10 text-brand border border-brand/20 sidebar-active'
-                  : 'bg-brand text-white shadow-md shadow-brand/20'
-                : isDarkMode
-                ? 'text-slate-600 hover:text-slate-200 hover:bg-white/[0.04]'
-                : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
-            }`}
-          >
-            <span className={`transition-transform ${showInbound ? 'scale-110' : 'group-hover:scale-105'}`}>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
-              </svg>
-            </span>
-            <span className="hidden lg:block text-[10px] font-black uppercase tracking-[0.12em]">Inbound</span>
-          </button>
         </nav>
 
         {/* Admin CTA buttons */}
@@ -737,25 +718,12 @@ const App: React.FC = () => {
           </div>
           {/* Desktop: view name */}
           <div className="hidden sm:flex flex-1 items-center gap-2">
-            {showInbound ? (
-              <>
-                <span className="text-brand opacity-50">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
-                  </svg>
-                </span>
-                <span className={`text-sm font-black uppercase tracking-[0.1em] ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Inbound</span>
-              </>
-            ) : (
-              <>
-                <span className="text-brand opacity-50">{NAV_ITEMS.find(n => n.id === activeView)?.icon}</span>
-                <span className={`text-sm font-black uppercase tracking-[0.1em] ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{NAV_ITEMS.find(n => n.id === activeView)?.label}</span>
-              </>
-            )}
+            <span className="text-brand opacity-50">{NAV_ITEMS.find(n => n.id === activeView)?.icon}</span>
+            <span className={`text-sm font-black uppercase tracking-[0.1em] ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{NAV_ITEMS.find(n => n.id === activeView)?.label}</span>
           </div>
 
           {/* Search (dashboard only, desktop) */}
-          {!showInbound && activeView === 'dashboard' && (
+          {activeView === 'dashboard' && ticketMode === 'regular' && (
             <div className="relative hidden md:block">
               <input
                 type="text"
@@ -799,12 +767,35 @@ const App: React.FC = () => {
         </header>
 
         {/* Scrollable content */}
-        <main key={showInbound ? 'inbound' : activeView} className="flex-1 overflow-y-auto view-transition pb-20 sm:pb-0">
+        <main key={activeView} className="flex-1 overflow-y-auto view-transition pb-20 sm:pb-0">
           <div className="max-w-[1400px] mx-auto px-5 py-6">
 
-            {!showInbound && activeView === 'dashboard' && (
+            {activeView === 'dashboard' && (
               <div className="space-y-6">
+                {/* ── Ticket mode toggle ── */}
+                <div className={`flex rounded-xl border p-0.5 gap-0.5 w-fit ${isDarkMode ? 'bg-[#0b1629] border-white/[0.08]' : 'bg-slate-100 border-slate-200'}`}>
+                  {(['regular', 'inbound'] as const).map(mode => (
+                    <button
+                      key={mode}
+                      onClick={() => setTicketMode(mode)}
+                      className={`px-5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                        ticketMode === mode
+                          ? isDarkMode ? 'bg-brand/20 text-brand border border-brand/25' : 'bg-white text-brand shadow-sm border border-slate-200'
+                          : isDarkMode ? 'text-slate-600 hover:text-slate-300' : 'text-slate-400 hover:text-slate-700'
+                      }`}
+                    >
+                      {mode === 'regular' ? 'Regular' : 'Inbound'}
+                    </button>
+                  ))}
+                </div>
 
+                {ticketMode === 'inbound' && isAdmin && (
+                  <InboundTicketsDashboard sessionUser={sessionUser} users={users} isDarkMode={isDarkMode} />
+                )}
+                {ticketMode === 'inbound' && !isAdmin && (
+                  <InboundTechQueue sessionUser={sessionUser} users={users} isDarkMode={isDarkMode} />
+                )}
+                {ticketMode === 'regular' && (<>
                 {/* Page header */}
                 <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
                   <div>
@@ -998,46 +989,76 @@ const App: React.FC = () => {
                     </table>
                   </div>
                 </div>
+              </>)}
+            </div>
+          )}
+
+            {activeView === 'calendar' && (
+              <div className="space-y-4">
+                {/* ── Ticket mode toggle ── */}
+                <div className={`flex rounded-xl border p-0.5 gap-0.5 w-fit ${isDarkMode ? 'bg-[#0b1629] border-white/[0.08]' : 'bg-slate-100 border-slate-200'}`}>
+                  {(['regular', 'inbound'] as const).map(mode => (
+                    <button
+                      key={mode}
+                      onClick={() => setTicketMode(mode)}
+                      className={`px-5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                        ticketMode === mode
+                          ? isDarkMode ? 'bg-brand/20 text-brand border border-brand/25' : 'bg-white text-brand shadow-sm border border-slate-200'
+                          : isDarkMode ? 'text-slate-600 hover:text-slate-300' : 'text-slate-400 hover:text-slate-700'
+                      }`}
+                    >
+                      {mode === 'regular' ? 'Regular' : 'Inbound'}
+                    </button>
+                  ))}
+                </div>
+                {ticketMode === 'regular' && <CalendarView tickets={tickets} onEditTicket={setEditingTicket} onShowInDashboard={handleShowInDashboard} onViewDoc={setViewingDocUrl} onManageNoShow={setNoShowTicket} isDarkMode={isDarkMode} />}
+                {ticketMode === 'inbound' && <InboundCalendarView sessionUser={sessionUser} users={users} isAdmin={isAdmin} isDarkMode={isDarkMode} />}
               </div>
             )}
-
-            {!showInbound && activeView === 'calendar' && <CalendarView tickets={tickets} onEditTicket={setEditingTicket} onShowInDashboard={handleShowInDashboard} onViewDoc={setViewingDocUrl} onManageNoShow={setNoShowTicket} isDarkMode={isDarkMode} />}
-            {!showInbound && activeView === 'map' && <MapView
-              tickets={activeTicketsList}
-              isDarkMode={isDarkMode}
-              onEditTicket={isAdmin ? setEditingTicket : undefined}
-              onViewTicket={setViewingDocUrl}
-              onTicketGeocoded={(id, lat, lng) => {
-                setTickets(prev => prev.map(t => t.id === id ? { ...t, lat, lng } : t));
-              }}
-              onPinMoved={isAdmin ? (id, lat, lng) => {
-                setTickets(prev => prev.map(t => t.id === id ? { ...t, lat, lng } : t));
-                apiService.updateTicketCoords(id, lat, lng).catch((err) => console.error('Failed to save adjusted pin coordinates:', err));
-              } : undefined}
-              onOpenInDashboard={(ticket) => {
-                handleNavigate('dashboard');
-                setExpandedJobs(prev => new Set([...prev, ticket.jobNumber]));
-                setHighlightedTicketId(ticket.id);
-              }}
-            />}
-            {!showInbound && activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} isAdmin={isAdmin} isDarkMode={isDarkMode} onJobSelect={(job: Job) => handleJobSelection(job.jobNumber, job)} onViewDoc={setViewingDocUrl} />}
-            {!showInbound && activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} isAdmin={isAdmin} companyId={sessionUser.companyId} onAddPhoto={(data, file) => apiService.addPhoto({ ...data, companyId: sessionUser.companyId }, file)} onDeletePhoto={(id: string) => apiService.deletePhoto(id)} onDeleteJob={async (id) => { await apiService.deleteJob(id); initApp(); }} initialSearch={mediaFolderFilter} />}
-            {!showInbound && activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} company={company || undefined} isDarkMode={isDarkMode} isSuperAdmin={isSuperAdmin} allCompanies={allCompanies} onCompanyCreated={(co) => setAllCompanies(prev => [...prev, co])} onCompanyUpdated={handleUpdateCompany} onToggleCompanyActive={handleToggleCompanyActive} onAddUser={async (u) => { await apiService.addUser({ ...u, companyId: sessionUser.companyId }); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onUpdateUserName={async (id, name) => { await apiService.updateUserName(id, name); initApp(); }} onSendPasswordReset={async (email) => { await apiService.sendPasswordReset(email); }} onUpdateCurrentUserPassword={async (password) => { await apiService.updateCurrentUserPassword(password); }} onUpdateNotificationEmail={handleUpdateNotificationEmail} onUpdateUserNotificationEmail={handleUpdateUserNotificationEmail} onTestEmail={handleTestEmail} />}
-            {!showInbound && activeView === 'asbuilt' && <AsBuiltView jobs={jobs} sessionUser={sessionUser} isAdmin={isAdmin} isDarkMode={isDarkMode} onDeleteJob={async (id) => { await apiService.deleteJob(id); initApp(); }} />}
-            {showInbound && isAdmin && (
-              <InboundTicketsDashboard
-                sessionUser={sessionUser}
-                users={users}
-                isDarkMode={isDarkMode}
-              />
+            {activeView === 'map' && (
+              <div className="space-y-4">
+                {/* ── Ticket mode toggle ── */}
+                <div className={`flex rounded-xl border p-0.5 gap-0.5 w-fit ${isDarkMode ? 'bg-[#0b1629] border-white/[0.08]' : 'bg-slate-100 border-slate-200'}`}>
+                  {(['regular', 'inbound'] as const).map(mode => (
+                    <button
+                      key={mode}
+                      onClick={() => setTicketMode(mode)}
+                      className={`px-5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                        ticketMode === mode
+                          ? isDarkMode ? 'bg-brand/20 text-brand border border-brand/25' : 'bg-white text-brand shadow-sm border border-slate-200'
+                          : isDarkMode ? 'text-slate-600 hover:text-slate-300' : 'text-slate-400 hover:text-slate-700'
+                      }`}
+                    >
+                      {mode === 'regular' ? 'Regular' : 'Inbound'}
+                    </button>
+                  ))}
+                </div>
+                {ticketMode === 'regular' && <MapView
+                  tickets={activeTicketsList}
+                  isDarkMode={isDarkMode}
+                  onEditTicket={isAdmin ? setEditingTicket : undefined}
+                  onViewTicket={setViewingDocUrl}
+                  onTicketGeocoded={(id, lat, lng) => {
+                    setTickets(prev => prev.map(t => t.id === id ? { ...t, lat, lng } : t));
+                  }}
+                  onPinMoved={isAdmin ? (id, lat, lng) => {
+                    setTickets(prev => prev.map(t => t.id === id ? { ...t, lat, lng } : t));
+                    apiService.updateTicketCoords(id, lat, lng).catch((err) => console.error('Failed to save adjusted pin coordinates:', err));
+                  } : undefined}
+                  onOpenInDashboard={(ticket) => {
+                    setTicketMode('regular');
+                    handleNavigate('dashboard');
+                    setExpandedJobs(prev => new Set([...prev, ticket.jobNumber]));
+                    setHighlightedTicketId(ticket.id);
+                  }}
+                />}
+                {ticketMode === 'inbound' && <InboundMapView sessionUser={sessionUser} users={users} isAdmin={isAdmin} isDarkMode={isDarkMode} />}
+              </div>
             )}
-            {showInbound && !isAdmin && (
-              <InboundTechQueue
-                sessionUser={sessionUser}
-                users={users}
-                isDarkMode={isDarkMode}
-              />
-            )}
+            {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} isAdmin={isAdmin} isDarkMode={isDarkMode} onJobSelect={(job: Job) => handleJobSelection(job.jobNumber, job)} onViewDoc={setViewingDocUrl} />}
+            {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} isAdmin={isAdmin} companyId={sessionUser.companyId} onAddPhoto={(data, file) => apiService.addPhoto({ ...data, companyId: sessionUser.companyId }, file)} onDeletePhoto={(id: string) => apiService.deletePhoto(id)} onDeleteJob={async (id) => { await apiService.deleteJob(id); initApp(); }} initialSearch={mediaFolderFilter} />}
+            {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} company={company || undefined} isDarkMode={isDarkMode} isSuperAdmin={isSuperAdmin} allCompanies={allCompanies} onCompanyCreated={(co) => setAllCompanies(prev => [...prev, co])} onCompanyUpdated={handleUpdateCompany} onToggleCompanyActive={handleToggleCompanyActive} onAddUser={async (u) => { await apiService.addUser({ ...u, companyId: sessionUser.companyId }); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onUpdateUserName={async (id, name) => { await apiService.updateUserName(id, name); initApp(); }} onSendPasswordReset={async (email) => { await apiService.sendPasswordReset(email); }} onUpdateCurrentUserPassword={async (password) => { await apiService.updateCurrentUserPassword(password); }} onUpdateNotificationEmail={handleUpdateNotificationEmail} onUpdateUserNotificationEmail={handleUpdateUserNotificationEmail} onTestEmail={handleTestEmail} />}
+            {activeView === 'asbuilt' && <AsBuiltView jobs={jobs} sessionUser={sessionUser} isAdmin={isAdmin} isDarkMode={isDarkMode} onDeleteJob={async (id) => { await apiService.deleteJob(id); initApp(); }} />}
           </div>
         </main>
       </div>
@@ -1053,18 +1074,6 @@ const App: React.FC = () => {
             </button>
           );
         })}
-          {/* Inbound mobile nav button */}
-          <button
-            onClick={() => { setShowInbound(true); setActiveView('dashboard'); }}
-            className={`flex flex-col items-center gap-1 transition-all px-3 py-1 rounded-xl ${showInbound ? 'text-brand' : isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}
-          >
-            <div className={`p-1.5 rounded-xl transition-all ${showInbound ? 'bg-brand/10' : ''}`}>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
-              </svg>
-            </div>
-            <span className="text-[8px] font-black uppercase tracking-widest">Inbound</span>
-          </button>
       </nav>
 
       {/* ── MODALS ── */}
