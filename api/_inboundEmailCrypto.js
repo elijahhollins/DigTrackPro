@@ -2,8 +2,8 @@ import crypto from 'node:crypto';
 
 const getKey = () => {
   const secret = process.env.INBOUND_EMAIL_SECRET;
-  if (!secret || secret.trim().length < 16) {
-    throw new Error('INBOUND_EMAIL_SECRET is not configured.');
+  if (!secret || secret.trim().length < 32) {
+    throw new Error('INBOUND_EMAIL_SECRET must be configured with at least 32 characters.');
   }
   return crypto.createHash('sha256').update(secret).digest();
 };

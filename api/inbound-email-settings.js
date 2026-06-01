@@ -1,6 +1,6 @@
 import { ImapFlow } from 'imapflow';
 import { encryptSecret } from './_inboundEmailCrypto.js';
-import { json, requireAdminProfile } from './_supabaseAdmin.js';
+import { requireAdminProfile } from './_supabaseAdmin.js';
 
 const sanitizeAllowlist = (value) => {
   if (!Array.isArray(value)) return [];

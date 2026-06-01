@@ -4,12 +4,6 @@ const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-export const json = (status, body) => ({
-  statusCode: status,
-  headers: { 'content-type': 'application/json' },
-  body: JSON.stringify(body),
-});
-
 export const getAdminClient = () => {
   if (!supabaseUrl || !supabaseServiceRoleKey) {
     throw new Error('Supabase admin environment is not configured.');
