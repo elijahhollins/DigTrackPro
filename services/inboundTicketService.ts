@@ -1,7 +1,7 @@
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Inbound Ticket Service — Supabase CRUD for inbound_tickets,
-// inbound_ticket_photos, and inbound_ticket_notes.
+// inbound_ticket_photos, inbound_ticket_notes, and inbound_ticket_time_entries.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { supabase } from '../lib/supabaseClient.ts';
@@ -10,6 +10,7 @@ import {
   InboundTicketPhoto,
   InboundTicketNote,
   InboundTicketStatus,
+  InboundTimeEntry,
 } from './inboundTypes.ts';
 
 const PHOTOS_BUCKET = 'inbound-ticket-photos';
@@ -48,6 +49,16 @@ const mapNote = (row: Record<string, unknown>): InboundTicketNote => ({
   authorId:   row.author_id != null ? String(row.author_id) : null,
   authorName: String(row.author_name ?? ''),
   createdAt:  String(row.created_at ?? ''),
+});
+
+const mapTimeEntry = (row: Record<string, unknown>): InboundTimeEntry => ({
+  id:             String(row.id ?? ''),
+  ticketId:       String(row.ticket_id ?? ''),
+  technicianId:   String(row.technician_id ?? ''),
+  technicianName: String(row.technician_name ?? ''),
+  clockedInAt:    String(row.clocked_in_at ?? ''),
+  clockedOutAt:   row.clocked_out_at != null ? String(row.clocked_out_at) : null,
+  createdAt:      String(row.created_at ?? ''),
 });
 
 // ── public API ────────────────────────────────────────────────────────────────
@@ -264,5 +275,79 @@ export const inboundTicketService = {
       .delete()
       .eq('id', photo.id);
     if (error) throw error;
+  },
+
+  // ── Time Entries ───────────────────────────────────────────────────────────
+
+  /** Fetch all time entries for a ticket (newest first). */
+  async getTimeEntries(ticketId: string): Promise<InboundTimeEntry[]> {
+    const { data, error } = await supabase
+      .from('inbound_ticket_time_entries')
+      .select('*')
+      .eq('ticket_id', ticketId)
+      .order('clocked_in_at', { ascending: false });
+    if (error) throw error;
+    return (data ?? []).map(r => mapTimeEntry(r as Record<string, unknown>));
+  },
+
+  /**
+   * Returns the currently open (clocked-in but not yet clocked-out) entry for
+   * the given ticket + technician, or null if the technician is not clocked in.
+   */
+  async getActiveEntry(
+    ticketId:     string,
+    technicianId: string,
+  ): Promise<InboundTimeEntry | null> {
+    const { data, error } = await supabase
+      .from('inbound_ticket_time_entries')
+      .select('*')
+      .eq('ticket_id', ticketId)
+      .eq('technician_id', technicianId)
+      .is('clocked_out_at', null)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? mapTimeEntry(data as Record<string, unknown>) : null;
+  },
+
+  /**
+   * Clock a technician in to a ticket.
+   * Also promotes the ticket status to IN_PROGRESS if it was ASSIGNED.
+   */
+  async clockIn(
+    ticketId:       string,
+    technicianId:   string,
+    technicianName: string,
+  ): Promise<InboundTimeEntry> {
+    const { data, error } = await supabase
+      .from('inbound_ticket_time_entries')
+      .insert({
+        ticket_id:       ticketId,
+        technician_id:   technicianId,
+        technician_name: technicianName,
+      })
+      .select()
+      .single();
+    if (error) throw error;
+
+    // Promote ticket to IN_PROGRESS if it was ASSIGNED
+    await supabase
+      .from('inbound_tickets')
+      .update({ status: InboundTicketStatus.IN_PROGRESS })
+      .eq('id', ticketId)
+      .eq('status', InboundTicketStatus.ASSIGNED);
+
+    return mapTimeEntry(data as Record<string, unknown>);
+  },
+
+  /** Clock a technician out by setting clocked_out_at to now(). */
+  async clockOut(entryId: string): Promise<InboundTimeEntry> {
+    const { data, error } = await supabase
+      .from('inbound_ticket_time_entries')
+      .update({ clocked_out_at: new Date().toISOString() })
+      .eq('id', entryId)
+      .select()
+      .single();
+    if (error) throw error;
+    return mapTimeEntry(data as Record<string, unknown>);
   },
 };

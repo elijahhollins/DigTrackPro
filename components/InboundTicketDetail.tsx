@@ -8,6 +8,7 @@ import {
   InboundTicketStatus,
   INBOUND_STATUS_LABELS,
   INBOUND_UTILITIES,
+  InboundTimeEntry,
   statusAfterAssign,
 } from '../services/inboundTypes.ts';
 import { inboundTicketService } from '../services/inboundTicketService.ts';
@@ -45,6 +46,212 @@ const STATUS_ORDER: InboundTicketStatus[] = [
   InboundTicketStatus.COMPLETED,
 ];
 
+// ── Helpers shared by TimeTab ─────────────────────────────────────────────────
+
+const fmtElapsed = (seconds: number): string => {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+};
+
+const fmtMinutes = (minutes: number): string => {
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+};
+
+function computeDurationMinutes(entry: InboundTimeEntry): number {
+  const end = entry.clockedOutAt ? new Date(entry.clockedOutAt) : new Date();
+  return (end.getTime() - new Date(entry.clockedInAt).getTime()) / 60_000;
+}
+
+function useElapsedSeconds(startIso: string | null): number {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!startIso) { setElapsed(0); return; }
+    const update = () => setElapsed(Math.floor((Date.now() - new Date(startIso).getTime()) / 1000));
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, [startIso]);
+  return elapsed;
+}
+
+// ── Time tab sub-component ────────────────────────────────────────────────────
+
+interface TimeTabProps {
+  ticket:              InboundTicket;
+  sessionUser:         User;
+  isAdmin:             boolean;
+  isDarkMode:          boolean;
+  timeEntries:         InboundTimeEntry[];
+  onTimeEntriesChanged:(entries: InboundTimeEntry[]) => void;
+  onTicketUpdated:     (ticket: InboundTicket) => void;
+}
+
+const TimeTab: React.FC<TimeTabProps> = ({
+  ticket,
+  sessionUser,
+  isAdmin,
+  isDarkMode: dm,
+  timeEntries,
+  onTimeEntriesChanged,
+  onTicketUpdated,
+}) => {
+  const myActiveEntry = timeEntries.find(
+    e => e.technicianId === sessionUser.id && e.clockedOutAt === null,
+  ) ?? null;
+
+  const [clocking, setClocking] = useState(false);
+  const elapsed = useElapsedSeconds(myActiveEntry ? myActiveEntry.clockedInAt : null);
+
+  // Compute total logged minutes (closed entries + current open entry)
+  const totalMinutes = timeEntries.reduce((sum, e) => sum + computeDurationMinutes(e), 0);
+
+  const handleClockIn = async () => {
+    setClocking(true);
+    try {
+      const entry = await inboundTicketService.clockIn(ticket.id, sessionUser.id, sessionUser.name);
+      onTimeEntriesChanged([entry, ...timeEntries]);
+      if (ticket.status === InboundTicketStatus.ASSIGNED) {
+        onTicketUpdated({ ...ticket, status: InboundTicketStatus.IN_PROGRESS });
+      }
+    } catch (err) {
+      console.error('Clock-in failed:', err);
+    } finally {
+      setClocking(false);
+    }
+  };
+
+  const handleClockOut = async () => {
+    if (!myActiveEntry) return;
+    setClocking(true);
+    try {
+      const updated = await inboundTicketService.clockOut(myActiveEntry.id);
+      onTimeEntriesChanged(timeEntries.map(e => e.id === updated.id ? updated : e));
+    } catch (err) {
+      console.error('Clock-out failed:', err);
+    } finally {
+      setClocking(false);
+    }
+  };
+
+  const canClockIn = !myActiveEntry && ticket.status !== InboundTicketStatus.COMPLETED;
+
+  return (
+    <div className="px-7 py-6 space-y-5">
+      {/* Summary bar */}
+      <div className={`flex items-center justify-between rounded-2xl p-4 border ${dm ? 'bg-white/[0.03] border-white/[0.06]' : 'bg-slate-50 border-slate-200'}`}>
+        <div>
+          <p className={`text-[9px] font-black uppercase tracking-[0.15em] ${dm ? 'text-slate-600' : 'text-slate-400'}`}>Total Time Logged</p>
+          <p className={`text-2xl font-black font-display mt-0.5 ${dm ? 'text-slate-100' : 'text-slate-900'}`}>
+            {timeEntries.length === 0 ? '—' : fmtMinutes(Math.round(totalMinutes))}
+          </p>
+        </div>
+        {/* Clock in/out for current crew user (hidden for admin-only view when admin isn't the assignee) */}
+        {(!isAdmin || ticket.assignedTo === sessionUser.id) && (
+          myActiveEntry ? (
+            <div className="flex flex-col items-end gap-1.5">
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                </span>
+                <span className={`text-[14px] font-black tabular-nums font-display ${dm ? 'text-emerald-400' : 'text-emerald-600'}`}>
+                  {fmtElapsed(elapsed)}
+                </span>
+              </div>
+              <button
+                onClick={handleClockOut}
+                disabled={clocking}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                  clocking ? 'opacity-50 cursor-not-allowed' : ''
+                } ${dm ? 'bg-rose-500/15 text-rose-400 hover:bg-rose-500/25 border border-rose-500/20' : 'bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-200'}`}
+              >
+                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                  <rect x="6" y="6" width="12" height="12" rx="1" />
+                </svg>
+                {clocking ? 'Saving…' : 'Clock Out'}
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={handleClockIn}
+              disabled={clocking || !canClockIn}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                clocking || !canClockIn ? 'opacity-50 cursor-not-allowed' : ''
+              } ${dm ? 'bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 border border-emerald-500/20' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-200'}`}
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
+              </svg>
+              {clocking ? 'Starting…' : 'Clock In'}
+            </button>
+          )
+        )}
+      </div>
+
+      {/* Time entry list */}
+      {timeEntries.length === 0 ? (
+        <p className={`text-[11px] text-center font-medium ${dm ? 'text-slate-600' : 'text-slate-400'}`}>
+          No time entries yet.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {timeEntries.map(entry => {
+            const isOpen = entry.clockedOutAt === null;
+            const duration = computeDurationMinutes(entry);
+            return (
+              <div
+                key={entry.id}
+                className={`rounded-xl border px-4 py-3 flex items-center justify-between gap-4 ${
+                  isOpen
+                    ? dm ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-emerald-200 bg-emerald-50'
+                    : dm ? 'border-white/[0.05] bg-white/[0.02]' : 'border-slate-100 bg-slate-50'
+                }`}
+              >
+                <div className="min-w-0 space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <p className={`text-[11px] font-semibold truncate ${dm ? 'text-slate-200' : 'text-slate-800'}`}>
+                      {entry.technicianName || 'Technician'}
+                    </p>
+                    {isOpen && (
+                      <span className={`flex items-center gap-1 text-[8px] font-black uppercase tracking-widest ${dm ? 'text-emerald-400' : 'text-emerald-600'}`}>
+                        <span className="relative flex h-1.5 w-1.5">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                          <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+                        </span>
+                        Active
+                      </span>
+                    )}
+                  </div>
+                  <p className={`text-[9px] tabular-nums ${dm ? 'text-slate-500' : 'text-slate-400'}`}>
+                    {fmtTs(entry.clockedInAt)}
+                    {entry.clockedOutAt ? ` → ${fmtTs(entry.clockedOutAt)}` : ''}
+                  </p>
+                </div>
+                <span className={`shrink-0 text-[12px] font-black tabular-nums ${
+                  isOpen
+                    ? dm ? 'text-emerald-400' : 'text-emerald-600'
+                    : dm ? 'text-slate-300' : 'text-slate-700'
+                }`}>
+                  {fmtMinutes(Math.round(duration))}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── Main modal component ──────────────────────────────────────────────────────
+
 const InboundTicketDetail: React.FC<InboundTicketDetailProps> = ({
   ticket,
   users,
@@ -59,6 +266,7 @@ const InboundTicketDetail: React.FC<InboundTicketDetailProps> = ({
 
   const [notes, setNotes]   = useState<InboundTicketNote[]>([]);
   const [photos, setPhotos] = useState<InboundTicketPhoto[]>([]);
+  const [timeEntries, setTimeEntries] = useState<InboundTimeEntry[]>([]);
   const [noteText, setNoteText] = useState('');
   const [isAddingNote, setIsAddingNote]   = useState(false);
   const [isUploading, setIsUploading]     = useState(false);
@@ -66,7 +274,7 @@ const InboundTicketDetail: React.FC<InboundTicketDetailProps> = ({
   const [isDeleting, setIsDeleting]       = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [loadError, setLoadError]         = useState('');
-  const [activeTab, setActiveTab]         = useState<'info' | 'notes' | 'photos'>('info');
+  const [activeTab, setActiveTab]         = useState<'info' | 'notes' | 'photos' | 'time'>('info');
 
   // Editable fields (admin only)
   const [editSiteAddress, setEditSiteAddress]   = useState(ticket.siteAddress);
@@ -88,10 +296,12 @@ const InboundTicketDetail: React.FC<InboundTicketDetailProps> = ({
     Promise.all([
       inboundTicketService.getNotes(ticket.id),
       inboundTicketService.getPhotos(ticket.id),
-    ]).then(([n, p]) => {
+      inboundTicketService.getTimeEntries(ticket.id),
+    ]).then(([n, p, te]) => {
       if (!mounted) return;
       setNotes(n);
       setPhotos(p);
+      setTimeEntries(te);
     }).catch(err => {
       if (mounted) setLoadError(String(err?.message ?? 'Failed to load details.'));
     });
@@ -282,6 +492,7 @@ const InboundTicketDetail: React.FC<InboundTicketDetailProps> = ({
           <button className={tabBtn('info')}   onClick={() => setActiveTab('info')}>Info</button>
           <button className={tabBtn('notes')}  onClick={() => setActiveTab('notes')}>Notes {notes.length > 0 && `(${notes.length})`}</button>
           <button className={tabBtn('photos')} onClick={() => setActiveTab('photos')}>Photos {photos.length > 0 && `(${photos.length})`}</button>
+          <button className={tabBtn('time')}   onClick={() => setActiveTab('time')}>Time {timeEntries.length > 0 && `(${timeEntries.length})`}</button>
         </div>
 
         {/* Body */}
@@ -538,6 +749,19 @@ const InboundTicketDetail: React.FC<InboundTicketDetailProps> = ({
                 </div>
               )}
             </div>
+          )}
+
+          {/* ── Time tab ── */}
+          {activeTab === 'time' && (
+            <TimeTab
+              ticket={ticket}
+              sessionUser={sessionUser}
+              isAdmin={isAdmin}
+              isDarkMode={dm}
+              timeEntries={timeEntries}
+              onTimeEntriesChanged={setTimeEntries}
+              onTicketUpdated={onTicketUpdated}
+            />
           )}
         </div>
 

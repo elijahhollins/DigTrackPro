@@ -5,6 +5,7 @@ import {
   InboundTicket,
   InboundTicketStatus,
   INBOUND_STATUS_LABELS,
+  InboundTimeEntry,
 } from '../services/inboundTypes.ts';
 import { inboundTicketService } from '../services/inboundTicketService.ts';
 import InboundTicketDetail from './InboundTicketDetail.tsx';
@@ -32,6 +33,161 @@ const urgencyColor = (iso: string, dm: boolean): string => {
   if (diff <= 3) return dm ? 'text-amber-400' : 'text-amber-600';
   return '';
 };
+
+/** Format elapsed seconds into h:mm:ss */
+const fmtElapsed = (seconds: number): string => {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+};
+
+// ── Live timer hook ────────────────────────────────────────────────────────────
+
+function useElapsedSeconds(startIso: string | null): number {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!startIso) { setElapsed(0); return; }
+    const update = () => setElapsed(Math.floor((Date.now() - new Date(startIso).getTime()) / 1000));
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, [startIso]);
+  return elapsed;
+}
+
+// ── Clock-in row component ─────────────────────────────────────────────────────
+
+interface ClockRowProps {
+  ticket:        InboundTicket;
+  sessionUser:   User;
+  isDarkMode:    boolean;
+  onTicketUpdated: (t: InboundTicket) => void;
+}
+
+const ClockRow: React.FC<ClockRowProps> = ({ ticket, sessionUser, isDarkMode: dm, onTicketUpdated }) => {
+  const [activeEntry, setActiveEntry]   = useState<InboundTimeEntry | null>(null);
+  const [loadingEntry, setLoadingEntry] = useState(true);
+  const [clocking, setClocking]         = useState(false);
+
+  // Live timer — only ticks when clocked in
+  const elapsed = useElapsedSeconds(activeEntry ? activeEntry.clockedInAt : null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const entry = await inboundTicketService.getActiveEntry(ticket.id, sessionUser.id);
+        if (!cancelled) setActiveEntry(entry);
+      } catch { /* ignore — UI will still show Clock In */ }
+      finally { if (!cancelled) setLoadingEntry(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [ticket.id, sessionUser.id]);
+
+  const handleClockIn = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setClocking(true);
+    try {
+      const entry = await inboundTicketService.clockIn(ticket.id, sessionUser.id, sessionUser.name);
+      setActiveEntry(entry);
+      // Reflect status change locally
+      if (ticket.status === InboundTicketStatus.ASSIGNED) {
+        onTicketUpdated({ ...ticket, status: InboundTicketStatus.IN_PROGRESS });
+      }
+    } catch (err) {
+      console.error('Clock-in failed:', err);
+    } finally {
+      setClocking(false);
+    }
+  };
+
+  const handleClockOut = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!activeEntry) return;
+    setClocking(true);
+    try {
+      await inboundTicketService.clockOut(activeEntry.id);
+      setActiveEntry(null);
+    } catch (err) {
+      console.error('Clock-out failed:', err);
+    } finally {
+      setClocking(false);
+    }
+  };
+
+  const isClockedIn = activeEntry !== null;
+
+  return (
+    <div
+      className={`flex items-center justify-between gap-3 mt-3 pt-3 border-t ${dm ? 'border-white/[0.05]' : 'border-slate-100'}`}
+      onClick={e => e.stopPropagation()}
+    >
+      {/* Timer display */}
+      <div className="flex items-center gap-2 min-w-0">
+        {isClockedIn ? (
+          <>
+            <span className="relative flex h-2 w-2 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+            </span>
+            <span className={`text-[11px] font-black tabular-nums ${dm ? 'text-emerald-400' : 'text-emerald-600'}`}>
+              {fmtElapsed(elapsed)}
+            </span>
+            <span className={`text-[9px] font-bold uppercase tracking-widest ${dm ? 'text-slate-600' : 'text-slate-400'}`}>
+              Clocked In
+            </span>
+          </>
+        ) : loadingEntry ? (
+          <span className={`text-[9px] font-bold uppercase tracking-widest ${dm ? 'text-slate-700' : 'text-slate-300'}`}>
+            —
+          </span>
+        ) : (
+          <span className={`text-[9px] font-bold uppercase tracking-widest ${dm ? 'text-slate-600' : 'text-slate-400'}`}>
+            Not clocked in
+          </span>
+        )}
+      </div>
+
+      {/* Clock In / Out button */}
+      {!loadingEntry && (
+        isClockedIn ? (
+          <button
+            onClick={handleClockOut}
+            disabled={clocking}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+              clocking ? 'opacity-50 cursor-not-allowed' : ''
+            } ${dm ? 'bg-rose-500/15 text-rose-400 hover:bg-rose-500/25 border border-rose-500/20' : 'bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-200'}`}
+          >
+            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+              <rect x="6" y="6" width="12" height="12" rx="1" />
+            </svg>
+            {clocking ? 'Saving…' : 'Clock Out'}
+          </button>
+        ) : (
+          <button
+            onClick={handleClockIn}
+            disabled={clocking || ticket.status === InboundTicketStatus.COMPLETED}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+              clocking || ticket.status === InboundTicketStatus.COMPLETED
+                ? 'opacity-50 cursor-not-allowed'
+                : ''
+            } ${dm ? 'bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 border border-emerald-500/20' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-200'}`}
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
+            </svg>
+            {clocking ? 'Starting…' : 'Clock In'}
+          </button>
+        )
+      )}
+    </div>
+  );
+};
+
+// ── Main component ─────────────────────────────────────────────────────────────
 
 const InboundTechQueue: React.FC<InboundTechQueueProps> = ({ sessionUser, users, isDarkMode }) => {
   const dm = isDarkMode ?? false;
@@ -144,70 +300,83 @@ const InboundTechQueue: React.FC<InboundTechQueueProps> = ({ sessionUser, users,
       ) : (
         <div className="space-y-3">
           {sorted.map(ticket => (
-            <button
+            <div
               key={ticket.id}
-              onClick={() => setDetailTicket(ticket)}
-              className={`w-full text-left rounded-2xl border p-5 transition-all hover:scale-[1.005] active:scale-[0.998] ${
+              className={`rounded-2xl border p-5 transition-all ${
                 dm
-                  ? 'bg-[#0b1629] border-white/[0.06] hover:border-white/10 hover:bg-white/[0.025]'
-                  : 'bg-white border-slate-200 shadow-sm hover:border-slate-300 hover:shadow-md'
+                  ? 'bg-[#0b1629] border-white/[0.06]'
+                  : 'bg-white border-slate-200 shadow-sm'
               }`}
             >
-              <div className="flex items-start justify-between gap-4">
-                {/* Left: main info */}
-                <div className="flex-1 min-w-0 space-y-2">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className={`text-[10px] font-black uppercase tracking-widest ${dm ? 'text-slate-600' : 'text-slate-400'}`}>
-                      #{ticket.ticketNumber}
-                    </span>
-                    <span className={`inline-flex px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest border ${statusBadge(ticket.status, dm)}`}>
-                      {INBOUND_STATUS_LABELS[ticket.status]}
-                    </span>
-                  </div>
-                  <p className={`text-[14px] font-bold leading-snug truncate ${dm ? 'text-slate-100' : 'text-slate-900'}`}>
-                    {ticket.siteAddress}
-                  </p>
-                  {ticket.callerName && (
-                    <p className={`text-[11px] ${dm ? 'text-slate-500' : 'text-slate-500'}`}>
-                      Caller: <span className={`font-semibold ${dm ? 'text-slate-400' : 'text-slate-700'}`}>{ticket.callerName}</span>
-                    </p>
-                  )}
-                  {ticket.utilityTypes.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {ticket.utilityTypes.map(u => (
-                        <span key={u} className={`px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider ${
-                          dm ? 'bg-white/[0.04] text-slate-500 border border-white/[0.05]' : 'bg-slate-100 text-slate-500'
-                        }`}>{u}</span>
-                      ))}
+              {/* Tappable area opens detail */}
+              <button
+                className="w-full text-left"
+                onClick={() => setDetailTicket(ticket)}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  {/* Left: main info */}
+                  <div className="flex-1 min-w-0 space-y-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`text-[10px] font-black uppercase tracking-widest ${dm ? 'text-slate-600' : 'text-slate-400'}`}>
+                        #{ticket.ticketNumber}
+                      </span>
+                      <span className={`inline-flex px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest border ${statusBadge(ticket.status, dm)}`}>
+                        {INBOUND_STATUS_LABELS[ticket.status]}
+                      </span>
                     </div>
-                  )}
+                    <p className={`text-[14px] font-bold leading-snug truncate ${dm ? 'text-slate-100' : 'text-slate-900'}`}>
+                      {ticket.siteAddress}
+                    </p>
+                    {ticket.callerName && (
+                      <p className={`text-[11px] ${dm ? 'text-slate-500' : 'text-slate-500'}`}>
+                        Caller: <span className={`font-semibold ${dm ? 'text-slate-400' : 'text-slate-700'}`}>{ticket.callerName}</span>
+                      </p>
+                    )}
+                    {ticket.utilityTypes.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {ticket.utilityTypes.map(u => (
+                          <span key={u} className={`px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider ${
+                            dm ? 'bg-white/[0.04] text-slate-500 border border-white/[0.05]' : 'bg-slate-100 text-slate-500'
+                          }`}>{u}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Right: dates */}
+                  <div className="shrink-0 text-right space-y-2">
+                    <div>
+                      <p className={`text-[9px] font-black uppercase tracking-widest ${dm ? 'text-slate-700' : 'text-slate-400'}`}>Due</p>
+                      <p className={`text-[13px] font-bold tabular-nums ${urgencyColor(ticket.dueDate, dm) || (dm ? 'text-slate-200' : 'text-slate-800')}`}>
+                        {fmtDate(ticket.dueDate)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className={`text-[9px] font-black uppercase tracking-widest ${dm ? 'text-slate-700' : 'text-slate-400'}`}>Dig Start</p>
+                      <p className={`text-[12px] font-semibold tabular-nums ${dm ? 'text-slate-400' : 'text-slate-600'}`}>
+                        {fmtDate(ticket.digStartDate)}
+                      </p>
+                    </div>
+                  </div>
                 </div>
 
-                {/* Right: dates */}
-                <div className="shrink-0 text-right space-y-2">
-                  <div>
-                    <p className={`text-[9px] font-black uppercase tracking-widest ${dm ? 'text-slate-700' : 'text-slate-400'}`}>Due</p>
-                    <p className={`text-[13px] font-bold tabular-nums ${urgencyColor(ticket.dueDate, dm) || (dm ? 'text-slate-200' : 'text-slate-800')}`}>
-                      {fmtDate(ticket.dueDate)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className={`text-[9px] font-black uppercase tracking-widest ${dm ? 'text-slate-700' : 'text-slate-400'}`}>Dig Start</p>
-                    <p className={`text-[12px] font-semibold tabular-nums ${dm ? 'text-slate-400' : 'text-slate-600'}`}>
-                      {fmtDate(ticket.digStartDate)}
-                    </p>
-                  </div>
+                {/* Tap indicator */}
+                <div className={`flex items-center justify-end mt-2 gap-1 ${dm ? 'text-slate-700' : 'text-slate-400'}`}>
+                  <span className="text-[9px] font-black uppercase tracking-widest">View Details</span>
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+                  </svg>
                 </div>
-              </div>
+              </button>
 
-              {/* Tap indicator */}
-              <div className={`flex items-center justify-end mt-3 gap-1 ${dm ? 'text-slate-700' : 'text-slate-400'}`}>
-                <span className="text-[9px] font-black uppercase tracking-widest">View Details</span>
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
-                </svg>
-              </div>
-            </button>
+              {/* Clock-in / Clock-out row — stops card click propagation */}
+              <ClockRow
+                ticket={ticket}
+                sessionUser={sessionUser}
+                isDarkMode={dm}
+                onTicketUpdated={handleTicketUpdated}
+              />
+            </div>
           ))}
         </div>
       )}

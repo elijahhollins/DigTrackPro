@@ -47,6 +47,16 @@ export interface InboundTicketNote {
   createdAt:  string;
 }
 
+export interface InboundTimeEntry {
+  id:              string;
+  ticketId:        string;
+  technicianId:    string;
+  technicianName:  string;
+  clockedInAt:     string;        // ISO timestamptz
+  clockedOutAt:    string | null; // null = currently clocked in
+  createdAt:       string;
+}
+
 export const INBOUND_UTILITIES = [
   'Electric',
   'Gas',
