@@ -10,6 +10,8 @@ const MAX_SYNC_MESSAGES = Math.max(
   1,
   Number(process.env.INBOUND_EMAIL_SYNC_BATCH_SIZE || DEFAULT_SYNC_BATCH_SIZE),
 );
+const MIN_FALLBACK_TICKET_LENGTH = 6;
+const MAX_IMPORTED_NOTES_LENGTH = 8000;
 
 const buildEmailText = ({ subject, from, text, html }) => {
   const fromLine = Array.isArray(from?.value) ? from.value.map(item => item.address || item.name).filter(Boolean).join(', ') : '';
@@ -39,7 +41,7 @@ const shouldImportMessage = (settings, parsedEmail) => {
 };
 
 const deriveFallbackTicketNumber = ({ subject, messageId }) => {
-  const subjectMatch = String(subject || '').match(/\b([A-Z0-9-]{6,})\b/);
+  const subjectMatch = String(subject || '').match(new RegExp(`\\b([A-Z0-9-]{${MIN_FALLBACK_TICKET_LENGTH},})\\b`));
   if (subjectMatch) return subjectMatch[1];
   return `EMAIL-${String(messageId || crypto.randomUUID()).replace(/[^a-z0-9]/gi, '').slice(0, 12).toUpperCase()}`;
 };
@@ -47,7 +49,10 @@ const deriveFallbackTicketNumber = ({ subject, messageId }) => {
 const upsertInboundTicketFromEmail = async ({ admin, companyId, profile, parsed, emailText, subject, messageId }) => {
   const ticketNumber = parsed.ticketNumber || deriveFallbackTicketNumber({ subject, messageId });
   const siteAddress = parsed.siteAddress || 'Email ticket - address missing';
-  const notes = [parsed.notes, '', 'Imported from email', emailText].filter(Boolean).join('\n').slice(0, 8000);
+  const notes = [parsed.notes, '', 'Imported from email', emailText]
+    .filter(Boolean)
+    .join('\n')
+    .slice(0, MAX_IMPORTED_NOTES_LENGTH);
 
   const { data: existing } = await admin
     .from('inbound_tickets')

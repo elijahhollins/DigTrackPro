@@ -305,7 +305,14 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
     setInboundEmailStatus(null);
     try {
       const result = await onSyncInboundEmail();
-      setInboundEmailSettings(prev => prev ? { ...prev, lastSyncedAt: result.syncedAt, lastError: result.failedCount > 0 ? `${result.failedCount} email(s) failed to import.` : null } : prev);
+      const syncError = result.failedCount > 0
+        ? `${result.failedCount} email(s) failed to import.`
+        : null;
+      setInboundEmailSettings(prev => prev ? {
+        ...prev,
+        lastSyncedAt: result.syncedAt,
+        lastError: syncError,
+      } : prev);
       setInboundEmailStatus({
         ok: result.failedCount === 0,
         msg: `Imported ${result.importedCount}, updated ${result.updatedCount}, skipped ${result.skippedCount}${result.failedCount ? `, failed ${result.failedCount}` : ''}.`,
