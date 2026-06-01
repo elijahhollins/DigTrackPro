@@ -98,7 +98,7 @@ const LiveActivityRow: React.FC<LiveActivityRowProps> = ({
           </button>
         ) : (
           <p className={`text-[10px] ${dm ? 'text-slate-600' : 'text-slate-400'}`}>
-            Ticket #{entry.ticketId.slice(0, 8)}…
+            Unknown Ticket
           </p>
         )}
       </div>
@@ -157,7 +157,8 @@ const InboundTicketsDashboard: React.FC<InboundTicketsDashboardProps> = ({
     try {
       const entries = await inboundTicketService.getCompanyActiveEntries();
       setLiveEntries(entries);
-    } catch {
+    } catch (err) {
+      console.error('Failed to load live activity:', err);
       // Non-fatal — panel will remain empty
     }
   };
@@ -189,11 +190,12 @@ const InboundTicketsDashboard: React.FC<InboundTicketsDashboardProps> = ({
     setIsLoading(true);
     setLoadError('');
     try {
-      const [data] = await Promise.all([
+      // Run both fetches in parallel; loadLiveActivity updates state internally.
+      const [ticketsData] = await Promise.all([
         inboundTicketService.getTickets(),
         loadLiveActivity(),
       ]);
-      setTickets(data);
+      setTickets(ticketsData);
       setLastRefreshed(new Date());
     } catch (err) {
       setLoadError((err as Error).message ?? 'Failed to load inbound tickets.');
