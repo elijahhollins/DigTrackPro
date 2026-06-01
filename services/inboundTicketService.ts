@@ -324,6 +324,20 @@ export const inboundTicketService = {
   },
 
   /**
+   * Returns ALL currently open (not clocked-out) entries for the authenticated
+   * user's company (admin view). RLS restricts results to the caller's company.
+   */
+  async getCompanyActiveEntries(): Promise<InboundTimeEntry[]> {
+    const { data, error } = await supabase
+      .from('inbound_ticket_time_entries')
+      .select('*')
+      .is('clocked_out_at', null)
+      .order('clocked_in_at', { ascending: true });
+    if (error) throw error;
+    return (data ?? []).map(r => mapTimeEntry(r as Record<string, unknown>));
+  },
+
+  /**
    * Clock a technician in to a ticket.
    * Also promotes the ticket status to IN_PROGRESS if it was ASSIGNED.
    */

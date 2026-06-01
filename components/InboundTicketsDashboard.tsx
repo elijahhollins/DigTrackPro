@@ -5,12 +5,14 @@ import {
   InboundTicket,
   InboundTicketStatus,
   INBOUND_UTILITIES,
+  InboundTimeEntry,
   statusAfterAssign,
 } from '../services/inboundTypes.ts';
 import { inboundTicketService } from '../services/inboundTicketService.ts';
 import InboundTicketRow, { MS_PER_DAY } from './InboundTicketRow.tsx';
 import InboundTicketDetail from './InboundTicketDetail.tsx';
 import InboundTicketForm from './InboundTicketForm.tsx';
+import { fmtElapsed, useElapsedSeconds } from '../utils/inboundTimeUtils.ts';
 
 interface InboundTicketsDashboardProps {
   sessionUser: User;
@@ -29,6 +31,109 @@ function relativeTime(d: Date): string {
   return `${Math.floor(secs / 3600)}h ago`;
 }
 
+// ── Live Activity row — one per clocked-in entry ──────────────────────────────
+
+interface LiveActivityRowProps {
+  entry:     InboundTimeEntry;
+  ticket:    InboundTicket | undefined;
+  isDarkMode: boolean;
+  onClockOut: (entry: InboundTimeEntry) => void;
+  onOpenTicket: (ticket: InboundTicket) => void;
+}
+
+const LiveActivityRow: React.FC<LiveActivityRowProps> = ({
+  entry,
+  ticket,
+  isDarkMode: dm,
+  onClockOut,
+  onOpenTicket,
+}) => {
+  const elapsed = useElapsedSeconds(entry.clockedInAt);
+  const [clockingOut, setClockingOut] = useState(false);
+
+  const handleClockOut = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setClockingOut(true);
+    try {
+      await inboundTicketService.clockOut(entry.id);
+      onClockOut(entry);
+    } catch (err) {
+      console.error('Admin clock-out failed:', err);
+    } finally {
+      setClockingOut(false);
+    }
+  };
+
+  return (
+    <div className={`flex items-center gap-4 px-4 py-3 rounded-xl ${dm ? 'bg-white/[0.03] border border-white/[0.05]' : 'bg-slate-50 border border-slate-100'}`}>
+      {/* Pulsing active indicator */}
+      <span className="relative flex h-2.5 w-2.5 shrink-0">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+      </span>
+
+      {/* Technician */}
+      <div className="min-w-[120px] shrink-0">
+        <p className={`text-[11px] font-black truncate ${dm ? 'text-slate-200' : 'text-slate-800'}`}>
+          {entry.technicianName}
+        </p>
+        <p className={`text-[9px] font-bold uppercase tracking-widest ${dm ? 'text-slate-600' : 'text-slate-400'}`}>
+          Technician
+        </p>
+      </div>
+
+      {/* Ticket info */}
+      <div className="flex-1 min-w-0">
+        {ticket ? (
+          <button
+            onClick={() => onOpenTicket(ticket)}
+            className={`text-left group`}
+          >
+            <p className={`text-[11px] font-bold truncate group-hover:underline ${dm ? 'text-brand' : 'text-brand'}`}>
+              #{ticket.ticketNumber}
+            </p>
+            <p className={`text-[10px] truncate ${dm ? 'text-slate-400' : 'text-slate-600'}`}>
+              {ticket.siteAddress}
+            </p>
+          </button>
+        ) : (
+          <p className={`text-[10px] ${dm ? 'text-slate-600' : 'text-slate-400'}`}>
+            Ticket #{entry.ticketId.slice(0, 8)}…
+          </p>
+        )}
+      </div>
+
+      {/* Elapsed timer */}
+      <div className="shrink-0 text-right min-w-[68px]">
+        <p className={`text-[13px] font-black tabular-nums ${dm ? 'text-emerald-400' : 'text-emerald-600'}`}>
+          {fmtElapsed(elapsed)}
+        </p>
+        <p className={`text-[8px] font-bold uppercase tracking-widest ${dm ? 'text-slate-600' : 'text-slate-400'}`}>
+          Elapsed
+        </p>
+      </div>
+
+      {/* Admin clock-out */}
+      <button
+        onClick={handleClockOut}
+        disabled={clockingOut}
+        title={`Clock out ${entry.technicianName}`}
+        className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${
+          clockingOut ? 'opacity-50 cursor-not-allowed' : ''
+        } ${dm
+          ? 'bg-rose-500/15 text-rose-400 hover:bg-rose-500/25 border border-rose-500/20'
+          : 'bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-200'
+        }`}
+      >
+        <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 24 24">
+          <rect x="6" y="6" width="12" height="12" rx="1" />
+        </svg>
+        {clockingOut ? 'Saving…' : 'Clock Out'}
+      </button>
+    </div>
+  );
+};
+
 const InboundTicketsDashboard: React.FC<InboundTicketsDashboardProps> = ({
   sessionUser,
   users,
@@ -43,6 +148,19 @@ const InboundTicketsDashboard: React.FC<InboundTicketsDashboardProps> = ({
 
   const [detailTicket, setDetailTicket] = useState<InboundTicket | null>(null);
   const [showForm,     setShowForm]     = useState(false);
+
+  // ── Live Activity (admin clock-in view) ───────────────────────────────────
+  const [liveEntries,       setLiveEntries]       = useState<InboundTimeEntry[]>([]);
+  const [liveActivityExpanded, setLiveActivityExpanded] = useState(true);
+
+  const loadLiveActivity = async () => {
+    try {
+      const entries = await inboundTicketService.getCompanyActiveEntries();
+      setLiveEntries(entries);
+    } catch {
+      // Non-fatal — panel will remain empty
+    }
+  };
 
   // ── Filters ───────────────────────────────────────────────────────────────
   const [searchQuery,         setSearchQuery]         = useState('');
@@ -71,7 +189,10 @@ const InboundTicketsDashboard: React.FC<InboundTicketsDashboardProps> = ({
     setIsLoading(true);
     setLoadError('');
     try {
-      const data = await inboundTicketService.getTickets();
+      const [data] = await Promise.all([
+        inboundTicketService.getTickets(),
+        loadLiveActivity(),
+      ]);
       setTickets(data);
       setLastRefreshed(new Date());
     } catch (err) {
@@ -285,6 +406,11 @@ const InboundTicketsDashboard: React.FC<InboundTicketsDashboardProps> = ({
     if (detailTicket?.id === id) setDetailTicket(null);
   };
 
+  /** Called when an admin clocks out a technician from the Live Activity panel. */
+  const handleLiveClockOut = (entry: InboundTimeEntry) => {
+    setLiveEntries(prev => prev.filter(e => e.id !== entry.id));
+  };
+
   // ── Misc helpers ──────────────────────────────────────────────────────────
 
   const clearAllFilters = () => {
@@ -440,6 +566,69 @@ const InboundTicketsDashboard: React.FC<InboundTicketsDashboardProps> = ({
             <p className={`text-2xl font-black mt-0.5 font-display ${card.color}`}>{card.value}</p>
           </button>
         ))}
+      </div>
+
+      {/* ── LIVE ACTIVITY PANEL ──────────────────────────────────────────── */}
+      <div className={`rounded-2xl border overflow-hidden ${dm ? 'bg-[#0b1629] border-white/[0.06]' : 'bg-white border-slate-200 shadow-sm'}`}>
+        {/* Header */}
+        <button
+          onClick={() => setLiveActivityExpanded(prev => !prev)}
+          className={`w-full flex items-center justify-between gap-3 px-5 py-3.5 text-left transition-colors ${
+            dm ? 'hover:bg-white/[0.02]' : 'hover:bg-slate-50'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            {/* Global pulsing dot when anyone is clocked in */}
+            {liveEntries.length > 0 ? (
+              <span className="relative flex h-2.5 w-2.5 shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+              </span>
+            ) : (
+              <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${dm ? 'bg-slate-700' : 'bg-slate-200'}`} />
+            )}
+            <span className={`text-[10px] font-black uppercase tracking-widest ${dm ? 'text-slate-300' : 'text-slate-700'}`}>
+              Live Activity
+            </span>
+            {liveEntries.length > 0 && (
+              <span className={`px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-widest ${
+                dm ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+              }`}>
+                {liveEntries.length} clocked in
+              </span>
+            )}
+          </div>
+          <svg
+            className={`w-3.5 h-3.5 transition-transform ${liveActivityExpanded ? '' : '-rotate-90'} ${dm ? 'text-slate-600' : 'text-slate-400'}`}
+            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+
+        {/* Body */}
+        {liveActivityExpanded && (
+          <div className={`px-4 pb-4 pt-1 border-t ${dm ? 'border-white/[0.04]' : 'border-slate-100'}`}>
+            {liveEntries.length === 0 ? (
+              <p className={`py-6 text-center text-[11px] font-semibold ${dm ? 'text-slate-600' : 'text-slate-400'}`}>
+                No technicians currently clocked in.
+              </p>
+            ) : (
+              <div className="mt-3 space-y-2">
+                {liveEntries.map(entry => (
+                  <LiveActivityRow
+                    key={entry.id}
+                    entry={entry}
+                    ticket={tickets.find(t => t.id === entry.ticketId)}
+                    isDarkMode={dm}
+                    onClockOut={handleLiveClockOut}
+                    onOpenTicket={setDetailTicket}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── FILTER PANEL ──────────────────────────────────────────────── */}
