@@ -10,6 +10,7 @@ import {
 import { inboundTicketService } from '../services/inboundTicketService.ts';
 import InboundTicketDetail from './InboundTicketDetail.tsx';
 import { statusBadge } from './InboundTicketRow.tsx';
+import { fmtElapsed, useElapsedSeconds } from '../utils/inboundTimeUtils.ts';
 
 interface InboundTechQueueProps {
   sessionUser: User;
@@ -33,29 +34,6 @@ const urgencyColor = (iso: string, dm: boolean): string => {
   if (diff <= 3) return dm ? 'text-amber-400' : 'text-amber-600';
   return '';
 };
-
-/** Format elapsed seconds into h:mm:ss */
-const fmtElapsed = (seconds: number): string => {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
-  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-};
-
-// ── Live timer hook ────────────────────────────────────────────────────────────
-
-function useElapsedSeconds(startIso: string | null): number {
-  const [elapsed, setElapsed] = useState(0);
-  useEffect(() => {
-    if (!startIso) { setElapsed(0); return; }
-    const update = () => setElapsed(Math.floor((Date.now() - new Date(startIso).getTime()) / 1000));
-    update();
-    const id = setInterval(update, 1000);
-    return () => clearInterval(id);
-  }, [startIso]);
-  return elapsed;
-}
 
 // ── Clock-in row component ─────────────────────────────────────────────────────
 
@@ -90,7 +68,7 @@ const ClockRow: React.FC<ClockRowProps> = ({ ticket, sessionUser, isDarkMode: dm
     e.stopPropagation();
     setClocking(true);
     try {
-      const entry = await inboundTicketService.clockIn(ticket.id, sessionUser.id, sessionUser.name);
+      const entry = await inboundTicketService.clockIn(ticket.id, ticket.companyId, sessionUser.id, sessionUser.name);
       setActiveEntry(entry);
       // Reflect status change locally
       if (ticket.status === InboundTicketStatus.ASSIGNED) {

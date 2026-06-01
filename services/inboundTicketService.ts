@@ -315,6 +315,7 @@ export const inboundTicketService = {
    */
   async clockIn(
     ticketId:       string,
+    companyId:      string,
     technicianId:   string,
     technicianName: string,
   ): Promise<InboundTimeEntry> {
@@ -322,6 +323,7 @@ export const inboundTicketService = {
       .from('inbound_ticket_time_entries')
       .insert({
         ticket_id:       ticketId,
+        company_id:      companyId,
         technician_id:   technicianId,
         technician_name: technicianName,
       })

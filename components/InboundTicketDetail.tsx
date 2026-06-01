@@ -13,6 +13,7 @@ import {
 } from '../services/inboundTypes.ts';
 import { inboundTicketService } from '../services/inboundTicketService.ts';
 import { statusBadge } from './InboundTicketRow.tsx';
+import { fmtElapsed, fmtMinutes, computeDurationMinutes, useElapsedSeconds } from '../utils/inboundTimeUtils.ts';
 
 interface InboundTicketDetailProps {
   ticket:      InboundTicket;
@@ -45,40 +46,6 @@ const STATUS_ORDER: InboundTicketStatus[] = [
   InboundTicketStatus.IN_PROGRESS,
   InboundTicketStatus.COMPLETED,
 ];
-
-// ── Helpers shared by TimeTab ─────────────────────────────────────────────────
-
-const fmtElapsed = (seconds: number): string => {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
-  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-};
-
-const fmtMinutes = (minutes: number): string => {
-  const h = Math.floor(minutes / 60);
-  const m = Math.round(minutes % 60);
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
-};
-
-function computeDurationMinutes(entry: InboundTimeEntry): number {
-  const end = entry.clockedOutAt ? new Date(entry.clockedOutAt) : new Date();
-  return (end.getTime() - new Date(entry.clockedInAt).getTime()) / 60_000;
-}
-
-function useElapsedSeconds(startIso: string | null): number {
-  const [elapsed, setElapsed] = useState(0);
-  useEffect(() => {
-    if (!startIso) { setElapsed(0); return; }
-    const update = () => setElapsed(Math.floor((Date.now() - new Date(startIso).getTime()) / 1000));
-    update();
-    const id = setInterval(update, 1000);
-    return () => clearInterval(id);
-  }, [startIso]);
-  return elapsed;
-}
 
 // ── Time tab sub-component ────────────────────────────────────────────────────
 
@@ -114,7 +81,7 @@ const TimeTab: React.FC<TimeTabProps> = ({
   const handleClockIn = async () => {
     setClocking(true);
     try {
-      const entry = await inboundTicketService.clockIn(ticket.id, sessionUser.id, sessionUser.name);
+      const entry = await inboundTicketService.clockIn(ticket.id, ticket.companyId, sessionUser.id, sessionUser.name);
       onTimeEntriesChanged([entry, ...timeEntries]);
       if (ticket.status === InboundTicketStatus.ASSIGNED) {
         onTicketUpdated({ ...ticket, status: InboundTicketStatus.IN_PROGRESS });
