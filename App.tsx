@@ -37,7 +37,15 @@ declare global {
 }
 
 const VALID_VIEWS: AppView[] = ['dashboard', 'calendar', 'jobs', 'photos', 'team', 'map', 'asbuilt'];
-const INBOUND_EMAIL_POLL_INTERVAL_MS = 120000;
+const DEFAULT_INBOUND_EMAIL_POLL_INTERVAL_MS = 120000;
+const configuredInboundEmailPollInterval = Number(
+  (import.meta as any).env?.VITE_INBOUND_EMAIL_POLL_INTERVAL_MS ||
+  (window as any)?.process?.env?.VITE_INBOUND_EMAIL_POLL_INTERVAL_MS,
+);
+const INBOUND_EMAIL_POLL_INTERVAL_MS =
+  Number.isFinite(configuredInboundEmailPollInterval) && configuredInboundEmailPollInterval > 0
+    ? configuredInboundEmailPollInterval
+    : DEFAULT_INBOUND_EMAIL_POLL_INTERVAL_MS;
 
 const App: React.FC = () => {
   const [sessionUser, setSessionUser] = useState<User | null>(null);

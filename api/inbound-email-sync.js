@@ -11,6 +11,7 @@ const MAX_SYNC_MESSAGES = Math.max(
   Number(process.env.INBOUND_EMAIL_SYNC_BATCH_SIZE || DEFAULT_SYNC_BATCH_SIZE),
 );
 const MIN_FALLBACK_TICKET_LENGTH = 6;
+const MAX_FALLBACK_TICKET_LENGTH = 20;
 const MAX_IMPORTED_NOTES_LENGTH = 8000;
 
 const buildEmailText = ({ subject, from, text, html }) => {
@@ -41,7 +42,9 @@ const shouldImportMessage = (settings, parsedEmail) => {
 };
 
 const deriveFallbackTicketNumber = ({ subject, messageId }) => {
-  const subjectMatch = String(subject || '').match(new RegExp(`\\b([A-Z0-9-]{${MIN_FALLBACK_TICKET_LENGTH},})\\b`));
+  const subjectMatch = String(subject || '').match(
+    new RegExp(`\\b([A-Z0-9-]{${MIN_FALLBACK_TICKET_LENGTH},${MAX_FALLBACK_TICKET_LENGTH}})\\b`),
+  );
   if (subjectMatch) return subjectMatch[1];
   return `EMAIL-${String(messageId || crypto.randomUUID()).replace(/[^a-z0-9]/gi, '').slice(0, 12).toUpperCase()}`;
 };
@@ -262,7 +265,9 @@ export default async function handler(req, res) {
         })
         .eq('id', connection.id);
     } finally {
-      await client.logout().catch(() => {});
+      await client.logout().catch((error) => {
+        console.warn('Inbound IMAP logout failed:', error);
+      });
     }
 
     return res.status(200).json({

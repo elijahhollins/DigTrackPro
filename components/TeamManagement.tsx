@@ -999,7 +999,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                 Inbound Email Inbox
               </h3>
               <p className={`text-[10px] font-bold uppercase tracking-tighter mt-1 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                Connect an IMAP mailbox and import new locate request emails into Inbound Tickets
+                Connect an IMAP mailbox and let DigTrack Pro import new locate request emails into Inbound Tickets
               </p>
             </div>
             {inboundEmailSettings?.lastSyncedAt && (

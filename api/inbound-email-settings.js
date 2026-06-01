@@ -55,7 +55,9 @@ const testImapConnection = async (settings) => {
     await client.connect();
     await client.mailboxOpen(settings.mailbox);
   } finally {
-    await client.logout().catch(() => {});
+    await client.logout().catch((error) => {
+      console.warn('Inbound IMAP settings logout failed:', error);
+    });
   }
 };
 
@@ -124,8 +126,8 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: existingError.message });
     }
 
-    const passwordToStore = payload.password || existing?.password_encrypted;
-    if (!passwordToStore) {
+    const hasStoredPassword = Boolean(payload.password || existing?.password_encrypted);
+    if (!hasStoredPassword) {
       return res.status(400).json({ error: 'A mailbox password or app password is required.' });
     }
 
