@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { User, UserRecord } from '../types.ts';
 import {
   InboundTicket,
@@ -35,66 +35,131 @@ const urgencyColor = (iso: string, dm: boolean): string => {
   return '';
 };
 
+// ── Clock-in conflict dialog ───────────────────────────────────────────────────
+
+interface ClockConflictDialogProps {
+  /** The ticket the user wants to clock into. */
+  targetTicket:    InboundTicket;
+  /** All tickets the user is currently clocked into. */
+  activeTickets:   InboundTicket[];
+  isDarkMode:      boolean;
+  onSwitch:        () => void;
+  onAdd:           () => void;
+  onCancel:        () => void;
+}
+
+const ClockConflictDialog: React.FC<ClockConflictDialogProps> = ({
+  targetTicket,
+  activeTickets,
+  isDarkMode: dm,
+  onSwitch,
+  onAdd,
+  onCancel,
+}) => (
+  <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+    <div
+      className={`relative w-full max-w-md rounded-2xl shadow-2xl p-6 ${
+        dm ? 'bg-[#0d1f3c] border border-white/[0.08]' : 'bg-white border border-slate-200'
+      }`}
+      onClick={e => e.stopPropagation()}
+    >
+      {/* Icon */}
+      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-4 ${dm ? 'bg-amber-500/15' : 'bg-amber-50'}`}>
+        <svg className={`w-6 h-6 ${dm ? 'text-amber-400' : 'text-amber-600'}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="10" />
+          <polyline points="12 6 12 12 16 14" />
+        </svg>
+      </div>
+
+      <h3 className={`text-[15px] font-black uppercase tracking-tight mb-1 ${dm ? 'text-white' : 'text-slate-900'}`}>
+        Already Clocked In
+      </h3>
+      <p className={`text-[12px] mb-4 leading-relaxed ${dm ? 'text-slate-400' : 'text-slate-600'}`}>
+        You are currently clocked in to:
+      </p>
+
+      {/* Currently active tickets */}
+      <ul className={`rounded-xl border divide-y mb-5 ${dm ? 'border-white/[0.06] divide-white/[0.04] bg-white/[0.02]' : 'border-slate-200 divide-slate-100 bg-slate-50'}`}>
+        {activeTickets.map(t => (
+          <li key={t.id} className="flex items-center gap-3 px-3 py-2.5">
+            <span className="relative flex h-2 w-2 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+            </span>
+            <div className="min-w-0">
+              <p className={`text-[11px] font-black truncate ${dm ? 'text-slate-200' : 'text-slate-800'}`}>
+                #{t.ticketNumber} — {t.siteAddress}
+              </p>
+            </div>
+          </li>
+        ))}
+      </ul>
+
+      <p className={`text-[12px] mb-5 leading-relaxed ${dm ? 'text-slate-400' : 'text-slate-600'}`}>
+        You are about to clock into <span className={`font-bold ${dm ? 'text-slate-200' : 'text-slate-800'}`}>#{targetTicket.ticketNumber}</span>.
+        Would you like to clock out of the above ticket{activeTickets.length > 1 ? 's' : ''} first, or clock in to multiple tickets?
+      </p>
+
+      {/* Actions */}
+      <div className="flex flex-col gap-2">
+        <button
+          onClick={onSwitch}
+          className={`w-full py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${
+            dm
+              ? 'bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 border border-emerald-500/20'
+              : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200'
+          }`}
+        >
+          Clock out &amp; switch to #{targetTicket.ticketNumber}
+        </button>
+        <button
+          onClick={onAdd}
+          className={`w-full py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${
+            dm
+              ? 'bg-brand/10 text-brand hover:bg-brand/20 border border-brand/20'
+              : 'bg-brand/5 text-brand hover:bg-brand/10 border border-brand/20'
+          }`}
+        >
+          Clock in to multiple tickets
+        </button>
+        <button
+          onClick={onCancel}
+          className={`w-full py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${
+            dm
+              ? 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.08] border border-white/[0.06]'
+              : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200'
+          }`}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
 // ── Clock-in row component ─────────────────────────────────────────────────────
 
 interface ClockRowProps {
-  ticket:        InboundTicket;
-  sessionUser:   User;
-  isDarkMode:    boolean;
-  onTicketUpdated: (t: InboundTicket) => void;
+  ticket:          InboundTicket;
+  activeEntry:     InboundTimeEntry | null;
+  entriesLoaded:   boolean;
+  clocking:        boolean;
+  isDarkMode:      boolean;
+  onClockInRequest: (ticket: InboundTicket) => void;
+  onClockOut:      (ticket: InboundTicket, entryId: string) => void;
 }
 
-const ClockRow: React.FC<ClockRowProps> = ({ ticket, sessionUser, isDarkMode: dm, onTicketUpdated }) => {
-  const [activeEntry, setActiveEntry]   = useState<InboundTimeEntry | null>(null);
-  const [loadingEntry, setLoadingEntry] = useState(true);
-  const [clocking, setClocking]         = useState(false);
-
+const ClockRow: React.FC<ClockRowProps> = ({
+  ticket,
+  activeEntry,
+  entriesLoaded,
+  clocking,
+  isDarkMode: dm,
+  onClockInRequest,
+  onClockOut,
+}) => {
   // Live timer — only ticks when clocked in
   const elapsed = useElapsedSeconds(activeEntry ? activeEntry.clockedInAt : null);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const entry = await inboundTicketService.getActiveEntry(ticket.id, sessionUser.id);
-        if (!cancelled) setActiveEntry(entry);
-      } catch { /* ignore — UI will still show Clock In */ }
-      finally { if (!cancelled) setLoadingEntry(false); }
-    })();
-    return () => { cancelled = true; };
-  }, [ticket.id, sessionUser.id]);
-
-  const handleClockIn = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setClocking(true);
-    try {
-      const entry = await inboundTicketService.clockIn(ticket.id, ticket.companyId, sessionUser.id, sessionUser.name);
-      setActiveEntry(entry);
-      // Reflect status change locally
-      if (ticket.status === InboundTicketStatus.ASSIGNED) {
-        onTicketUpdated({ ...ticket, status: InboundTicketStatus.IN_PROGRESS });
-      }
-    } catch (err) {
-      console.error('Clock-in failed:', err);
-    } finally {
-      setClocking(false);
-    }
-  };
-
-  const handleClockOut = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!activeEntry) return;
-    setClocking(true);
-    try {
-      await inboundTicketService.clockOut(activeEntry.id);
-      setActiveEntry(null);
-    } catch (err) {
-      console.error('Clock-out failed:', err);
-    } finally {
-      setClocking(false);
-    }
-  };
-
   const isClockedIn = activeEntry !== null;
 
   return (
@@ -117,7 +182,7 @@ const ClockRow: React.FC<ClockRowProps> = ({ ticket, sessionUser, isDarkMode: dm
               Clocked In
             </span>
           </>
-        ) : loadingEntry ? (
+        ) : !entriesLoaded ? (
           <span className={`text-[9px] font-bold uppercase tracking-widest ${dm ? 'text-slate-700' : 'text-slate-300'}`}>
             —
           </span>
@@ -129,10 +194,10 @@ const ClockRow: React.FC<ClockRowProps> = ({ ticket, sessionUser, isDarkMode: dm
       </div>
 
       {/* Clock In / Out button */}
-      {!loadingEntry && (
+      {entriesLoaded && (
         isClockedIn ? (
           <button
-            onClick={handleClockOut}
+            onClick={e => { e.stopPropagation(); onClockOut(ticket, activeEntry!.id); }}
             disabled={clocking}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
               clocking ? 'opacity-50 cursor-not-allowed' : ''
@@ -145,7 +210,7 @@ const ClockRow: React.FC<ClockRowProps> = ({ ticket, sessionUser, isDarkMode: dm
           </button>
         ) : (
           <button
-            onClick={handleClockIn}
+            onClick={e => { e.stopPropagation(); onClockInRequest(ticket); }}
             disabled={clocking || ticket.status === InboundTicketStatus.COMPLETED}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
               clocking || ticket.status === InboundTicketStatus.COMPLETED
@@ -175,6 +240,16 @@ const InboundTechQueue: React.FC<InboundTechQueueProps> = ({ sessionUser, users,
   const [loadError, setLoadError] = useState('');
   const [detailTicket, setDetailTicket] = useState<InboundTicket | null>(null);
 
+  // Active time entries keyed by ticketId — loaded once, then kept in sync
+  const [activeEntries, setActiveEntries] = useState<Map<string, InboundTimeEntry>>(new Map());
+  const [entriesLoaded, setEntriesLoaded] = useState(false);
+
+  // Per-ticket clock operation in-flight flag
+  const [clockingTicketId, setClockingTicketId] = useState<string | null>(null);
+
+  // Conflict dialog state
+  const [conflictTarget, setConflictTarget] = useState<InboundTicket | null>(null);
+
   const loadTickets = async () => {
     setIsLoading(true);
     setLoadError('');
@@ -188,7 +263,23 @@ const InboundTechQueue: React.FC<InboundTechQueueProps> = ({ sessionUser, users,
     }
   };
 
-  useEffect(() => { loadTickets(); }, []);
+  const loadActiveEntries = useCallback(async () => {
+    try {
+      const entries = await inboundTicketService.getAllActiveEntries(sessionUser.id);
+      const map = new Map<string, InboundTimeEntry>();
+      for (const e of entries) map.set(e.ticketId, e);
+      setActiveEntries(map);
+    } catch {
+      // Non-fatal — clock buttons will show their initial state
+    } finally {
+      setEntriesLoaded(true);
+    }
+  }, [sessionUser.id]);
+
+  useEffect(() => {
+    loadTickets();
+    loadActiveEntries();
+  }, []);
 
   // Sorted by due date ascending (default)
   const sorted = useMemo(() =>
@@ -219,6 +310,82 @@ const InboundTechQueue: React.FC<InboundTechQueueProps> = ({ sessionUser, users,
     setTickets(prev => prev.filter(t => t.id !== id));
     if (detailTicket?.id === id) setDetailTicket(null);
   };
+
+  // ── Clock operations ─────────────────────────────────────────────────────────
+
+  const doClockIn = async (ticket: InboundTicket) => {
+    setClockingTicketId(ticket.id);
+    try {
+      const entry = await inboundTicketService.clockIn(
+        ticket.id, ticket.companyId, sessionUser.id, sessionUser.name,
+      );
+      setActiveEntries(prev => new Map(prev).set(ticket.id, entry));
+      if (ticket.status === InboundTicketStatus.ASSIGNED) {
+        handleTicketUpdated({ ...ticket, status: InboundTicketStatus.IN_PROGRESS });
+      }
+    } catch (err) {
+      console.error('Clock-in failed:', err);
+    } finally {
+      setClockingTicketId(null);
+    }
+  };
+
+  const doClockOut = async (ticket: InboundTicket, entryId: string) => {
+    setClockingTicketId(ticket.id);
+    try {
+      await inboundTicketService.clockOut(entryId);
+      setActiveEntries(prev => {
+        const next = new Map(prev);
+        next.delete(ticket.id);
+        return next;
+      });
+    } catch (err) {
+      console.error('Clock-out failed:', err);
+    } finally {
+      setClockingTicketId(null);
+    }
+  };
+
+  /** Called when user taps "Clock In" on a ticket card. */
+  const handleClockInRequest = (ticket: InboundTicket) => {
+    // Already clocked into this ticket — no-op (shouldn't happen)
+    if (activeEntries.has(ticket.id)) return;
+
+    // No conflicts — clock in immediately
+    if (activeEntries.size === 0) {
+      doClockIn(ticket);
+      return;
+    }
+
+    // One or more active entries — show conflict dialog
+    setConflictTarget(ticket);
+  };
+
+  /** "Switch": clock out of all active tickets, then clock into target. */
+  const handleConflictSwitch = async () => {
+    if (!conflictTarget) return;
+    setConflictTarget(null);
+    // Clock out all currently active entries
+    const entries = Array.from(activeEntries.values());
+    await Promise.all(entries.map(e => inboundTicketService.clockOut(e.id)));
+    setActiveEntries(new Map());
+    // Now clock into the target
+    await doClockIn(conflictTarget);
+  };
+
+  /** "Add": allow clocking into the target without touching existing sessions. */
+  const handleConflictAdd = () => {
+    if (!conflictTarget) return;
+    const target = conflictTarget;
+    setConflictTarget(null);
+    doClockIn(target);
+  };
+
+  // Active tickets list for the conflict dialog
+  const activeConflictTickets = useMemo(() => {
+    if (!conflictTarget) return [];
+    return tickets.filter(t => activeEntries.has(t.id) && t.id !== conflictTarget.id);
+  }, [conflictTarget, tickets, activeEntries]);
 
   return (
     <div className="space-y-6">
@@ -350,13 +517,28 @@ const InboundTechQueue: React.FC<InboundTechQueueProps> = ({ sessionUser, users,
               {/* Clock-in / Clock-out row — stops card click propagation */}
               <ClockRow
                 ticket={ticket}
-                sessionUser={sessionUser}
+                activeEntry={activeEntries.get(ticket.id) ?? null}
+                entriesLoaded={entriesLoaded}
+                clocking={clockingTicketId === ticket.id}
                 isDarkMode={dm}
-                onTicketUpdated={handleTicketUpdated}
+                onClockInRequest={handleClockInRequest}
+                onClockOut={doClockOut}
               />
             </div>
           ))}
         </div>
+      )}
+
+      {/* Clock-in conflict dialog */}
+      {conflictTarget && (
+        <ClockConflictDialog
+          targetTicket={conflictTarget}
+          activeTickets={activeConflictTickets}
+          isDarkMode={dm}
+          onSwitch={handleConflictSwitch}
+          onAdd={handleConflictAdd}
+          onCancel={() => setConflictTarget(null)}
+        />
       )}
 
       {/* Detail modal */}

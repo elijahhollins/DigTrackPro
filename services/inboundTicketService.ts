@@ -310,6 +310,20 @@ export const inboundTicketService = {
   },
 
   /**
+   * Returns all currently open (not clocked-out) entries for the given
+   * technician, across all tickets. Used to detect multi-ticket clock-in conflicts.
+   */
+  async getAllActiveEntries(technicianId: string): Promise<InboundTimeEntry[]> {
+    const { data, error } = await supabase
+      .from('inbound_ticket_time_entries')
+      .select('*')
+      .eq('technician_id', technicianId)
+      .is('clocked_out_at', null);
+    if (error) throw error;
+    return (data ?? []).map(r => mapTimeEntry(r as Record<string, unknown>));
+  },
+
+  /**
    * Clock a technician in to a ticket.
    * Also promotes the ticket status to IN_PROGRESS if it was ASSIGNED.
    */
