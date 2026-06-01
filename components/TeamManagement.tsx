@@ -13,6 +13,7 @@ interface TeamManagementProps {
   onCompanyCreated?: (company: Company) => void;
   onCompanyUpdated?: (id: string, updates: { name?: string; city?: string; state?: string; phone?: string }) => Promise<void>;
   onToggleCompanyActive?: (id: string, isActive: boolean) => Promise<void>;
+  onToggleCompanyInbound?: (id: string, enabled: boolean) => Promise<void>;
   onAddUser: (user: Partial<UserRecord>) => Promise<void>;
   onDeleteUser: (id: string) => void;
   onToggleRole?: (user: UserRecord) => void;
@@ -34,6 +35,7 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
   onCompanyCreated,
   onCompanyUpdated,
   onToggleCompanyActive,
+  onToggleCompanyInbound,
   onDeleteUser, 
   onToggleRole,
   onUpdateUserName,
@@ -612,6 +614,21 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                                 } ${isDarkMode ? 'bg-white/10 text-slate-300' : 'bg-slate-100 text-slate-700'}`}
                               >
                                 {loadingCompanyIds.has(co.id) ? 'Generating...' : 'Get Link'}
+                              </button>
+                              <button
+                                onClick={() => {
+                                  const nextEnabled = !co.inboundEnabled;
+                                  if (!confirm(nextEnabled ? `Enable Inbound Tickets for ${co.name}?` : `Disable Inbound Tickets for ${co.name}? Their inbound data will be preserved.`)) return;
+                                  onToggleCompanyInbound?.(co.id, nextEnabled);
+                                }}
+                                className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all hover:scale-105 active:scale-95 ${
+                                  co.inboundEnabled
+                                    ? isDarkMode ? 'bg-violet-500/10 text-violet-400 hover:bg-violet-500/20' : 'bg-violet-50 text-violet-700 hover:bg-violet-100'
+                                    : isDarkMode ? 'bg-white/5 text-slate-500 hover:bg-white/10' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                                }`}
+                                title={co.inboundEnabled ? 'Disable Inbound Tickets' : 'Enable Inbound Tickets'}
+                              >
+                                Inbound {co.inboundEnabled ? 'ON' : 'OFF'}
                               </button>
                               <button
                                 onClick={() => {

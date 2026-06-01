@@ -20,6 +20,10 @@ import Login from './components/Login.tsx';
 import CompanyRegistration from './components/CompanyRegistration.tsx';
 import MapView from './components/MapView.tsx';
 import { AsBuiltView } from './components/AsBuiltView.tsx';
+import InboundTicketsDashboard from './components/InboundTicketsDashboard.tsx';
+import InboundTechQueue from './components/InboundTechQueue.tsx';
+import InboundCalendarView from './components/InboundCalendarView.tsx';
+import InboundMapView from './components/InboundMapView.tsx';
 
 declare global {
   interface AIStudio {
@@ -68,6 +72,7 @@ const App: React.FC = () => {
   const [noShowTicket, setNoShowTicket] = useState<DigTicket | null>(null);
   const [notesTicket, setNotesTicket] = useState<DigTicket | null>(null);
   const [digConfirmTicket, setDigConfirmTicket] = useState<DigTicket | null>(null);
+  const [ticketMode, setTicketMode] = useState<'regular' | 'inbound'>('regular');
   const [snoozedDigConfirmIds, setSnoozedDigConfirmIds] = useState<Set<string>>(new Set());
   const [globalSearch, setGlobalSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<TicketStatus | 'NO_SHOW' | null>(null);
@@ -109,6 +114,7 @@ const App: React.FC = () => {
   };
 
   const handleShowInDashboard = useCallback((ticket: DigTicket) => {
+    setTicketMode('regular');
     handleNavigate('dashboard');
     setExpandedJobs(prev => new Set([...prev, ticket.jobNumber]));
     setHighlightedTicketId(ticket.id);
@@ -415,6 +421,12 @@ const App: React.FC = () => {
     if (company?.id === id) setCompany({ ...company, isActive });
   };
 
+  const handleToggleCompanyInbound = async (id: string, inboundEnabled: boolean) => {
+    await apiService.setCompanyInboundEnabled(id, inboundEnabled);
+    setAllCompanies(prev => prev.map(co => co.id === id ? { ...co, inboundEnabled } : co));
+    if (company?.id === id) setCompany({ ...company, inboundEnabled });
+  };
+
   const handleToggleArchive = async (ticket: DigTicket, e: React.MouseEvent) => {
     e.stopPropagation();
     const willArchive = !ticket.isArchived;
@@ -623,6 +635,9 @@ const App: React.FC = () => {
 
   const isSuperAdmin = sessionUser.role === UserRole.SUPER_ADMIN;
   const isAdmin = sessionUser.role === UserRole.ADMIN || isSuperAdmin;
+  // Inbound Tickets feature is only available to companies that have it enabled.
+  // Super admins always have access so they can test/manage any company's inbound setup.
+  const isInboundEnabled = isSuperAdmin || company?.inboundEnabled === true;
   const NAV_ITEMS: { id: AppView; label: string; icon: React.ReactNode }[] = [
     { id: 'dashboard', label: 'Tickets', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg> },
     { id: 'calendar', label: 'Schedule', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
@@ -739,7 +754,7 @@ const App: React.FC = () => {
           </div>
 
           {/* Search (dashboard only, desktop) */}
-          {activeView === 'dashboard' && (
+          {activeView === 'dashboard' && ticketMode === 'regular' && (
             <div className="relative hidden md:block">
               <input
                 type="text"
@@ -788,7 +803,32 @@ const App: React.FC = () => {
 
             {activeView === 'dashboard' && (
               <div className="space-y-6">
+                {/* ── Ticket mode toggle ── */}
+                {isInboundEnabled && (
+                <div className={`flex rounded-xl border p-0.5 gap-0.5 w-fit ${isDarkMode ? 'bg-[#0b1629] border-white/[0.08]' : 'bg-slate-100 border-slate-200'}`}>
+                  {(['regular', 'inbound'] as const).map(mode => (
+                    <button
+                      key={mode}
+                      onClick={() => setTicketMode(mode)}
+                      className={`px-5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                        ticketMode === mode
+                          ? isDarkMode ? 'bg-brand/20 text-brand border border-brand/25' : 'bg-white text-brand shadow-sm border border-slate-200'
+                          : isDarkMode ? 'text-slate-600 hover:text-slate-300' : 'text-slate-400 hover:text-slate-700'
+                      }`}
+                    >
+                      {mode === 'regular' ? 'Regular' : 'Inbound'}
+                    </button>
+                  ))}
+                </div>
+                )}
 
+                {isInboundEnabled && ticketMode === 'inbound' && isAdmin && (
+                  <InboundTicketsDashboard sessionUser={sessionUser} users={users} isDarkMode={isDarkMode} />
+                )}
+                {isInboundEnabled && ticketMode === 'inbound' && !isAdmin && (
+                  <InboundTechQueue sessionUser={sessionUser} users={users} isDarkMode={isDarkMode} />
+                )}
+                {(!isInboundEnabled || ticketMode === 'regular') && (<>
                 {/* Page header */}
                 <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
                   <div>
@@ -982,31 +1022,79 @@ const App: React.FC = () => {
                     </table>
                   </div>
                 </div>
+              </>)}
+            </div>
+          )}
+
+            {activeView === 'calendar' && (
+              <div className="space-y-4">
+                {/* ── Ticket mode toggle ── */}
+                {isInboundEnabled && (
+                <div className={`flex rounded-xl border p-0.5 gap-0.5 w-fit ${isDarkMode ? 'bg-[#0b1629] border-white/[0.08]' : 'bg-slate-100 border-slate-200'}`}>
+                  {(['regular', 'inbound'] as const).map(mode => (
+                    <button
+                      key={mode}
+                      onClick={() => setTicketMode(mode)}
+                      className={`px-5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                        ticketMode === mode
+                          ? isDarkMode ? 'bg-brand/20 text-brand border border-brand/25' : 'bg-white text-brand shadow-sm border border-slate-200'
+                          : isDarkMode ? 'text-slate-600 hover:text-slate-300' : 'text-slate-400 hover:text-slate-700'
+                      }`}
+                    >
+                      {mode === 'regular' ? 'Regular' : 'Inbound'}
+                    </button>
+                  ))}
+                </div>
+                )}
+                {(!isInboundEnabled || ticketMode === 'regular') && <CalendarView tickets={tickets} onEditTicket={setEditingTicket} onShowInDashboard={handleShowInDashboard} onViewDoc={setViewingDocUrl} onManageNoShow={setNoShowTicket} isDarkMode={isDarkMode} />}
+                {isInboundEnabled && ticketMode === 'inbound' && <InboundCalendarView sessionUser={sessionUser} users={users} isAdmin={isAdmin} isDarkMode={isDarkMode} />}
               </div>
             )}
-
-            {activeView === 'calendar' && <CalendarView tickets={tickets} onEditTicket={setEditingTicket} onShowInDashboard={handleShowInDashboard} onViewDoc={setViewingDocUrl} onManageNoShow={setNoShowTicket} isDarkMode={isDarkMode} />}
-            {activeView === 'map' && <MapView
-              tickets={activeTicketsList}
-              isDarkMode={isDarkMode}
-              onEditTicket={isAdmin ? setEditingTicket : undefined}
-              onViewTicket={setViewingDocUrl}
-              onTicketGeocoded={(id, lat, lng) => {
-                setTickets(prev => prev.map(t => t.id === id ? { ...t, lat, lng } : t));
-              }}
-              onPinMoved={isAdmin ? (id, lat, lng) => {
-                setTickets(prev => prev.map(t => t.id === id ? { ...t, lat, lng } : t));
-                apiService.updateTicketCoords(id, lat, lng).catch((err) => console.error('Failed to save adjusted pin coordinates:', err));
-              } : undefined}
-              onOpenInDashboard={(ticket) => {
-                handleNavigate('dashboard');
-                setExpandedJobs(prev => new Set([...prev, ticket.jobNumber]));
-                setHighlightedTicketId(ticket.id);
-              }}
-            />}
+            {activeView === 'map' && (
+              <div className="space-y-4">
+                {/* ── Ticket mode toggle ── */}
+                {isInboundEnabled && (
+                <div className={`flex rounded-xl border p-0.5 gap-0.5 w-fit ${isDarkMode ? 'bg-[#0b1629] border-white/[0.08]' : 'bg-slate-100 border-slate-200'}`}>
+                  {(['regular', 'inbound'] as const).map(mode => (
+                    <button
+                      key={mode}
+                      onClick={() => setTicketMode(mode)}
+                      className={`px-5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                        ticketMode === mode
+                          ? isDarkMode ? 'bg-brand/20 text-brand border border-brand/25' : 'bg-white text-brand shadow-sm border border-slate-200'
+                          : isDarkMode ? 'text-slate-600 hover:text-slate-300' : 'text-slate-400 hover:text-slate-700'
+                      }`}
+                    >
+                      {mode === 'regular' ? 'Regular' : 'Inbound'}
+                    </button>
+                  ))}
+                </div>
+                )}
+                {(!isInboundEnabled || ticketMode === 'regular') && <MapView
+                  tickets={activeTicketsList}
+                  isDarkMode={isDarkMode}
+                  onEditTicket={isAdmin ? setEditingTicket : undefined}
+                  onViewTicket={setViewingDocUrl}
+                  onTicketGeocoded={(id, lat, lng) => {
+                    setTickets(prev => prev.map(t => t.id === id ? { ...t, lat, lng } : t));
+                  }}
+                  onPinMoved={isAdmin ? (id, lat, lng) => {
+                    setTickets(prev => prev.map(t => t.id === id ? { ...t, lat, lng } : t));
+                    apiService.updateTicketCoords(id, lat, lng).catch((err) => console.error('Failed to save adjusted pin coordinates:', err));
+                  } : undefined}
+                  onOpenInDashboard={(ticket) => {
+                    setTicketMode('regular');
+                    handleNavigate('dashboard');
+                    setExpandedJobs(prev => new Set([...prev, ticket.jobNumber]));
+                    setHighlightedTicketId(ticket.id);
+                  }}
+                />}
+                {isInboundEnabled && ticketMode === 'inbound' && <InboundMapView sessionUser={sessionUser} users={users} isAdmin={isAdmin} isDarkMode={isDarkMode} />}
+              </div>
+            )}
             {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} isAdmin={isAdmin} isDarkMode={isDarkMode} onJobSelect={(job: Job) => handleJobSelection(job.jobNumber, job)} onViewDoc={setViewingDocUrl} />}
             {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} isAdmin={isAdmin} companyId={sessionUser.companyId} onAddPhoto={(data, file) => apiService.addPhoto({ ...data, companyId: sessionUser.companyId }, file)} onDeletePhoto={(id: string) => apiService.deletePhoto(id)} onDeleteJob={async (id) => { await apiService.deleteJob(id); initApp(); }} initialSearch={mediaFolderFilter} />}
-            {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} company={company || undefined} isDarkMode={isDarkMode} isSuperAdmin={isSuperAdmin} allCompanies={allCompanies} onCompanyCreated={(co) => setAllCompanies(prev => [...prev, co])} onCompanyUpdated={handleUpdateCompany} onToggleCompanyActive={handleToggleCompanyActive} onAddUser={async (u) => { await apiService.addUser({ ...u, companyId: sessionUser.companyId }); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onUpdateUserName={async (id, name) => { await apiService.updateUserName(id, name); initApp(); }} onSendPasswordReset={async (email) => { await apiService.sendPasswordReset(email); }} onUpdateCurrentUserPassword={async (password) => { await apiService.updateCurrentUserPassword(password); }} onUpdateNotificationEmail={handleUpdateNotificationEmail} onUpdateUserNotificationEmail={handleUpdateUserNotificationEmail} onTestEmail={handleTestEmail} />}
+            {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} company={company || undefined} isDarkMode={isDarkMode} isSuperAdmin={isSuperAdmin} allCompanies={allCompanies} onCompanyCreated={(co) => setAllCompanies(prev => [...prev, co])} onCompanyUpdated={handleUpdateCompany} onToggleCompanyActive={handleToggleCompanyActive} onToggleCompanyInbound={handleToggleCompanyInbound} onAddUser={async (u) => { await apiService.addUser({ ...u, companyId: sessionUser.companyId }); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onUpdateUserName={async (id, name) => { await apiService.updateUserName(id, name); initApp(); }} onSendPasswordReset={async (email) => { await apiService.sendPasswordReset(email); }} onUpdateCurrentUserPassword={async (password) => { await apiService.updateCurrentUserPassword(password); }} onUpdateNotificationEmail={handleUpdateNotificationEmail} onUpdateUserNotificationEmail={handleUpdateUserNotificationEmail} onTestEmail={handleTestEmail} />}
             {activeView === 'asbuilt' && <AsBuiltView jobs={jobs} sessionUser={sessionUser} isAdmin={isAdmin} isDarkMode={isDarkMode} onDeleteJob={async (id) => { await apiService.deleteJob(id); initApp(); }} />}
           </div>
         </main>

@@ -279,7 +279,8 @@ export const apiService = {
       state: data.state || '',
       phone: data.phone || '',
       createdAt: new Date(data.created_at).getTime(),
-      isActive: data.is_active === true
+      isActive: data.is_active === true,
+      inboundEnabled: data.inbound_enabled === true
     };
   },
 
@@ -702,7 +703,8 @@ export const apiService = {
       state: data.state || '',
       phone: data.phone || '',
       createdAt: new Date(data.created_at).getTime(),
-      isActive: data.is_active === true
+      isActive: data.is_active === true,
+      inboundEnabled: data.inbound_enabled === true
     };
   },
 
@@ -762,7 +764,8 @@ export const apiService = {
       state: d.state || '',
       phone: d.phone || '',
       createdAt: new Date(d.created_at).getTime(),
-      isActive: d.is_active === true
+      isActive: d.is_active === true,
+      inboundEnabled: d.inbound_enabled === true
     }));
   },
 
@@ -790,12 +793,18 @@ export const apiService = {
       state: data.state || '',
       phone: data.phone || '',
       createdAt: new Date(data.created_at).getTime(),
-      isActive: data.is_active === true
+      isActive: data.is_active === true,
+      inboundEnabled: data.inbound_enabled === true
     };
   },
 
   async setCompanyActive(id: string, isActive: boolean): Promise<void> {
     const { error } = await supabase.from('companies').update({ is_active: isActive }).eq('id', id);
+    if (error) throw error;
+  },
+
+  async setCompanyInboundEnabled(id: string, enabled: boolean): Promise<void> {
+    const { error } = await supabase.from('companies').update({ inbound_enabled: enabled }).eq('id', id);
     if (error) throw error;
   },
 
