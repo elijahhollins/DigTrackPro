@@ -92,7 +92,7 @@ const LiveActivityRow: React.FC<LiveActivityRowProps> = ({
           onClick={handleClockOut}
           disabled={clockingOut}
           title={`Clock out ${entry.technicianName}`}
-          className={`shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+          className={`shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
             clockingOut ? 'opacity-50 cursor-not-allowed' : ''
           } ${dm
             ? 'bg-rose-500/15 text-rose-400 hover:bg-rose-500/25 border border-rose-500/20'
@@ -123,7 +123,7 @@ const LiveActivityRow: React.FC<LiveActivityRowProps> = ({
           <p className={`text-[10px] ${dm ? 'text-slate-600' : 'text-slate-400'}`}>Unknown ticket</p>
         )}
         {clockOutError && (
-          <p className={`mt-1 text-[9px] font-semibold ${dm ? 'text-rose-400' : 'text-rose-600'}`}>
+          <p className={`mt-1 text-xs font-semibold ${dm ? 'text-rose-400' : 'text-rose-600'}`}>
             {clockOutError}
           </p>
         )}
