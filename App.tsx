@@ -37,6 +37,15 @@ declare global {
 }
 
 const VALID_VIEWS: AppView[] = ['dashboard', 'calendar', 'jobs', 'photos', 'team', 'map', 'asbuilt'];
+const DEFAULT_INBOUND_EMAIL_POLL_INTERVAL_MS = 120000;
+const configuredInboundEmailPollInterval = Number(
+  (import.meta as any).env?.VITE_INBOUND_EMAIL_POLL_INTERVAL_MS ||
+  (window as any)?.process?.env?.VITE_INBOUND_EMAIL_POLL_INTERVAL_MS,
+);
+const INBOUND_EMAIL_POLL_INTERVAL_MS =
+  Number.isFinite(configuredInboundEmailPollInterval) && configuredInboundEmailPollInterval > 0
+    ? configuredInboundEmailPollInterval
+    : DEFAULT_INBOUND_EMAIL_POLL_INTERVAL_MS;
 
 const App: React.FC = () => {
   const [sessionUser, setSessionUser] = useState<User | null>(null);
@@ -281,6 +290,37 @@ const App: React.FC = () => {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [sessionUser?.id, sessionUser?.role, sessionUser?.companyId]);
+
+  useEffect(() => {
+    const canWatchInboundEmail = Boolean(
+      sessionUser?.companyId &&
+      (sessionUser?.role === UserRole.ADMIN || sessionUser?.role === UserRole.SUPER_ADMIN) &&
+      (sessionUser?.role === UserRole.SUPER_ADMIN || company?.inboundEnabled === true)
+    );
+
+    if (!canWatchInboundEmail) return;
+
+    let cancelled = false;
+    const syncInbox = async () => {
+      try {
+        const result = await apiService.syncInboundEmailInbox();
+        if (!cancelled && (result.importedCount > 0 || result.updatedCount > 0)) {
+          console.info('Inbound email sync completed:', result);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.warn('Inbound email sync skipped:', error);
+        }
+      }
+    };
+
+    syncInbox();
+    const interval = window.setInterval(syncInbox, INBOUND_EMAIL_POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [company?.inboundEnabled, sessionUser?.companyId, sessionUser?.role]);
 
   const pendingDigConfirmTickets = useMemo(() => {
     if (!sessionUser || (sessionUser.role !== UserRole.ADMIN && sessionUser.role !== UserRole.SUPER_ADMIN)) return [];
@@ -1094,7 +1134,7 @@ const App: React.FC = () => {
             )}
             {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} isAdmin={isAdmin} isDarkMode={isDarkMode} onJobSelect={(job: Job) => handleJobSelection(job.jobNumber, job)} onViewDoc={setViewingDocUrl} />}
             {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} isAdmin={isAdmin} companyId={sessionUser.companyId} onAddPhoto={(data, file) => apiService.addPhoto({ ...data, companyId: sessionUser.companyId }, file)} onDeletePhoto={(id: string) => apiService.deletePhoto(id)} onDeleteJob={async (id) => { await apiService.deleteJob(id); initApp(); }} initialSearch={mediaFolderFilter} />}
-            {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} company={company || undefined} isDarkMode={isDarkMode} isSuperAdmin={isSuperAdmin} allCompanies={allCompanies} onCompanyCreated={(co) => setAllCompanies(prev => [...prev, co])} onCompanyUpdated={handleUpdateCompany} onToggleCompanyActive={handleToggleCompanyActive} onToggleCompanyInbound={handleToggleCompanyInbound} onAddUser={async (u) => { await apiService.addUser({ ...u, companyId: sessionUser.companyId }); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onUpdateUserName={async (id, name) => { await apiService.updateUserName(id, name); initApp(); }} onSendPasswordReset={async (email) => { await apiService.sendPasswordReset(email); }} onUpdateCurrentUserPassword={async (password) => { await apiService.updateCurrentUserPassword(password); }} onUpdateNotificationEmail={handleUpdateNotificationEmail} onUpdateUserNotificationEmail={handleUpdateUserNotificationEmail} onTestEmail={handleTestEmail} />}
+            {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} company={company || undefined} isDarkMode={isDarkMode} isSuperAdmin={isSuperAdmin} allCompanies={allCompanies} onCompanyCreated={(co) => setAllCompanies(prev => [...prev, co])} onCompanyUpdated={handleUpdateCompany} onToggleCompanyActive={handleToggleCompanyActive} onToggleCompanyInbound={handleToggleCompanyInbound} onAddUser={async (u) => { await apiService.addUser({ ...u, companyId: sessionUser.companyId }); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onUpdateUserName={async (id, name) => { await apiService.updateUserName(id, name); initApp(); }} onSendPasswordReset={async (email) => { await apiService.sendPasswordReset(email); }} onUpdateCurrentUserPassword={async (password) => { await apiService.updateCurrentUserPassword(password); }} onUpdateNotificationEmail={handleUpdateNotificationEmail} onUpdateUserNotificationEmail={handleUpdateUserNotificationEmail} onTestEmail={handleTestEmail} onLoadInboundEmailSettings={() => apiService.getInboundEmailSettings()} onSaveInboundEmailSettings={(settings) => apiService.saveInboundEmailSettings(settings)} onDeleteInboundEmailSettings={() => apiService.deleteInboundEmailSettings()} onSyncInboundEmail={() => apiService.syncInboundEmailInbox(true)} />}
             {activeView === 'asbuilt' && <AsBuiltView jobs={jobs} sessionUser={sessionUser} isAdmin={isAdmin} isDarkMode={isDarkMode} onDeleteJob={async (id) => { await apiService.deleteJob(id); initApp(); }} />}
           </div>
         </main>
