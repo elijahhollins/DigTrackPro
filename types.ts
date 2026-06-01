@@ -158,6 +158,30 @@ export interface JobNote {
   timestamp: number;
 }
 
+export interface InboundEmailSettings {
+  id?: string;
+  emailAddress: string;
+  host: string;
+  port: number;
+  username: string;
+  secure: boolean;
+  mailbox: string;
+  subjectFilter: string;
+  senderAllowlist: string[];
+  autoImport: boolean;
+  hasPassword?: boolean;
+  lastSyncedAt?: string | null;
+  lastError?: string | null;
+}
+
+export interface InboundEmailSyncResult {
+  importedCount: number;
+  updatedCount: number;
+  skippedCount: number;
+  failedCount: number;
+  syncedAt: string;
+}
+
 export type SortField = keyof DigTicket | 'status';
 export type SortOrder = 'asc' | 'desc';
 export type AppView = 'dashboard' | 'calendar' | 'jobs' | 'photos' | 'team' | 'map' | 'asbuilt';

@@ -1,6 +1,6 @@
 
 import { supabase } from '../lib/supabaseClient.ts';
-import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job, NoShowRecord, JobPrint, PrintMarker, Company, PdfAnnotation } from '../types.ts';
+import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job, NoShowRecord, JobPrint, PrintMarker, Company, PdfAnnotation, InboundEmailSettings, InboundEmailSyncResult } from '../types.ts';
 
 const mapRole = (role: string | undefined): UserRole => {
   const r = role?.toUpperCase();
@@ -241,6 +241,37 @@ ALTER TABLE tickets ADD COLUMN IF NOT EXISTS bbox_lat4 double precision;
 ALTER TABLE tickets ADD COLUMN IF NOT EXISTS bbox_lng4 double precision;`;
 
 const generateUUID = () => crypto.randomUUID();
+
+const getAccessToken = async (): Promise<string> => {
+  const { data, error } = await supabase.auth.getSession();
+  if (error) throw error;
+  const token = data.session?.access_token;
+  if (!token) throw new Error('You must be signed in to manage inbound email.');
+  return token;
+};
+
+const callAuthenticatedApi = async <T>(path: string, options: RequestInit = {}): Promise<T> => {
+  const token = await getAccessToken();
+  const headers = new Headers(options.headers || {});
+  headers.set('Authorization', 'Bearer ' + token);
+
+  const hasBody = options.body !== undefined;
+  if (hasBody && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+
+  const response = await fetch(path, { ...options, headers });
+  let body: any = {};
+  try {
+    body = await response.json();
+  } catch {}
+
+  if (!response.ok) {
+    throw new Error(body?.error || `Request failed with status ${response.status}`);
+  }
+
+  return (body?.data ?? body) as T;
+};
 
 const mapJob = (data: any): Job => ({
   id: data.id,
@@ -911,5 +942,33 @@ export const apiService = {
       },
     });
     throwIfEmailFailed(error, data, 'testAlertEmail error');
+  },
+
+  async getInboundEmailSettings(): Promise<InboundEmailSettings | null> {
+    return callAuthenticatedApi<InboundEmailSettings | null>('/api/inbound-email-settings', {
+      method: 'GET',
+    });
+  },
+
+  async saveInboundEmailSettings(
+    settings: InboundEmailSettings & { password?: string }
+  ): Promise<InboundEmailSettings> {
+    return callAuthenticatedApi<InboundEmailSettings>('/api/inbound-email-settings', {
+      method: 'POST',
+      body: JSON.stringify(settings),
+    });
+  },
+
+  async deleteInboundEmailSettings(): Promise<void> {
+    await callAuthenticatedApi('/api/inbound-email-settings', {
+      method: 'DELETE',
+    });
+  },
+
+  async syncInboundEmailInbox(force: boolean = false): Promise<InboundEmailSyncResult> {
+    return callAuthenticatedApi<InboundEmailSyncResult>('/api/inbound-email-sync', {
+      method: 'POST',
+      body: JSON.stringify({ force }),
+    });
   }
 };

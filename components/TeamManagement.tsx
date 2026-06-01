@@ -1,6 +1,6 @@
 
-import React, { useState } from 'react';
-import { UserRole, UserRecord, User, Company } from '../types.ts';
+import React, { useEffect, useState } from 'react';
+import { UserRole, UserRecord, User, Company, InboundEmailSettings, InboundEmailSyncResult } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
 
 interface TeamManagementProps {
@@ -23,6 +23,10 @@ interface TeamManagementProps {
   onUpdateNotificationEmail?: (email: string | null) => Promise<void>;
   onUpdateUserNotificationEmail?: (userId: string, email: string | null) => Promise<void>;
   onTestEmail?: () => Promise<void>;
+  onLoadInboundEmailSettings?: () => Promise<InboundEmailSettings | null>;
+  onSaveInboundEmailSettings?: (settings: InboundEmailSettings & { password?: string }) => Promise<InboundEmailSettings>;
+  onDeleteInboundEmailSettings?: () => Promise<void>;
+  onSyncInboundEmail?: () => Promise<InboundEmailSyncResult>;
 }
 
 const TeamManagement: React.FC<TeamManagementProps> = ({ 
@@ -43,7 +47,11 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
   onUpdateCurrentUserPassword,
   onUpdateNotificationEmail,
   onUpdateUserNotificationEmail,
-  onTestEmail
+  onTestEmail,
+  onLoadInboundEmailSettings,
+  onSaveInboundEmailSettings,
+  onDeleteInboundEmailSettings,
+  onSyncInboundEmail
 }) => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [pushStatus, setPushStatus] = useState<'granted' | 'denied' | 'default'>(typeof Notification !== 'undefined' ? Notification.permission : 'default');
@@ -92,7 +100,64 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
   const [newUserEmailInput, setNewUserEmailInput] = useState('');
   const [isSavingUserEmail, setIsSavingUserEmail] = useState(false);
 
+  const [inboundEmailSettings, setInboundEmailSettings] = useState<InboundEmailSettings | null>(null);
+  const [isLoadingInboundEmail, setIsLoadingInboundEmail] = useState(false);
+  const [isSavingInboundEmail, setIsSavingInboundEmail] = useState(false);
+  const [isSyncingInboundEmail, setIsSyncingInboundEmail] = useState(false);
+  const [inboundEmailStatus, setInboundEmailStatus] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [inboundEmailForm, setInboundEmailForm] = useState({
+    emailAddress: '',
+    host: '',
+    port: '993',
+    username: '',
+    password: '',
+    secure: true,
+    mailbox: 'INBOX',
+    subjectFilter: '',
+    senderAllowlist: '',
+    autoImport: true,
+  });
+
   const isAdmin = sessionUser?.role === UserRole.ADMIN || isSuperAdmin;
+  const canManageInboundInbox = isAdmin && (isSuperAdmin || company?.inboundEnabled === true);
+
+  useEffect(() => {
+    if (!canManageInboundInbox || !onLoadInboundEmailSettings) {
+      setInboundEmailSettings(null);
+      return;
+    }
+
+    let isMounted = true;
+    setIsLoadingInboundEmail(true);
+    onLoadInboundEmailSettings()
+      .then((settings) => {
+        if (!isMounted) return;
+        setInboundEmailSettings(settings);
+        setInboundEmailForm({
+          emailAddress: settings?.emailAddress || '',
+          host: settings?.host || '',
+          port: String(settings?.port || 993),
+          username: settings?.username || '',
+          password: '',
+          secure: settings?.secure !== false,
+          mailbox: settings?.mailbox || 'INBOX',
+          subjectFilter: settings?.subjectFilter || '',
+          senderAllowlist: settings?.senderAllowlist?.join(', ') || '',
+          autoImport: settings?.autoImport !== false,
+        });
+      })
+      .catch((err: any) => {
+        if (!isMounted) return;
+        setInboundEmailStatus({ ok: false, msg: err.message || 'Failed to load inbound inbox settings.' });
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingInboundEmail(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [canManageInboundInbox, onLoadInboundEmailSettings]);
 
   const handleEnablePush = async () => {
     if (typeof Notification === 'undefined') {
@@ -203,6 +268,80 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
       setTestEmailResult({ ok: false, msg: err.message || 'Failed to send test email.' });
     } finally {
       setIsSendingTestEmail(false);
+    }
+  };
+
+  const handleSaveInboundEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!onSaveInboundEmailSettings) return;
+    setIsSavingInboundEmail(true);
+    setInboundEmailStatus(null);
+    try {
+      const saved = await onSaveInboundEmailSettings({
+        emailAddress: inboundEmailForm.emailAddress.trim(),
+        host: inboundEmailForm.host.trim(),
+        port: Number(inboundEmailForm.port) || 993,
+        username: inboundEmailForm.username.trim(),
+        password: inboundEmailForm.password,
+        secure: inboundEmailForm.secure,
+        mailbox: inboundEmailForm.mailbox.trim() || 'INBOX',
+        subjectFilter: inboundEmailForm.subjectFilter.trim(),
+        senderAllowlist: inboundEmailForm.senderAllowlist.split(',').map(item => item.trim()).filter(Boolean),
+        autoImport: inboundEmailForm.autoImport,
+      });
+      setInboundEmailSettings(saved);
+      setInboundEmailForm(prev => ({ ...prev, password: '' }));
+      setInboundEmailStatus({ ok: true, msg: 'Inbound inbox connected successfully.' });
+    } catch (err: any) {
+      setInboundEmailStatus({ ok: false, msg: err.message || 'Failed to save inbound inbox settings.' });
+    } finally {
+      setIsSavingInboundEmail(false);
+    }
+  };
+
+  const handleSyncInboundEmail = async () => {
+    if (!onSyncInboundEmail) return;
+    setIsSyncingInboundEmail(true);
+    setInboundEmailStatus(null);
+    try {
+      const result = await onSyncInboundEmail();
+      setInboundEmailSettings(prev => prev ? { ...prev, lastSyncedAt: result.syncedAt, lastError: result.failedCount > 0 ? `${result.failedCount} email(s) failed to import.` : null } : prev);
+      setInboundEmailStatus({
+        ok: result.failedCount === 0,
+        msg: `Imported ${result.importedCount}, updated ${result.updatedCount}, skipped ${result.skippedCount}${result.failedCount ? `, failed ${result.failedCount}` : ''}.`,
+      });
+    } catch (err: any) {
+      setInboundEmailStatus({ ok: false, msg: err.message || 'Failed to sync inbound inbox.' });
+    } finally {
+      setIsSyncingInboundEmail(false);
+    }
+  };
+
+  const handleDeleteInboundEmail = async () => {
+    if (!onDeleteInboundEmailSettings) return;
+    if (!confirm('Disconnect this inbound email inbox?')) return;
+    setIsSavingInboundEmail(true);
+    setInboundEmailStatus(null);
+    try {
+      await onDeleteInboundEmailSettings();
+      setInboundEmailSettings(null);
+      setInboundEmailForm({
+        emailAddress: '',
+        host: '',
+        port: '993',
+        username: '',
+        password: '',
+        secure: true,
+        mailbox: 'INBOX',
+        subjectFilter: '',
+        senderAllowlist: '',
+        autoImport: true,
+      });
+      setInboundEmailStatus({ ok: true, msg: 'Inbound inbox disconnected.' });
+    } catch (err: any) {
+      setInboundEmailStatus({ ok: false, msg: err.message || 'Failed to disconnect inbound inbox.' });
+    } finally {
+      setIsSavingInboundEmail(false);
     }
   };
 
@@ -843,6 +982,177 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
         )}
 
       </section>
+
+      {canManageInboundInbox && (
+        <section className={`rounded-2xl border overflow-hidden ${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-100 shadow-sm'}`}>
+          <div className="px-6 py-4 border-b border-black/5 flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                <svg className="w-4 h-4 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M3 7h18M5 11h14M7 15h10M9 19h6" /></svg>
+                Inbound Email Inbox
+              </h3>
+              <p className={`text-[10px] font-bold uppercase tracking-tighter mt-1 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                Connect an IMAP mailbox and import new locate request emails into Inbound Tickets
+              </p>
+            </div>
+            {inboundEmailSettings?.lastSyncedAt && (
+              <p className={`text-[9px] font-black uppercase tracking-widest ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                Last Sync · {new Date(inboundEmailSettings.lastSyncedAt).toLocaleString()}
+              </p>
+            )}
+          </div>
+          <div className="px-6 py-5 space-y-4">
+            <p className={`text-[10px] font-bold ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+              Use a dedicated mailbox or app password. DigTrack Pro will import unread emails each time you run sync, and connected admins can keep the inbox watched from the app.
+            </p>
+            <form onSubmit={handleSaveInboundEmail} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className={`block text-[9px] font-black uppercase tracking-widest mb-1.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Mailbox Email</label>
+                  <input
+                    type="email"
+                    value={inboundEmailForm.emailAddress}
+                    onChange={e => setInboundEmailForm(prev => ({ ...prev, emailAddress: e.target.value }))}
+                    required
+                    className={`w-full px-4 py-2.5 border rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder-slate-600' : 'bg-white border-slate-200 text-slate-900'}`}
+                  />
+                </div>
+                <div>
+                  <label className={`block text-[9px] font-black uppercase tracking-widest mb-1.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Username</label>
+                  <input
+                    type="text"
+                    value={inboundEmailForm.username}
+                    onChange={e => setInboundEmailForm(prev => ({ ...prev, username: e.target.value }))}
+                    required
+                    className={`w-full px-4 py-2.5 border rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder-slate-600' : 'bg-white border-slate-200 text-slate-900'}`}
+                  />
+                </div>
+                <div>
+                  <label className={`block text-[9px] font-black uppercase tracking-widest mb-1.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>IMAP Host</label>
+                  <input
+                    type="text"
+                    value={inboundEmailForm.host}
+                    onChange={e => setInboundEmailForm(prev => ({ ...prev, host: e.target.value }))}
+                    placeholder="imap.gmail.com"
+                    required
+                    className={`w-full px-4 py-2.5 border rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder-slate-600' : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400'}`}
+                  />
+                </div>
+                <div>
+                  <label className={`block text-[9px] font-black uppercase tracking-widest mb-1.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Port</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={inboundEmailForm.port}
+                    onChange={e => setInboundEmailForm(prev => ({ ...prev, port: e.target.value }))}
+                    required
+                    className={`w-full px-4 py-2.5 border rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder-slate-600' : 'bg-white border-slate-200 text-slate-900'}`}
+                  />
+                </div>
+                <div>
+                  <label className={`block text-[9px] font-black uppercase tracking-widest mb-1.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>{inboundEmailSettings?.hasPassword ? 'New App Password (optional)' : 'App Password'}</label>
+                  <input
+                    type="password"
+                    value={inboundEmailForm.password}
+                    onChange={e => setInboundEmailForm(prev => ({ ...prev, password: e.target.value }))}
+                    placeholder={inboundEmailSettings?.hasPassword ? 'Leave blank to keep existing password' : ''}
+                    required={!inboundEmailSettings?.hasPassword}
+                    className={`w-full px-4 py-2.5 border rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder-slate-600' : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400'}`}
+                  />
+                </div>
+                <div>
+                  <label className={`block text-[9px] font-black uppercase tracking-widest mb-1.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Mailbox Folder</label>
+                  <input
+                    type="text"
+                    value={inboundEmailForm.mailbox}
+                    onChange={e => setInboundEmailForm(prev => ({ ...prev, mailbox: e.target.value }))}
+                    placeholder="INBOX"
+                    className={`w-full px-4 py-2.5 border rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder-slate-600' : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400'}`}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className={`block text-[9px] font-black uppercase tracking-widest mb-1.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Subject Filter (optional)</label>
+                  <input
+                    type="text"
+                    value={inboundEmailForm.subjectFilter}
+                    onChange={e => setInboundEmailForm(prev => ({ ...prev, subjectFilter: e.target.value }))}
+                    placeholder="811"
+                    className={`w-full px-4 py-2.5 border rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder-slate-600' : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400'}`}
+                  />
+                </div>
+                <div>
+                  <label className={`block text-[9px] font-black uppercase tracking-widest mb-1.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Sender Allowlist (comma separated)</label>
+                  <input
+                    type="text"
+                    value={inboundEmailForm.senderAllowlist}
+                    onChange={e => setInboundEmailForm(prev => ({ ...prev, senderAllowlist: e.target.value }))}
+                    placeholder="tickets@811.com, dispatch@example.com"
+                    className={`w-full px-4 py-2.5 border rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder-slate-600' : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400'}`}
+                  />
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-4">
+                <label className={`inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
+                  <input
+                    type="checkbox"
+                    checked={inboundEmailForm.secure}
+                    onChange={e => setInboundEmailForm(prev => ({ ...prev, secure: e.target.checked }))}
+                  />
+                  Use TLS
+                </label>
+                <label className={`inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
+                  <input
+                    type="checkbox"
+                    checked={inboundEmailForm.autoImport}
+                    onChange={e => setInboundEmailForm(prev => ({ ...prev, autoImport: e.target.checked }))}
+                  />
+                  Auto Import New Emails
+                </label>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="submit"
+                  disabled={isSavingInboundEmail || isLoadingInboundEmail}
+                  className="px-4 py-2 bg-brand text-slate-900 rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-60 hover:scale-105 active:scale-95 transition-all"
+                >
+                  {isSavingInboundEmail ? 'Saving...' : inboundEmailSettings ? 'Update Inbox' : 'Connect Inbox'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSyncInboundEmail}
+                  disabled={isSyncingInboundEmail || isLoadingInboundEmail || !inboundEmailSettings}
+                  className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-50 ${isDarkMode ? 'bg-white/5 text-white border border-white/10' : 'bg-slate-100 text-slate-700 border border-slate-200'}`}
+                >
+                  {isSyncingInboundEmail ? 'Syncing...' : 'Sync Inbox Now'}
+                </button>
+                {inboundEmailSettings && (
+                  <button
+                    type="button"
+                    onClick={handleDeleteInboundEmail}
+                    disabled={isSavingInboundEmail}
+                    className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-50 ${isDarkMode ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 'bg-rose-50 text-rose-600 border border-rose-200'}`}
+                  >
+                    Disconnect
+                  </button>
+                )}
+              </div>
+            </form>
+            {isLoadingInboundEmail && (
+              <p className={`text-[10px] font-bold ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>Loading inbox settings…</p>
+            )}
+            {inboundEmailStatus && (
+              <p className={`text-[10px] font-bold ${inboundEmailStatus.ok ? 'text-emerald-500' : 'text-rose-500'}`}>
+                {inboundEmailStatus.ok ? '✓ ' : '✗ '}{inboundEmailStatus.msg}
+              </p>
+            )}
+            {inboundEmailSettings?.lastError && !inboundEmailStatus && (
+              <p className="text-[10px] font-bold text-rose-500">Last sync error: {inboundEmailSettings.lastError}</p>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* Company Admin — Invite Link (visible to company admins, not super-admin) */}
       {isAdmin && !isSuperAdmin && sessionUser.companyId && (
