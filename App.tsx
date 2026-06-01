@@ -37,6 +37,7 @@ declare global {
 }
 
 const VALID_VIEWS: AppView[] = ['dashboard', 'calendar', 'jobs', 'photos', 'team', 'map', 'asbuilt'];
+const INBOUND_EMAIL_POLL_INTERVAL_MS = 120000;
 
 const App: React.FC = () => {
   const [sessionUser, setSessionUser] = useState<User | null>(null);
@@ -306,7 +307,7 @@ const App: React.FC = () => {
     };
 
     syncInbox();
-    const interval = window.setInterval(syncInbox, 120000);
+    const interval = window.setInterval(syncInbox, INBOUND_EMAIL_POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
       window.clearInterval(interval);

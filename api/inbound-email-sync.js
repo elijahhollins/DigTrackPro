@@ -5,7 +5,11 @@ import { decryptSecret } from './_inboundEmailCrypto.js';
 import { parseInboundEmail } from './_inboundEmailParser.js';
 import { requireAdminProfile } from './_supabaseAdmin.js';
 
-const MAX_SYNC_MESSAGES = 10;
+const DEFAULT_SYNC_BATCH_SIZE = 10;
+const MAX_SYNC_MESSAGES = Math.max(
+  1,
+  Number(process.env.INBOUND_EMAIL_SYNC_BATCH_SIZE || DEFAULT_SYNC_BATCH_SIZE),
+);
 
 const buildEmailText = ({ subject, from, text, html }) => {
   const fromLine = Array.isArray(from?.value) ? from.value.map(item => item.address || item.name).filter(Boolean).join(', ') : '';
@@ -170,7 +174,7 @@ export default async function handler(req, res) {
       await client.connect();
       await client.mailboxOpen(connection.mailbox || 'INBOX');
       const messageUids = await client.search({ seen: false });
-      const targetUids = messageUids.slice(-MAX_SYNC_MESSAGES);
+      const targetUids = messageUids.slice(0, MAX_SYNC_MESSAGES);
 
       if (targetUids.length > 0) {
         for await (const message of client.fetch(targetUids, { uid: true, source: true })) {
