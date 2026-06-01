@@ -50,86 +50,84 @@ const LiveActivityRow: React.FC<LiveActivityRowProps> = ({
 }) => {
   const elapsed = useElapsedSeconds(entry.clockedInAt);
   const [clockingOut, setClockingOut] = useState(false);
+  const [clockOutError, setClockOutError] = useState('');
 
   const handleClockOut = async (e: React.MouseEvent) => {
     e.stopPropagation();
     setClockingOut(true);
+    setClockOutError('');
     try {
       await inboundTicketService.clockOut(entry.id);
       onClockOut(entry);
     } catch (err) {
       console.error('Admin clock-out failed:', err);
+      setClockOutError('Clock-out failed. Check permissions.');
     } finally {
       setClockingOut(false);
     }
   };
 
   return (
-    <div className={`flex items-center gap-4 px-4 py-3 rounded-xl ${dm ? 'bg-white/[0.03] border border-white/[0.05]' : 'bg-slate-50 border border-slate-100'}`}>
-      {/* Pulsing active indicator */}
-      <span className="relative flex h-2.5 w-2.5 shrink-0">
-        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
-      </span>
+    <div className={`rounded-xl p-3.5 ${dm ? 'bg-white/[0.03] border border-white/[0.05]' : 'bg-slate-50 border border-slate-100'}`}>
+      {/* Row 1: dot + technician name + elapsed timer + clock-out button */}
+      <div className="flex items-center gap-2.5">
+        {/* Pulsing active indicator */}
+        <span className="relative flex h-2.5 w-2.5 shrink-0">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+        </span>
 
-      {/* Technician */}
-      <div className="min-w-[120px] shrink-0">
-        <p className={`text-[11px] font-black truncate ${dm ? 'text-slate-200' : 'text-slate-800'}`}>
+        {/* Technician name */}
+        <p className={`flex-1 min-w-0 text-[12px] font-black truncate ${dm ? 'text-slate-200' : 'text-slate-800'}`}>
           {entry.technicianName}
         </p>
-        <p className={`text-[9px] font-bold uppercase tracking-widest ${dm ? 'text-slate-600' : 'text-slate-400'}`}>
-          Technician
+
+        {/* Elapsed timer */}
+        <p className={`shrink-0 text-[13px] font-black tabular-nums ${dm ? 'text-emerald-400' : 'text-emerald-600'}`}>
+          {fmtElapsed(elapsed)}
         </p>
+
+        {/* Admin clock-out button */}
+        <button
+          onClick={handleClockOut}
+          disabled={clockingOut}
+          title={`Clock out ${entry.technicianName}`}
+          className={`shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+            clockingOut ? 'opacity-50 cursor-not-allowed' : ''
+          } ${dm
+            ? 'bg-rose-500/15 text-rose-400 hover:bg-rose-500/25 border border-rose-500/20'
+            : 'bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-200'
+          }`}
+        >
+          <svg className="w-2.5 h-2.5 shrink-0" fill="currentColor" viewBox="0 0 24 24">
+            <rect x="6" y="6" width="12" height="12" rx="1" />
+          </svg>
+          <span className="hidden sm:inline">{clockingOut ? 'Saving…' : 'Clock Out'}</span>
+        </button>
       </div>
 
-      {/* Ticket info */}
-      <div className="flex-1 min-w-0">
+      {/* Row 2: ticket info */}
+      <div className="mt-1.5 pl-5">
         {ticket ? (
           <button
             onClick={() => onOpenTicket(ticket)}
-            className={`text-left group`}
+            className="text-left group w-full"
           >
-            <p className={`text-[11px] font-bold truncate group-hover:underline ${dm ? 'text-brand' : 'text-brand'}`}>
-              #{ticket.ticketNumber}
-            </p>
-            <p className={`text-[10px] truncate ${dm ? 'text-slate-400' : 'text-slate-600'}`}>
-              {ticket.siteAddress}
+            <p className={`text-[10px] truncate group-hover:underline ${dm ? 'text-brand' : 'text-brand'}`}>
+              <span className="font-bold">#{ticket.ticketNumber}</span>
+              <span className={`mx-1 ${dm ? 'text-slate-600' : 'text-slate-400'}`}>·</span>
+              <span className={dm ? 'text-slate-400' : 'text-slate-600'}>{ticket.siteAddress}</span>
             </p>
           </button>
         ) : (
-          <p className={`text-[10px] ${dm ? 'text-slate-600' : 'text-slate-400'}`}>
-            Unknown Ticket
+          <p className={`text-[10px] ${dm ? 'text-slate-600' : 'text-slate-400'}`}>Unknown ticket</p>
+        )}
+        {clockOutError && (
+          <p className={`mt-1 text-[9px] font-semibold ${dm ? 'text-rose-400' : 'text-rose-600'}`}>
+            {clockOutError}
           </p>
         )}
       </div>
-
-      {/* Elapsed timer */}
-      <div className="shrink-0 text-right min-w-[68px]">
-        <p className={`text-[13px] font-black tabular-nums ${dm ? 'text-emerald-400' : 'text-emerald-600'}`}>
-          {fmtElapsed(elapsed)}
-        </p>
-        <p className={`text-[8px] font-bold uppercase tracking-widest ${dm ? 'text-slate-600' : 'text-slate-400'}`}>
-          Elapsed
-        </p>
-      </div>
-
-      {/* Admin clock-out */}
-      <button
-        onClick={handleClockOut}
-        disabled={clockingOut}
-        title={`Clock out ${entry.technicianName}`}
-        className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${
-          clockingOut ? 'opacity-50 cursor-not-allowed' : ''
-        } ${dm
-          ? 'bg-rose-500/15 text-rose-400 hover:bg-rose-500/25 border border-rose-500/20'
-          : 'bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-200'
-        }`}
-      >
-        <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 24 24">
-          <rect x="6" y="6" width="12" height="12" rx="1" />
-        </svg>
-        {clockingOut ? 'Saving…' : 'Clock Out'}
-      </button>
     </div>
   );
 };
