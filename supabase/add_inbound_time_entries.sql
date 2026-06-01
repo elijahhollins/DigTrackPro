@@ -23,17 +23,25 @@ CREATE INDEX IF NOT EXISTS idx_time_entries_technician   ON inbound_ticket_time_
 -- Row-Level Security: crew see only their own entries; admins see all company entries
 ALTER TABLE inbound_ticket_time_entries ENABLE ROW LEVEL SECURITY;
 
--- Admins (ADMIN / SUPER_ADMIN) can read all entries for their own company
+-- Admins (ADMIN / SUPER_ADMIN) can read all entries for their own company;
+-- SUPER_ADMINs can read entries for any company.
 CREATE POLICY "admin_read_time_entries" ON inbound_ticket_time_entries
   FOR SELECT TO authenticated
   USING (
-    company_id = (
-      SELECT company_id FROM profiles WHERE id = auth.uid()
-    )
-    AND EXISTS (
+    EXISTS (
       SELECT 1 FROM profiles
       WHERE id = auth.uid()
-        AND role IN ('ADMIN', 'SUPER_ADMIN')
+        AND role = 'SUPER_ADMIN'
+    )
+    OR (
+      company_id = (
+        SELECT company_id FROM profiles WHERE id = auth.uid()
+      )
+      AND EXISTS (
+        SELECT 1 FROM profiles
+        WHERE id = auth.uid()
+          AND role IN ('ADMIN', 'SUPER_ADMIN')
+      )
     )
   );
 

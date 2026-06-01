@@ -341,7 +341,7 @@ export const inboundTicketService = {
     return mapTimeEntry(data as Record<string, unknown>);
   },
 
-  /** Clock a technician out by setting clocked_out_at to now(). */
+  /** Clock a technician out by setting clocked_out_at to the database server time. */
   async clockOut(entryId: string): Promise<InboundTimeEntry> {
     const { data, error } = await supabase
       .from('inbound_ticket_time_entries')

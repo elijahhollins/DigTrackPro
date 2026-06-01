@@ -115,7 +115,7 @@ const TimeTab: React.FC<TimeTabProps> = ({
         <div>
           <p className={`text-[9px] font-black uppercase tracking-[0.15em] ${dm ? 'text-slate-600' : 'text-slate-400'}`}>Total Time Logged</p>
           <p className={`text-2xl font-black font-display mt-0.5 ${dm ? 'text-slate-100' : 'text-slate-900'}`}>
-            {timeEntries.length === 0 ? '—' : fmtMinutes(Math.round(totalMinutes))}
+            {timeEntries.length === 0 ? '—' : fmtMinutes(totalMinutes)}
           </p>
         </div>
         {/* Clock in/out for current crew user (hidden for admin-only view when admin isn't the assignee) */}
@@ -206,7 +206,7 @@ const TimeTab: React.FC<TimeTabProps> = ({
                     ? dm ? 'text-emerald-400' : 'text-emerald-600'
                     : dm ? 'text-slate-300' : 'text-slate-700'
                 }`}>
-                  {fmtMinutes(Math.round(duration))}
+                  {fmtMinutes(duration)}
                 </span>
               </div>
             );

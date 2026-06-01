@@ -12,8 +12,9 @@ export const fmtElapsed = (seconds: number): string => {
 
 /** Format a duration in minutes as a human-readable string (e.g. "1h 23m"). */
 export const fmtMinutes = (minutes: number): string => {
-  const h = Math.floor(minutes / 60);
-  const m = Math.round(minutes % 60);
+  const rounded = Math.round(minutes);
+  const h = Math.floor(rounded / 60);
+  const m = rounded % 60;
   if (h > 0) return `${h}h ${m}m`;
   return `${m}m`;
 };
