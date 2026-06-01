@@ -369,6 +369,7 @@ const App: React.FC = () => {
     } catch (error: any) { 
       console.error("Sign out error:", error.message);
       alert("Sign out failed. Please try again.");
+    } finally {
       setIsSigningOut(false);
     }
   };
