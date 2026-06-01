@@ -279,7 +279,11 @@ const InboundTechQueue: React.FC<InboundTechQueueProps> = ({ sessionUser, users,
   useEffect(() => {
     loadTickets();
     loadActiveEntries();
-  }, []);
+  // loadTickets is stable (defined outside useCallback); loadActiveEntries is
+  // memoised and only changes when sessionUser.id changes, which is captured
+  // correctly by the dependency array below.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadActiveEntries]);
 
   // Sorted by due date ascending (default)
   const sorted = useMemo(() =>
@@ -364,13 +368,19 @@ const InboundTechQueue: React.FC<InboundTechQueueProps> = ({ sessionUser, users,
   /** "Switch": clock out of all active tickets, then clock into target. */
   const handleConflictSwitch = async () => {
     if (!conflictTarget) return;
-    setConflictTarget(null);
-    // Clock out all currently active entries
+    const target = conflictTarget;
+    // Dismiss dialog only after all ops, but capture target first to avoid
+    // stale-closure issues if the component re-renders mid-flight.
     const entries = Array.from(activeEntries.values());
-    await Promise.all(entries.map(e => inboundTicketService.clockOut(e.id)));
-    setActiveEntries(new Map());
-    // Now clock into the target
-    await doClockIn(conflictTarget);
+    try {
+      await Promise.all(entries.map(e => inboundTicketService.clockOut(e.id)));
+      setActiveEntries(new Map());
+      await doClockIn(target);
+    } catch (err) {
+      console.error('Clock switch failed:', err);
+    } finally {
+      setConflictTarget(null);
+    }
   };
 
   /** "Add": allow clocking into the target without touching existing sessions. */
