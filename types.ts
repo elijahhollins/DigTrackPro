@@ -31,6 +31,7 @@ export interface Company {
   phone?: string;
   createdAt: number;
   isActive?: boolean;
+  inboundEnabled?: boolean;
 }
 
 export interface User {

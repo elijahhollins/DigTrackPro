@@ -415,6 +415,12 @@ const App: React.FC = () => {
     if (company?.id === id) setCompany({ ...company, isActive });
   };
 
+  const handleToggleCompanyInbound = async (id: string, inboundEnabled: boolean) => {
+    await apiService.setCompanyInboundEnabled(id, inboundEnabled);
+    setAllCompanies(prev => prev.map(co => co.id === id ? { ...co, inboundEnabled } : co));
+    if (company?.id === id) setCompany({ ...company, inboundEnabled });
+  };
+
   const handleToggleArchive = async (ticket: DigTicket, e: React.MouseEvent) => {
     e.stopPropagation();
     const willArchive = !ticket.isArchived;
@@ -607,6 +613,9 @@ const App: React.FC = () => {
 
   const isSuperAdmin = sessionUser.role === UserRole.SUPER_ADMIN;
   const isAdmin = sessionUser.role === UserRole.ADMIN || isSuperAdmin;
+  // Inbound Tickets feature is only available to companies that have it enabled.
+  // Super admins always have access so they can test/manage any company's inbound setup.
+  const isInboundEnabled = isSuperAdmin || company?.inboundEnabled === true;
   const NAV_ITEMS: { id: AppView; label: string; icon: React.ReactNode }[] = [
     { id: 'dashboard', label: 'Tickets', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg> },
     { id: 'calendar', label: 'Schedule', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
@@ -773,6 +782,7 @@ const App: React.FC = () => {
             {activeView === 'dashboard' && (
               <div className="space-y-6">
                 {/* ── Ticket mode toggle ── */}
+                {isInboundEnabled && (
                 <div className={`flex rounded-xl border p-0.5 gap-0.5 w-fit ${isDarkMode ? 'bg-[#0b1629] border-white/[0.08]' : 'bg-slate-100 border-slate-200'}`}>
                   {(['regular', 'inbound'] as const).map(mode => (
                     <button
@@ -788,14 +798,15 @@ const App: React.FC = () => {
                     </button>
                   ))}
                 </div>
+                )}
 
-                {ticketMode === 'inbound' && isAdmin && (
+                {isInboundEnabled && ticketMode === 'inbound' && isAdmin && (
                   <InboundTicketsDashboard sessionUser={sessionUser} users={users} isDarkMode={isDarkMode} />
                 )}
-                {ticketMode === 'inbound' && !isAdmin && (
+                {isInboundEnabled && ticketMode === 'inbound' && !isAdmin && (
                   <InboundTechQueue sessionUser={sessionUser} users={users} isDarkMode={isDarkMode} />
                 )}
-                {ticketMode === 'regular' && (<>
+                {(!isInboundEnabled || ticketMode === 'regular') && (<>
                 {/* Page header */}
                 <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
                   <div>
@@ -996,6 +1007,7 @@ const App: React.FC = () => {
             {activeView === 'calendar' && (
               <div className="space-y-4">
                 {/* ── Ticket mode toggle ── */}
+                {isInboundEnabled && (
                 <div className={`flex rounded-xl border p-0.5 gap-0.5 w-fit ${isDarkMode ? 'bg-[#0b1629] border-white/[0.08]' : 'bg-slate-100 border-slate-200'}`}>
                   {(['regular', 'inbound'] as const).map(mode => (
                     <button
@@ -1011,13 +1023,15 @@ const App: React.FC = () => {
                     </button>
                   ))}
                 </div>
-                {ticketMode === 'regular' && <CalendarView tickets={tickets} onEditTicket={setEditingTicket} onShowInDashboard={handleShowInDashboard} onViewDoc={setViewingDocUrl} onManageNoShow={setNoShowTicket} isDarkMode={isDarkMode} />}
-                {ticketMode === 'inbound' && <InboundCalendarView sessionUser={sessionUser} users={users} isAdmin={isAdmin} isDarkMode={isDarkMode} />}
+                )}
+                {(!isInboundEnabled || ticketMode === 'regular') && <CalendarView tickets={tickets} onEditTicket={setEditingTicket} onShowInDashboard={handleShowInDashboard} onViewDoc={setViewingDocUrl} onManageNoShow={setNoShowTicket} isDarkMode={isDarkMode} />}
+                {isInboundEnabled && ticketMode === 'inbound' && <InboundCalendarView sessionUser={sessionUser} users={users} isAdmin={isAdmin} isDarkMode={isDarkMode} />}
               </div>
             )}
             {activeView === 'map' && (
               <div className="space-y-4">
                 {/* ── Ticket mode toggle ── */}
+                {isInboundEnabled && (
                 <div className={`flex rounded-xl border p-0.5 gap-0.5 w-fit ${isDarkMode ? 'bg-[#0b1629] border-white/[0.08]' : 'bg-slate-100 border-slate-200'}`}>
                   {(['regular', 'inbound'] as const).map(mode => (
                     <button
@@ -1033,7 +1047,8 @@ const App: React.FC = () => {
                     </button>
                   ))}
                 </div>
-                {ticketMode === 'regular' && <MapView
+                )}
+                {(!isInboundEnabled || ticketMode === 'regular') && <MapView
                   tickets={activeTicketsList}
                   isDarkMode={isDarkMode}
                   onEditTicket={isAdmin ? setEditingTicket : undefined}
@@ -1052,12 +1067,12 @@ const App: React.FC = () => {
                     setHighlightedTicketId(ticket.id);
                   }}
                 />}
-                {ticketMode === 'inbound' && <InboundMapView sessionUser={sessionUser} users={users} isAdmin={isAdmin} isDarkMode={isDarkMode} />}
+                {isInboundEnabled && ticketMode === 'inbound' && <InboundMapView sessionUser={sessionUser} users={users} isAdmin={isAdmin} isDarkMode={isDarkMode} />}
               </div>
             )}
             {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} isAdmin={isAdmin} isDarkMode={isDarkMode} onJobSelect={(job: Job) => handleJobSelection(job.jobNumber, job)} onViewDoc={setViewingDocUrl} />}
             {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} isAdmin={isAdmin} companyId={sessionUser.companyId} onAddPhoto={(data, file) => apiService.addPhoto({ ...data, companyId: sessionUser.companyId }, file)} onDeletePhoto={(id: string) => apiService.deletePhoto(id)} onDeleteJob={async (id) => { await apiService.deleteJob(id); initApp(); }} initialSearch={mediaFolderFilter} />}
-            {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} company={company || undefined} isDarkMode={isDarkMode} isSuperAdmin={isSuperAdmin} allCompanies={allCompanies} onCompanyCreated={(co) => setAllCompanies(prev => [...prev, co])} onCompanyUpdated={handleUpdateCompany} onToggleCompanyActive={handleToggleCompanyActive} onAddUser={async (u) => { await apiService.addUser({ ...u, companyId: sessionUser.companyId }); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onUpdateUserName={async (id, name) => { await apiService.updateUserName(id, name); initApp(); }} onSendPasswordReset={async (email) => { await apiService.sendPasswordReset(email); }} onUpdateCurrentUserPassword={async (password) => { await apiService.updateCurrentUserPassword(password); }} onUpdateNotificationEmail={handleUpdateNotificationEmail} onUpdateUserNotificationEmail={handleUpdateUserNotificationEmail} onTestEmail={handleTestEmail} />}
+            {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} company={company || undefined} isDarkMode={isDarkMode} isSuperAdmin={isSuperAdmin} allCompanies={allCompanies} onCompanyCreated={(co) => setAllCompanies(prev => [...prev, co])} onCompanyUpdated={handleUpdateCompany} onToggleCompanyActive={handleToggleCompanyActive} onToggleCompanyInbound={handleToggleCompanyInbound} onAddUser={async (u) => { await apiService.addUser({ ...u, companyId: sessionUser.companyId }); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onUpdateUserName={async (id, name) => { await apiService.updateUserName(id, name); initApp(); }} onSendPasswordReset={async (email) => { await apiService.sendPasswordReset(email); }} onUpdateCurrentUserPassword={async (password) => { await apiService.updateCurrentUserPassword(password); }} onUpdateNotificationEmail={handleUpdateNotificationEmail} onUpdateUserNotificationEmail={handleUpdateUserNotificationEmail} onTestEmail={handleTestEmail} />}
             {activeView === 'asbuilt' && <AsBuiltView jobs={jobs} sessionUser={sessionUser} isAdmin={isAdmin} isDarkMode={isDarkMode} onDeleteJob={async (id) => { await apiService.deleteJob(id); initApp(); }} />}
           </div>
         </main>
