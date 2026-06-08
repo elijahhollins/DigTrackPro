@@ -21,6 +21,7 @@ interface InboundTicketDetailProps {
   sessionUser: User;
   isAdmin:     boolean;
   isDarkMode?: boolean;
+  sidePanel?:  boolean;
   onClose:     () => void;
   onTicketUpdated: (ticket: InboundTicket) => void;
   onTicketDeleted: (id: string) => void;
@@ -225,6 +226,7 @@ const InboundTicketDetail: React.FC<InboundTicketDetailProps> = ({
   sessionUser,
   isAdmin,
   isDarkMode,
+  sidePanel = false,
   onClose,
   onTicketUpdated,
   onTicketDeleted,
@@ -397,11 +399,15 @@ const InboundTicketDetail: React.FC<InboundTicketDetailProps> = ({
     }`;
 
   return (
-    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[200] flex items-center justify-center p-4">
+    <div className={sidePanel
+      ? 'fixed inset-y-0 right-0 z-[200] flex'
+      : 'fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[200] flex items-center justify-center p-4'
+    }>
       <div
-        className={`w-full max-w-2xl rounded-[2rem] shadow-2xl border overflow-hidden flex flex-col max-h-[92vh] ${
-          dm ? 'bg-[#0b1629] border-white/10' : 'bg-white border-slate-200'
-        }`}
+        className={sidePanel
+          ? `w-[420px] max-w-[90vw] h-full border-l overflow-hidden flex flex-col shadow-2xl ${dm ? 'bg-[#0b1629] border-white/10' : 'bg-white border-slate-200'}`
+          : `w-full max-w-2xl rounded-[2rem] shadow-2xl border overflow-hidden flex flex-col max-h-[92vh] ${dm ? 'bg-[#0b1629] border-white/10' : 'bg-white border-slate-200'}`
+        }
       >
         {/* Header */}
         <div className={`flex items-start justify-between px-7 py-5 border-b shrink-0 ${dm ? 'border-white/[0.06]' : 'border-slate-100'}`}>
