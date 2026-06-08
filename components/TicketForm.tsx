@@ -23,6 +23,7 @@ interface TicketFormProps {
   initialData?: DigTicket | null;
   isDarkMode?: boolean;
   existingTickets?: DigTicket[];
+  sidePanel?: boolean;
 }
 
 const normalizeDateStr = (date: string) => {
@@ -42,7 +43,7 @@ const getSafeMimeType = (file: File): string => {
   }
 };
 
-export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClose, initialData, isDarkMode, existingTickets }) => {
+export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClose, initialData, isDarkMode, existingTickets, sidePanel = false }) => {
   const [isBatchMode, setIsBatchMode] = useState(false);
   const [isSubmittingManual, setIsSubmittingManual] = useState(false);
   const [isSavingAll, setIsSavingAll] = useState(false);
@@ -326,12 +327,18 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[160] flex items-center justify-center p-4 overflow-y-auto">
-      <div 
+    <div className={sidePanel
+      ? 'fixed inset-y-0 right-0 z-[160] flex'
+      : 'fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[160] flex items-center justify-center p-4 overflow-y-auto'
+    }>
+      <div
         onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
         onDragLeave={() => setIsDragging(false)}
         onDrop={(e) => { e.preventDefault(); setIsDragging(false); handleFileUpload(e as any); }}
-        className={`w-full max-w-2xl rounded-[2.5rem] shadow-2xl overflow-hidden border transition-all duration-300 my-auto flex flex-col max-h-[calc(100vh-2rem)] ${isDragging ? 'scale-105 ring-4 ring-brand/50' : ''} ${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white border-slate-200'}`}
+        className={sidePanel
+          ? `w-[500px] max-w-[90vw] h-full border-l overflow-hidden flex flex-col shadow-2xl transition-all duration-300 ${isDragging ? 'ring-4 ring-brand/50' : ''} ${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white border-slate-200'}`
+          : `w-full max-w-2xl rounded-[2.5rem] shadow-2xl overflow-hidden border transition-all duration-300 my-auto flex flex-col max-h-[calc(100vh-2rem)] ${isDragging ? 'scale-105 ring-4 ring-brand/50' : ''} ${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white border-slate-200'}`
+        }
       >
         <div className="px-10 py-6 border-b flex justify-between items-center bg-black/5">
           <div className="flex-1">

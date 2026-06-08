@@ -300,6 +300,7 @@ const InboundMapView: React.FC<InboundMapViewProps> = ({
           sessionUser={sessionUser}
           isAdmin={isAdmin}
           isDarkMode={dm}
+          sidePanel
           onClose={() => setDetailTicket(null)}
           onTicketUpdated={updated => {
             setTickets(prev => prev.map(t => t.id === updated.id ? updated : t));

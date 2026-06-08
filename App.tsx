@@ -68,6 +68,7 @@ const App: React.FC = () => {
   const [selectedJobSummary, setSelectedJobSummary] = useState<Job | null>(null);
   const [showMarkup, setShowMarkup] = useState<Job | null>(null);
   const [editingTicket, setEditingTicket] = useState<DigTicket | null>(null);
+  const [editFromMap, setEditFromMap] = useState(false);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
   const [noShowTicket, setNoShowTicket] = useState<DigTicket | null>(null);
   const [notesTicket, setNotesTicket] = useState<DigTicket | null>(null);
@@ -1073,7 +1074,7 @@ const App: React.FC = () => {
                 {(!isInboundEnabled || ticketMode === 'regular') && <MapView
                   tickets={activeTicketsList}
                   isDarkMode={isDarkMode}
-                  onEditTicket={isAdmin ? setEditingTicket : undefined}
+                  onEditTicket={isAdmin ? (ticket) => { setEditFromMap(true); setEditingTicket(ticket); } : undefined}
                   onViewTicket={setViewingDocUrl}
                   onTicketGeocoded={(id, lat, lng) => {
                     setTickets(prev => prev.map(t => t.id === id ? { ...t, lat, lng } : t));
@@ -1114,7 +1115,7 @@ const App: React.FC = () => {
       </nav>
 
       {/* ── MODALS ── */}
-      {(showTicketForm || editingTicket) && <TicketForm onSave={handleSaveTicket} onDelete={editingTicket ? handleDeleteTicket : undefined} onClose={() => { setShowTicketForm(false); setEditingTicket(null); }} initialData={editingTicket} isDarkMode={isDarkMode} existingTickets={tickets} />}
+      {(showTicketForm || editingTicket) && <TicketForm onSave={handleSaveTicket} onDelete={editingTicket ? handleDeleteTicket : undefined} onClose={() => { setShowTicketForm(false); setEditingTicket(null); setEditFromMap(false); }} initialData={editingTicket} isDarkMode={isDarkMode} existingTickets={tickets} sidePanel={editFromMap} />}
       {(showJobForm || editingJob) && <JobForm onSave={async (data) => { const job: Job = editingJob ? { ...editingJob, ...data } : { ...data, id: crypto.randomUUID(), companyId: sessionUser.companyId, createdAt: Date.now(), isComplete: false }; const saved = await apiService.saveJob(job); setJobs(prev => [...prev.filter(j => j.id !== saved.id), saved]); setShowJobForm(false); setEditingJob(null); }} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} isDarkMode={isDarkMode} />}
       {selectedJobSummary && <JobSummaryModal job={selectedJobSummary} onClose={() => setSelectedJobSummary(null)} onEdit={() => { setEditingJob(selectedJobSummary); setShowJobForm(true); setSelectedJobSummary(null); }} onDelete={() => { apiService.deleteJob(selectedJobSummary.id).then(() => initApp()); setSelectedJobSummary(null); }} onToggleComplete={async () => { await apiService.saveJob({ ...selectedJobSummary, isComplete: !selectedJobSummary.isComplete }); initApp(); }} onViewMedia={() => { setMediaFolderFilter(selectedJobSummary.jobNumber); handleNavigate('photos'); }} onViewMarkup={() => { setShowMarkup(selectedJobSummary); setSelectedJobSummary(null); }} isDarkMode={isDarkMode} />}
       {showMarkup && <JobPrintMarkup job={showMarkup} isAdmin={isAdmin} sessionUser={sessionUser} onClose={() => setShowMarkup(null)} isDarkMode={isDarkMode} />}
