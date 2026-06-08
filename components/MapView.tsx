@@ -311,7 +311,19 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
       marker.on('popupopen', () => {
         // Show the dig-area bounding box as a verification overlay
         const poly = polygonsRef.current.get(ticket.id);
-        if (poly && mapRef.current) poly.addTo(mapRef.current);
+        if (poly && mapRef.current) {
+          poly.addTo(mapRef.current);
+          // Pan map so the bounding box is visible below the popup (~220px tall)
+          const polyBounds = poly.getBounds();
+          if (polyBounds.isValid()) {
+            mapRef.current.fitBounds(polyBounds, {
+              paddingTopLeft: [20, 240],
+              paddingBottomRight: [20, 20],
+              maxZoom: mapRef.current.getZoom(),
+              animate: true,
+            });
+          }
+        }
 
         if (hasDoc && onViewTicket) {
           document.getElementById(viewBtnId)?.addEventListener('click', () => {
