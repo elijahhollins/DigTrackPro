@@ -325,8 +325,8 @@ const EquipmentTray = ({
         title={eq.hourly_rate ? `$${eq.hourly_rate}/hr — drag to assign` : 'Drag to assign'}
         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium select-none shrink-0 transition-colors ${
           activeTouchId === eq.id
-            ? 'border-blue-400 bg-blue-50 text-blue-700 opacity-60'
-            : 'border-slate-300 bg-white text-slate-700 hover:border-blue-400 hover:text-blue-700 hover:bg-blue-50 active:opacity-70'
+            ? 'border-brand bg-brand/10 text-brand opacity-60'
+            : 'border-slate-300 bg-white text-slate-700 hover:border-brand hover:text-brand hover:bg-brand/10 active:opacity-70'
         } ${editMode ? 'cursor-grab' : 'cursor-default'}`}
         style={{ userSelect: 'none', touchAction: editMode ? 'none' : 'pan-x' }}
       >
@@ -404,9 +404,9 @@ const BlockEquipmentModal = ({
                 {assigned.map(id => {
                   const eq = equipmentList.find(e => e.id === id);
                   return (
-                    <li key={id} className="flex items-center justify-between rounded-lg bg-blue-50 px-3 py-2">
+                    <li key={id} className="flex items-center justify-between rounded-lg bg-brand/10 px-3 py-2">
                       <div className="flex items-center gap-2">
-                        <Wrench className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                        <Wrench className="w-3.5 h-3.5 text-brand shrink-0" />
                         <span className="text-sm font-medium text-slate-800">{eq?.name ?? `Equipment #${id}`}</span>
                         {eq?.hourly_rate !== undefined && (
                           <span className="text-xs text-slate-400">${eq.hourly_rate}/hr</span>
@@ -436,7 +436,7 @@ const BlockEquipmentModal = ({
                   <li key={eq.id}>
                     <button
                       onClick={() => onAssign(eq.id)}
-                      className="w-full flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 hover:border-blue-300 hover:bg-blue-50 transition-colors"
+                      className="w-full flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 hover:border-brand/25 hover:bg-brand/10 transition-colors"
                     >
                       <div className="flex items-center gap-2">
                         <Wrench className="w-3.5 h-3.5 text-slate-400 shrink-0" />
@@ -445,7 +445,7 @@ const BlockEquipmentModal = ({
                           <span className="text-xs text-slate-400">${eq.hourly_rate}/hr</span>
                         )}
                       </div>
-                      <Plus className="w-4 h-4 text-blue-500" />
+                      <Plus className="w-4 h-4 text-brand" />
                     </button>
                   </li>
                 ))}
@@ -561,7 +561,7 @@ const CtxMenu = ({
         <>
           <button
             onClick={() => { onDelay(); onClose(); }}
-            className="w-full text-left px-4 py-2.5 text-slate-700 hover:bg-blue-50 hover:text-blue-700 flex items-center gap-2 transition-colors"
+            className="w-full text-left px-4 py-2.5 text-slate-700 hover:bg-brand/10 hover:text-brand flex items-center gap-2 transition-colors"
           >
             <Clock className="w-4 h-4 shrink-0" /> Insert Delay&hellip;
           </button>
@@ -614,9 +614,9 @@ const DayPromptModal = ({
     : 'The job duration will increase and all subsequent crew blocks will shift forward automatically.';
   const btnLabel = isCrewDelay ? 'Push Schedule' : isDelay ? 'Insert Delay' : 'Extend';
   const btnClass = isCrewDelay
-    ? 'bg-orange-500 hover:bg-orange-600'
+    ? 'bg-amber-500 hover:bg-amber-600'
     : isDelay
-    ? 'bg-blue-600 hover:bg-blue-700'
+    ? 'bg-brand hover:opacity-90'
     : 'bg-green-600 hover:bg-green-700';
 
   return (
@@ -630,7 +630,7 @@ const DayPromptModal = ({
         <select
           value={days}
           onChange={e => setDays(parseInt(e.target.value))}
-          className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4 bg-white"
+          className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/10 mb-4 bg-white"
         >
           {Array.from({ length: 30 }, (_, i) => i + 1).map(d => (
             <option key={d} value={d}>{d} day{d !== 1 ? 's' : ''}</option>
@@ -699,7 +699,7 @@ const OverlapConfirmModal = ({
         </button>
         <button
           onClick={onConfirm}
-          className="flex-1 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-sm font-semibold transition-colors"
+          className="flex-1 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-semibold transition-colors"
         >
           Push &amp; Reschedule
         </button>
@@ -827,7 +827,7 @@ const ManageCrewsModal = ({
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col" style={{ maxHeight: '88vh' }}>
         <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-slate-100 shrink-0">
           <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-            <Users className="w-5 h-5 text-blue-500" />
+            <Users className="w-5 h-5 text-brand" />
             Manage Crews
           </h3>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors"><X className="w-5 h-5" /></button>
@@ -841,7 +841,7 @@ const ManageCrewsModal = ({
             const color = CREW_COLORS[i % CREW_COLORS.length];
             if (editingId === c.id) {
               return (
-                <div key={c.id} className="p-3 bg-blue-50 rounded-xl border border-blue-200 space-y-2">
+                <div key={c.id} className="p-3 bg-brand/10 rounded-xl border border-brand/20 space-y-2">
                   <div className="flex items-center gap-2">
                     <div style={{ width: 4, height: 32, borderRadius: 2, backgroundColor: color, flexShrink: 0 }} />
                     <input
@@ -849,7 +849,7 @@ const ManageCrewsModal = ({
                       value={editName}
                       onChange={e => setEditName(e.target.value)}
                       onKeyDown={e => e.key === 'Enter' && !hasEmployees && saveEdit()}
-                      className="flex-1 border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 min-w-0"
+                      className="flex-1 border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/10 min-w-0"
                       placeholder="Crew name"
                     />
                     {!hasEmployees && (
@@ -857,7 +857,7 @@ const ManageCrewsModal = ({
                         type="number" min={1} max={50}
                         value={editSize}
                         onChange={e => setEditSize(parseInt(e.target.value) || 1)}
-                        className="w-16 border border-slate-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        className="w-16 border border-slate-200 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-brand/10"
                       />
                     )}
                   </div>
@@ -874,7 +874,7 @@ const ManageCrewsModal = ({
                     </div>
                   )}
                   <div className="flex gap-2 pt-1">
-                    <button onClick={saveEdit} className="flex-1 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition-colors">Save</button>
+                    <button onClick={saveEdit} className="flex-1 py-1.5 bg-brand text-white text-xs font-semibold rounded-lg hover:opacity-90 transition-colors">Save</button>
                     <button onClick={cancelEdit} className="px-4 py-1.5 border border-slate-200 text-slate-600 text-xs rounded-lg hover:bg-slate-50 transition-colors">Cancel</button>
                   </div>
                 </div>
@@ -898,7 +898,7 @@ const ManageCrewsModal = ({
                     );
                   })()}
                 </div>
-                <button onClick={() => startEdit(c)} title="Edit" className="p-1.5 text-slate-400 hover:text-blue-600 transition-colors"><Pencil className="w-3.5 h-3.5" /></button>
+                <button onClick={() => startEdit(c)} title="Edit" className="p-1.5 text-slate-400 hover:text-brand transition-colors"><Pencil className="w-3.5 h-3.5" /></button>
                 <button onClick={() => deleteCrew(c.id)} title="Delete" className="p-1.5 text-slate-400 hover:text-red-500 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
               </div>
             );
@@ -912,7 +912,7 @@ const ManageCrewsModal = ({
               value={newName}
               onChange={e => setNewName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && !hasEmployees && addCrew()}
-              className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 min-w-0"
+              className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/10 min-w-0"
               placeholder="Crew name"
             />
             {!hasEmployees && (
@@ -920,7 +920,7 @@ const ManageCrewsModal = ({
                 type="number" min={1} max={50}
                 value={newSize}
                 onChange={e => setNewSize(parseInt(e.target.value) || 1)}
-                className="w-16 border border-slate-200 rounded-lg px-2 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-400"
+                className="w-16 border border-slate-200 rounded-lg px-2 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-brand/10"
                 placeholder="Size"
               />
             )}
@@ -941,7 +941,7 @@ const ManageCrewsModal = ({
             <button
               onClick={addCrew}
               disabled={!newName.trim()}
-              className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-40 flex items-center justify-center gap-1.5"
+              className="flex-1 py-2 bg-brand hover:opacity-90 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-40 flex items-center justify-center gap-1.5"
             >
               <Plus className="w-4 h-4" /> Add Crew
             </button>
@@ -1006,7 +1006,7 @@ const ManageJobsModal = ({
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col" style={{ maxHeight: '85vh' }}>
         <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-slate-100 shrink-0">
           <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-            <Briefcase className="w-5 h-5 text-blue-500" />
+            <Briefcase className="w-5 h-5 text-brand" />
             Manage Jobs
           </h3>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors"><X className="w-5 h-5" /></button>
@@ -1019,24 +1019,24 @@ const ManageJobsModal = ({
           {local.map(j => {
             if (editingNum === j.jobNumber) {
               return (
-                <div key={j.jobNumber} className="p-3 bg-blue-50 rounded-xl border border-blue-200 space-y-2">
+                <div key={j.jobNumber} className="p-3 bg-brand/10 rounded-xl border border-brand/20 space-y-2">
                   <div className="flex gap-2">
                     <input
                       autoFocus
                       value={editJob.jobNumber}
                       onChange={e => setEditJob(p => ({ ...p, jobNumber: e.target.value }))}
-                      className="w-28 border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      className="w-28 border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/10"
                       placeholder="Job #"
                     />
                     <input
                       value={editJob.location}
                       onChange={e => setEditJob(p => ({ ...p, location: e.target.value }))}
-                      className="flex-1 border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 min-w-0"
+                      className="flex-1 border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/10 min-w-0"
                       placeholder="Location"
                     />
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={saveEdit} className="flex-1 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition-colors">Save</button>
+                    <button onClick={saveEdit} className="flex-1 py-1.5 bg-brand text-white text-xs font-semibold rounded-lg hover:opacity-90 transition-colors">Save</button>
                     <button onClick={cancelEdit} className="px-4 py-1.5 border border-slate-200 text-slate-600 text-xs rounded-lg hover:bg-slate-50 transition-colors">Cancel</button>
                   </div>
                 </div>
@@ -1046,11 +1046,11 @@ const ManageJobsModal = ({
               <div key={j.jobNumber} className="flex items-center gap-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">{j.jobNumber}</span>
+                    <span className="text-[10px] font-bold text-brand bg-brand/10 px-2 py-0.5 rounded border border-brand/20">{j.jobNumber}</span>
                   </div>
                   <div className="text-sm text-slate-700 truncate mt-0.5">{j.location}</div>
                 </div>
-                <button onClick={() => startEdit(j)} title="Edit" className="p-1.5 text-slate-400 hover:text-blue-600 transition-colors"><Pencil className="w-3.5 h-3.5" /></button>
+                <button onClick={() => startEdit(j)} title="Edit" className="p-1.5 text-slate-400 hover:text-brand transition-colors"><Pencil className="w-3.5 h-3.5" /></button>
                 <button onClick={() => deleteJob(j.jobNumber)} title="Delete" className="p-1.5 text-slate-400 hover:text-red-500 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
               </div>
             );
@@ -1064,20 +1064,20 @@ const ManageJobsModal = ({
             <input
               value={newJob.jobNumber}
               onChange={e => { setDupError(''); setNewJob(p => ({ ...p, jobNumber: e.target.value })); }}
-              className="w-28 border border-slate-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              className="w-28 border border-slate-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/10"
               placeholder="Job #"
             />
             <input
               value={newJob.location}
               onChange={e => setNewJob(p => ({ ...p, location: e.target.value }))}
               onKeyDown={e => e.key === 'Enter' && addJob()}
-              className="flex-1 border border-slate-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 min-w-0"
+              className="flex-1 border border-slate-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/10 min-w-0"
               placeholder="Location"
             />
             <button
               onClick={addJob}
               disabled={!newJob.jobNumber.trim() || !newJob.location.trim()}
-              className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-40"
+              className="px-3 py-2 bg-brand hover:opacity-90 text-white rounded-lg transition-colors disabled:opacity-40"
             >
               <Plus className="w-4 h-4" />
             </button>
@@ -1148,7 +1148,7 @@ const AddBlockModal = ({
             <select
               value={crewId}
               onChange={e => setCrewId(e.target.value)}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/10 bg-white"
               required
             >
               {crews.map(c => (
@@ -1164,7 +1164,7 @@ const AddBlockModal = ({
             <select
               value={jobNum}
               onChange={e => setJobNum(e.target.value)}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/10 bg-white"
               required
             >
               {jobs.map(j => (
@@ -1184,7 +1184,7 @@ const AddBlockModal = ({
                 type="date"
                 value={startDate}
                 onChange={e => setStart(e.target.value)}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/10"
                 required
               />
             </div>
@@ -1196,7 +1196,7 @@ const AddBlockModal = ({
               <select
                 value={durationDays}
                 onChange={e => setDuration(parseInt(e.target.value))}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/10 bg-white"
                 required
               >
                 {Array.from({ length: 60 }, (_, i) => i + 1).map(d => (
@@ -1222,7 +1222,7 @@ const AddBlockModal = ({
             </button>
             <button
               type="submit"
-              className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold transition-colors"
+              className="flex-1 py-2.5 bg-brand hover:opacity-90 text-white rounded-xl text-sm font-semibold transition-colors"
             >
               Add Block
             </button>
@@ -2190,7 +2190,7 @@ export default function Scheduler({
         className="flex items-center gap-2 px-4 py-3 border-b border-white/10 shrink-0 flex-wrap"
         style={{ background: '#0a142d' }}
       >
-        <Calendar className="w-5 h-5 text-blue-400 shrink-0" />
+        <Calendar className="w-5 h-5 text-brand shrink-0" />
         <h2 className="text-white font-bold text-base tracking-tight mr-2">Job Scheduler</h2>
 
         {/* View toggle */}
@@ -2200,7 +2200,7 @@ export default function Scheduler({
               key={v}
               onClick={() => setView(v)}
               className={`px-3 py-1.5 text-xs font-semibold capitalize transition-colors ${
-                view === v ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-white/10'
+                view === v ? 'bg-brand text-white' : 'text-slate-300 hover:bg-white/10'
               }`}
             >
               {v}
@@ -2295,7 +2295,7 @@ export default function Scheduler({
           </button>
           <button
             onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-brand hover:opacity-90 text-white text-xs font-semibold rounded-lg transition-colors"
           >
             <Plus className="w-3.5 h-3.5" /> Add Job
           </button>
@@ -2472,11 +2472,11 @@ export default function Scheduler({
                       flexShrink: 0,
                       width: 22, height: 22,
                       borderRadius: 6,
-                      background: hoverDelayCrewId === crew.id ? 'rgba(249,115,22,0.25)' : 'rgba(255,255,255,0.06)',
+                      background: hoverDelayCrewId === crew.id ? 'rgba(245,158,11,0.25)' : 'rgba(255,255,255,0.06)',
                       border: '1px solid rgba(255,255,255,0.12)',
                       cursor: 'pointer',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      color: hoverDelayCrewId === crew.id ? '#fb923c' : '#94a3b8',
+                      color: hoverDelayCrewId === crew.id ? '#fbbf24' : '#94a3b8',
                       padding: 0,
                       transition: 'background 0.15s, color 0.15s',
                     }}

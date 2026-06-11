@@ -112,7 +112,7 @@ export default function InvoiceView({ companyId, companyName, isAdmin, isDarkMod
 
   const statusColor = (s: Invoice['status']) =>
     s === 'paid' ? 'bg-emerald-500/15 text-emerald-500'
-      : s === 'sent' ? 'bg-blue-500/15 text-blue-500'
+      : s === 'sent' ? 'bg-brand/15 text-brand'
         : 'bg-slate-500/15 text-slate-400';
 
   return (
