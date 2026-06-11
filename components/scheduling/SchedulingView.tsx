@@ -1,14 +1,17 @@
 import React, { useMemo, useState } from 'react';
-import { CalendarRange, Boxes } from 'lucide-react';
+import { CalendarRange, Boxes, ClipboardList, Receipt } from 'lucide-react';
 import Scheduler, { JobOption } from './Scheduler.tsx';
 import ResourcesManager from './ResourcesManager.tsx';
+import WorkLogEditor from './WorkLogEditor.tsx';
+import InvoiceView from './InvoiceView.tsx';
 import { Job, User, UserRole } from '../../types.ts';
 
-type SchedulingTab = 'board' | 'resources';
+type SchedulingTab = 'board' | 'resources' | 'logs' | 'invoices';
 
 interface SchedulingViewProps {
   sessionUser: User;
   jobs: Job[];
+  companyName?: string;
   isDarkMode?: boolean;
 }
 
@@ -21,7 +24,7 @@ interface SchedulingViewProps {
  * JobOptions and passed into the board, which merges them with any ad-hoc job
  * options saved on the board itself.
  */
-export default function SchedulingView({ sessionUser, jobs, isDarkMode }: SchedulingViewProps) {
+export default function SchedulingView({ sessionUser, jobs, companyName, isDarkMode }: SchedulingViewProps) {
   const [tab, setTab] = useState<SchedulingTab>('board');
   const isAdmin = sessionUser.role === UserRole.ADMIN || sessionUser.role === UserRole.SUPER_ADMIN;
 
@@ -41,6 +44,8 @@ export default function SchedulingView({ sessionUser, jobs, isDarkMode }: Schedu
   const TABS: { id: SchedulingTab; label: string; icon: React.ReactNode }[] = [
     { id: 'board',     label: 'Dispatch Board', icon: <CalendarRange size={16} /> },
     { id: 'resources', label: 'Resources',      icon: <Boxes size={16} /> },
+    { id: 'logs',      label: 'Work Logs',      icon: <ClipboardList size={16} /> },
+    { id: 'invoices',  label: 'Invoices',       icon: <Receipt size={16} /> },
   ];
 
   return (
@@ -75,6 +80,14 @@ export default function SchedulingView({ sessionUser, jobs, isDarkMode }: Schedu
 
       {tab === 'resources' && (
         <ResourcesManager companyId={sessionUser.companyId} isAdmin={isAdmin} isDarkMode={isDarkMode} />
+      )}
+
+      {tab === 'logs' && (
+        <WorkLogEditor companyId={sessionUser.companyId} isAdmin={isAdmin} isDarkMode={isDarkMode} />
+      )}
+
+      {tab === 'invoices' && (
+        <InvoiceView companyId={sessionUser.companyId} companyName={companyName} isAdmin={isAdmin} isDarkMode={isDarkMode} />
       )}
     </div>
   );
