@@ -191,6 +191,20 @@ export const scheduleService = {
     if (error) throw error;
   },
 
+  async bulkCreateEquipment(companyId: string, items: Omit<Equipment, 'id' | 'companyId'>[]): Promise<Equipment[]> {
+    const rows = items.map(e => ({ company_id: companyId, name: e.name, hourly_rate: e.hourlyRate }));
+    const { data, error } = await supabase.from('equipment').insert(rows).select();
+    if (error) throw error;
+    return (data ?? []).map(r => mapEquipment(r as Record<string, unknown>));
+  },
+
+  async bulkCreateMaterial(companyId: string, items: Omit<Material, 'id' | 'companyId'>[]): Promise<Material[]> {
+    const rows = items.map(m => ({ company_id: companyId, name: m.name, unit_price: m.unitPrice }));
+    const { data, error } = await supabase.from('materials').insert(rows).select();
+    if (error) throw error;
+    return (data ?? []).map(r => mapMaterial(r as Record<string, unknown>));
+  },
+
   // ── Service jobs (billing entity, with nested work logs) ────────────────────
   async getServiceJobs(): Promise<ServiceJob[]> {
     const { data, error } = await supabase

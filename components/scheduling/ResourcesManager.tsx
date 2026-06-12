@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Trash2, Users, Wrench, Package } from 'lucide-react';
+import { Plus, Trash2, Users, Wrench, Package, Upload } from 'lucide-react';
 import { scheduleService } from '../../services/scheduleService.ts';
 import { Employee, Equipment, Material } from '../../services/schedulingTypes.ts';
+import CsvImportModal from './CsvImportModal.tsx';
 
 type ResourceTab = 'employees' | 'equipment' | 'materials';
 
@@ -23,6 +24,7 @@ export default function ResourcesManager({ companyId, isAdmin, isDarkMode }: Res
   const [equipment, setEquipment] = useState<Equipment[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [loading, setLoading] = useState(true);
+  const [csvModal, setCsvModal] = useState<'equipment' | 'materials' | null>(null);
 
   // New-row drafts
   const [empDraft, setEmpDraft] = useState({ name: '', role: '', hourlyRate: '' });
@@ -155,13 +157,23 @@ export default function ResourcesManager({ companyId, isAdmin, isDarkMode }: Res
               ))}
               {equipment.length === 0 && <p className={subtext}>No equipment yet.</p>}
               {isAdmin && (
-                <div className="flex flex-col sm:flex-row gap-2 pt-3">
-                  <input className={input} placeholder="Name" value={eqDraft.name} onChange={e => setEqDraft({ ...eqDraft, name: e.target.value })} />
-                  <input className={input} placeholder="Rate/hr" type="number" value={eqDraft.hourlyRate} onChange={e => setEqDraft({ ...eqDraft, hourlyRate: e.target.value })} />
-                  <button onClick={addEquipment} className="flex items-center justify-center gap-1 px-4 py-2 rounded-lg bg-brand text-white text-sm font-semibold whitespace-nowrap">
-                    <Plus size={16} />Add
-                  </button>
-                </div>
+                <>
+                  <div className="flex flex-col sm:flex-row gap-2 pt-3">
+                    <input className={input} placeholder="Name" value={eqDraft.name} onChange={e => setEqDraft({ ...eqDraft, name: e.target.value })} />
+                    <input className={input} placeholder="Rate/hr" type="number" value={eqDraft.hourlyRate} onChange={e => setEqDraft({ ...eqDraft, hourlyRate: e.target.value })} />
+                    <button onClick={addEquipment} className="flex items-center justify-center gap-1 px-4 py-2 rounded-lg bg-brand text-white text-sm font-semibold whitespace-nowrap">
+                      <Plus size={16} />Add
+                    </button>
+                  </div>
+                  <div className="pt-1">
+                    <button
+                      onClick={() => setCsvModal('equipment')}
+                      className={`flex items-center gap-2 text-sm font-medium px-3 py-1.5 rounded-lg border transition ${isDarkMode ? 'border-slate-600 text-slate-300 hover:bg-slate-700' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}
+                    >
+                      <Upload size={14} />Import CSV / Spreadsheet
+                    </button>
+                  </div>
+                </>
               )}
             </div>
           )}
@@ -182,17 +194,37 @@ export default function ResourcesManager({ companyId, isAdmin, isDarkMode }: Res
               ))}
               {materials.length === 0 && <p className={subtext}>No materials yet.</p>}
               {isAdmin && (
-                <div className="flex flex-col sm:flex-row gap-2 pt-3">
-                  <input className={input} placeholder="Name" value={matDraft.name} onChange={e => setMatDraft({ ...matDraft, name: e.target.value })} />
-                  <input className={input} placeholder="Unit price (blank = unlisted)" type="number" value={matDraft.unitPrice} onChange={e => setMatDraft({ ...matDraft, unitPrice: e.target.value })} />
-                  <button onClick={addMaterial} className="flex items-center justify-center gap-1 px-4 py-2 rounded-lg bg-brand text-white text-sm font-semibold whitespace-nowrap">
-                    <Plus size={16} />Add
-                  </button>
-                </div>
+                <>
+                  <div className="flex flex-col sm:flex-row gap-2 pt-3">
+                    <input className={input} placeholder="Name" value={matDraft.name} onChange={e => setMatDraft({ ...matDraft, name: e.target.value })} />
+                    <input className={input} placeholder="Unit price (blank = unlisted)" type="number" value={matDraft.unitPrice} onChange={e => setMatDraft({ ...matDraft, unitPrice: e.target.value })} />
+                    <button onClick={addMaterial} className="flex items-center justify-center gap-1 px-4 py-2 rounded-lg bg-brand text-white text-sm font-semibold whitespace-nowrap">
+                      <Plus size={16} />Add
+                    </button>
+                  </div>
+                  <div className="pt-1">
+                    <button
+                      onClick={() => setCsvModal('materials')}
+                      className={`flex items-center gap-2 text-sm font-medium px-3 py-1.5 rounded-lg border transition ${isDarkMode ? 'border-slate-600 text-slate-300 hover:bg-slate-700' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}
+                    >
+                      <Upload size={14} />Import CSV / Spreadsheet
+                    </button>
+                  </div>
+                </>
               )}
             </div>
           )}
         </div>
+      )}
+
+      {csvModal && (
+        <CsvImportModal
+          type={csvModal}
+          companyId={companyId}
+          isDarkMode={isDarkMode}
+          onClose={() => setCsvModal(null)}
+          onImported={reload}
+        />
       )}
     </div>
   );
