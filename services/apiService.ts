@@ -1,6 +1,28 @@
 
 import { supabase } from '../lib/supabaseClient.ts';
-import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job, NoShowRecord, JobPrint, PrintMarker, Company, PdfAnnotation } from '../types.ts';
+import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job, NoShowRecord, JobPrint, PrintMarker, Company, PdfAnnotation, InventoryItem, InventoryItemType, InventoryLocation, InventoryMovement, InventoryMovementType } from '../types.ts';
+
+const mapInvItem = (d: Record<string, unknown>): InventoryItem => ({
+  id: d.id as string,
+  companyId: d.company_id as string,
+  name: d.name as string,
+  itemType: d.item_type as InventoryItemType,
+  serialNumber: (d.serial_number as string) || undefined,
+  licensePlate: (d.license_plate as string) || undefined,
+  vin: (d.vin as string) || undefined,
+  assetTag: (d.asset_tag as string) || undefined,
+  lastServiceDate: (d.last_service_date as string) || undefined,
+  nextServiceDue: (d.next_service_due as string) || undefined,
+  odometer: d.odometer != null ? Number(d.odometer) : undefined,
+  quantity: Number(d.quantity) || 0,
+  unit: (d.unit as string) || 'each',
+  currentLocationId: (d.current_location_id as string) || undefined,
+  currentJobId: (d.current_job_id as string) || undefined,
+  currentAssigneeId: (d.current_assignee_id as string) || undefined,
+  notes: (d.notes as string) || '',
+  createdAt: new Date(d.created_at as string).getTime(),
+  updatedAt: new Date(d.updated_at as string).getTime(),
+});
 
 const mapRole = (role: string | undefined): UserRole => {
   const r = role?.toUpperCase();
@@ -281,7 +303,8 @@ export const apiService = {
       createdAt: new Date(data.created_at).getTime(),
       isActive: data.is_active === true,
       inboundEnabled: data.inbound_enabled === true,
-      schedulingEnabled: data.scheduling_enabled === true
+      schedulingEnabled: data.scheduling_enabled === true,
+      inventoryEnabled: data.inventory_enabled === true
     };
   },
 
@@ -815,6 +838,148 @@ export const apiService = {
   async setCompanySchedulingEnabled(id: string, enabled: boolean): Promise<void> {
     const { error } = await supabase.from('companies').update({ scheduling_enabled: enabled }).eq('id', id);
     if (error) throw error;
+  },
+
+  async setCompanyInventoryEnabled(id: string, enabled: boolean): Promise<void> {
+    const { error } = await supabase.from('companies').update({ inventory_enabled: enabled }).eq('id', id);
+    if (error) throw error;
+  },
+
+  // ── Inventory Locations ──────────────────────────────────────────────────
+
+  async getInventoryLocations(): Promise<InventoryLocation[]> {
+    const { data, error } = await supabase.from('inventory_locations').select('*').order('name');
+    if (error) throw error;
+    return (data || []).map((d: Record<string, unknown>) => ({
+      id: d.id as string,
+      companyId: d.company_id as string,
+      name: d.name as string,
+      address: (d.address as string) || '',
+      createdAt: new Date(d.created_at as string).getTime(),
+    }));
+  },
+
+  async saveInventoryLocation(loc: { id?: string; companyId: string; name: string; address?: string }): Promise<InventoryLocation> {
+    const payload = { company_id: loc.companyId, name: loc.name, address: loc.address || '' };
+    if (loc.id) {
+      const { data, error } = await supabase.from('inventory_locations').update(payload).eq('id', loc.id).select().single();
+      if (error) throw error;
+      return { id: data.id, companyId: data.company_id, name: data.name, address: data.address || '', createdAt: new Date(data.created_at).getTime() };
+    }
+    const { data, error } = await supabase.from('inventory_locations').insert([payload]).select().single();
+    if (error) throw error;
+    return { id: data.id, companyId: data.company_id, name: data.name, address: data.address || '', createdAt: new Date(data.created_at).getTime() };
+  },
+
+  async deleteInventoryLocation(id: string): Promise<void> {
+    const { error } = await supabase.from('inventory_locations').delete().eq('id', id);
+    if (error) throw error;
+  },
+
+  // ── Inventory Items ──────────────────────────────────────────────────────
+
+  async getInventoryItems(): Promise<InventoryItem[]> {
+    const { data, error } = await supabase.from('inventory_items').select('*').order('name');
+    if (error) throw error;
+    return (data || []).map((d: Record<string, unknown>) => mapInvItem(d));
+  },
+
+  async saveInventoryItem(item: Partial<InventoryItem> & { companyId: string; name: string; itemType: InventoryItemType }): Promise<InventoryItem> {
+    const payload: Record<string, unknown> = {
+      company_id: item.companyId,
+      name: item.name,
+      item_type: item.itemType,
+      serial_number: item.serialNumber || null,
+      license_plate: item.licensePlate || null,
+      vin: item.vin || null,
+      asset_tag: item.assetTag || null,
+      last_service_date: item.lastServiceDate || null,
+      next_service_due: item.nextServiceDue || null,
+      odometer: item.odometer ?? null,
+      quantity: item.quantity ?? 0,
+      unit: item.unit || 'each',
+      current_location_id: item.currentLocationId || null,
+      current_job_id: item.currentJobId || null,
+      current_assignee_id: item.currentAssigneeId || null,
+      notes: item.notes || '',
+      updated_at: new Date().toISOString(),
+    };
+    if (item.id) {
+      const { data, error } = await supabase.from('inventory_items').update(payload).eq('id', item.id).select().single();
+      if (error) throw error;
+      return mapInvItem(data);
+    }
+    const { data, error } = await supabase.from('inventory_items').insert([payload]).select().single();
+    if (error) throw error;
+    return mapInvItem(data);
+  },
+
+  async deleteInventoryItem(id: string): Promise<void> {
+    const { error } = await supabase.from('inventory_items').delete().eq('id', id);
+    if (error) throw error;
+  },
+
+  // ── Inventory Movements ──────────────────────────────────────────────────
+
+  async getInventoryMovements(itemId?: string): Promise<InventoryMovement[]> {
+    let q = supabase.from('inventory_movements').select('*').order('created_at', { ascending: false });
+    if (itemId) q = q.eq('item_id', itemId);
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data || []).map((d: Record<string, unknown>) => ({
+      id: d.id as string,
+      companyId: d.company_id as string,
+      itemId: d.item_id as string,
+      movementType: d.movement_type as InventoryMovementType,
+      performedById: (d.performed_by_id as string) || undefined,
+      performedByName: (d.performed_by_name as string) || '',
+      jobId: (d.job_id as string) || undefined,
+      jobNumber: (d.job_number as string) || undefined,
+      fromLocationId: (d.from_location_id as string) || undefined,
+      toLocationId: (d.to_location_id as string) || undefined,
+      assigneeId: (d.assignee_id as string) || undefined,
+      assigneeName: (d.assignee_name as string) || undefined,
+      quantityDelta: d.quantity_delta != null ? Number(d.quantity_delta) : undefined,
+      notes: (d.notes as string) || '',
+      createdAt: new Date(d.created_at as string).getTime(),
+    }));
+  },
+
+  async addInventoryMovement(mv: Omit<InventoryMovement, 'id' | 'companyId' | 'createdAt'> & { companyId: string }): Promise<InventoryMovement> {
+    const payload = {
+      company_id: mv.companyId,
+      item_id: mv.itemId,
+      movement_type: mv.movementType,
+      performed_by_id: mv.performedById || null,
+      performed_by_name: mv.performedByName,
+      job_id: mv.jobId || null,
+      job_number: mv.jobNumber || null,
+      from_location_id: mv.fromLocationId || null,
+      to_location_id: mv.toLocationId || null,
+      assignee_id: mv.assigneeId || null,
+      assignee_name: mv.assigneeName || null,
+      quantity_delta: mv.quantityDelta ?? null,
+      notes: mv.notes || '',
+    };
+    const { data, error } = await supabase.from('inventory_movements').insert([payload]).select().single();
+    if (error) throw error;
+    return {
+      id: data.id,
+      companyId: data.company_id,
+      itemId: data.item_id,
+      movementType: data.movement_type,
+      performedById: data.performed_by_id || undefined,
+      performedByName: data.performed_by_name || '',
+      jobId: data.job_id || undefined,
+      jobNumber: data.job_number || undefined,
+      fromLocationId: data.from_location_id || undefined,
+      toLocationId: data.to_location_id || undefined,
+      assigneeId: data.assignee_id || undefined,
+      assigneeName: data.assignee_name || undefined,
+      quantityDelta: data.quantity_delta != null ? Number(data.quantity_delta) : undefined,
+      notes: data.notes || '',
+      createdAt: new Date(data.created_at).getTime(),
+    };
   },
 
   async createInviteForCompany(companyId: string): Promise<string> {
