@@ -208,8 +208,8 @@ export default function WorkLogEditor({ companyId, isAdmin, isDarkMode }: WorkLo
                 {entry.equipment.map((l, i) => (
                   <div key={i} className="flex items-center gap-2">
                     <select className={`${input} flex-1`} value={l.equipmentId} onChange={e => {
-                      const eq = equipment.find(x => x.id === Number(e.target.value));
-                      setEntry(p => ({ ...p, equipment: p.equipment.map((x, xi) => xi === i ? { ...x, equipmentId: Number(e.target.value), rate: eq?.hourlyRate ?? x.rate } : x) }));
+                      const eq = equipment.find(x => x.id === e.target.value);
+                      setEntry(p => ({ ...p, equipment: p.equipment.map((x, xi) => xi === i ? { ...x, equipmentId: e.target.value, rate: eq?.hourlyRate ?? x.rate } : x) }));
                     }}>
                       {equipment.map(eq => <option key={eq.id} value={eq.id}>{eq.name}</option>)}
                     </select>

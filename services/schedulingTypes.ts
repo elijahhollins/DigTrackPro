@@ -20,7 +20,7 @@ export interface Employee {
 }
 
 export interface Equipment {
-  id: number;
+  id: string;
   companyId: string;
   name: string;
   hourlyRate: number;
@@ -36,7 +36,7 @@ export interface Material {
 // JSON payload stored on work_logs.data and templates.data
 export interface WorkLogEntry {
   employees: { employeeId: number; hours: number; rate: number }[];
-  equipment: { equipmentId: number; hours: number; rate: number }[];
+  equipment: { equipmentId: string; hours: number; rate: number }[];
   materials: { materialId?: number; name: string; quantity: number; unitPrice: number }[];
 }
 
@@ -124,5 +124,5 @@ export interface ScheduleBlock {
   durationDays: number;
   type: 'job' | 'delay';
   extended: boolean;
-  equipmentIds: number[];
+  equipmentIds: string[];
 }

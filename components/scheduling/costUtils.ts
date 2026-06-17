@@ -33,5 +33,5 @@ export const computeTotals = (logs: WorkLog[] | undefined, materials: Material[]
 export const employeeName = (id: number, employees: Employee[]): string =>
   employees.find(e => e.id === id)?.name ?? `Employee #${id}`;
 
-export const equipmentName = (id: number, equipment: Equipment[]): string =>
+export const equipmentName = (id: string, equipment: Equipment[]): string =>
   equipment.find(e => e.id === id)?.name ?? `Equipment #${id}`;

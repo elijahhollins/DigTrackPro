@@ -28,7 +28,7 @@ const mapEmployee = (row: Record<string, unknown>): Employee => ({
 });
 
 const mapEquipment = (row: Record<string, unknown>): Equipment => ({
-  id:         Number(row.id ?? 0),
+  id:         String(row.id ?? ''),
   companyId:  String(row.company_id ?? ''),
   name:       String(row.name ?? ''),
   hourlyRate: Number(row.hourly_rate ?? 0),
@@ -133,32 +133,36 @@ export const scheduleService = {
     if (error) throw error;
   },
 
-  // ── Equipment ──────────────────────────────────────────────────────────────
+  // ── Equipment (backed by inventory_items with item_type = 'EQUIPMENT') ───────
   async getEquipment(): Promise<Equipment[]> {
-    const { data, error } = await supabase.from('equipment').select('*').order('name');
+    const { data, error } = await supabase
+      .from('inventory_items')
+      .select('*')
+      .eq('item_type', 'EQUIPMENT')
+      .order('name');
     if (error) throw error;
     return (data ?? []).map(r => mapEquipment(r as Record<string, unknown>));
   },
 
   async createEquipment(companyId: string, e: Omit<Equipment, 'id' | 'companyId'>): Promise<Equipment> {
     const { data, error } = await supabase
-      .from('equipment')
-      .insert({ company_id: companyId, name: e.name, hourly_rate: e.hourlyRate })
+      .from('inventory_items')
+      .insert({ company_id: companyId, name: e.name, item_type: 'EQUIPMENT', hourly_rate: e.hourlyRate })
       .select().single();
     if (error) throw error;
     return mapEquipment(data as Record<string, unknown>);
   },
 
-  async updateEquipment(id: number, updates: Partial<Omit<Equipment, 'id' | 'companyId'>>): Promise<void> {
+  async updateEquipment(id: string, updates: Partial<Omit<Equipment, 'id' | 'companyId'>>): Promise<void> {
     const db: Record<string, unknown> = {};
     if (updates.name       !== undefined) db.name        = updates.name;
     if (updates.hourlyRate !== undefined) db.hourly_rate = updates.hourlyRate;
-    const { error } = await supabase.from('equipment').update(db).eq('id', id);
+    const { error } = await supabase.from('inventory_items').update(db).eq('id', id);
     if (error) throw error;
   },
 
-  async deleteEquipment(id: number): Promise<void> {
-    const { error } = await supabase.from('equipment').delete().eq('id', id);
+  async deleteEquipment(id: string): Promise<void> {
+    const { error } = await supabase.from('inventory_items').delete().eq('id', id);
     if (error) throw error;
   },
 
@@ -192,8 +196,8 @@ export const scheduleService = {
   },
 
   async bulkCreateEquipment(companyId: string, items: Omit<Equipment, 'id' | 'companyId'>[]): Promise<Equipment[]> {
-    const rows = items.map(e => ({ company_id: companyId, name: e.name, hourly_rate: e.hourlyRate }));
-    const { data, error } = await supabase.from('equipment').insert(rows).select();
+    const rows = items.map(e => ({ company_id: companyId, name: e.name, item_type: 'EQUIPMENT', hourly_rate: e.hourlyRate }));
+    const { data, error } = await supabase.from('inventory_items').insert(rows).select();
     if (error) throw error;
     return (data ?? []).map(r => mapEquipment(r as Record<string, unknown>));
   },
