@@ -19,7 +19,8 @@ type ToolType =
   | 'pen' | 'highlighter'
   | 'text' | 'callout' | 'stamp'
   | 'arrow' | 'double_arrow' | 'line' | 'dashed_line' | 'dimension'
-  | 'rectangle' | 'filled_rectangle' | 'circle' | 'filled_circle' | 'cloud';
+  | 'rectangle' | 'filled_rectangle' | 'circle' | 'filled_circle' | 'cloud'
+  | 'scale';
 
 const STAMP_TYPES = ['APPROVED', 'REVISED', 'FIELD CHANGE', 'AS BUILT', 'NOT APPROVED', 'VOID'] as const;
 type StampType = typeof STAMP_TYPES[number];
@@ -44,6 +45,12 @@ interface AnyAnnotationData extends Record<string, unknown> {
   opacity?:   number;
   stampType?: StampType;
   rotation?:  number;  // rotation in degrees (clockwise, 0 = no rotation)
+}
+
+interface ScaleInfo {
+  unitsPerNormDist: number;  // real units per canonical normalized distance
+  aspectRatio: number;       // canvas W/H (fixed for PDF page)
+  unit: string;
 }
 
 interface PdfMarkupEditorProps {
@@ -140,6 +147,11 @@ const TOOL_GROUPS: ToolGroup[] = [
       icon: SvgIcon('M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z'),
       title: 'Revision Cloud' },
   ]},
+  { label: 'Measure', tools: [
+    { id: 'scale',
+      icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7h18M3 17h18M8 7v2m0 6v2M12 5v4m0 6v4M16 7v2m0 6v2"/></svg>,
+      title: 'Calibrate Scale (draw a reference line → enter its real-world distance)' },
+  ]},
 ];
 
 // ─────────────────────────────────────────────────────────────
@@ -191,6 +203,7 @@ const getInitials = (name: string) =>
 const renderAnnotationContent = (
   ann: { toolType: ToolType; color: string; strokeWidth: number; data: AnyAnnotationData },
   w: number, h: number, key: string,
+  scaleInfo?: ScaleInfo | null,
 ): React.ReactElement | null => {
   const d  = ann.data;
   const c  = ann.color;
@@ -324,6 +337,21 @@ const renderAnnotationContent = (
       const len = Math.sqrt((lx2 - lx1) ** 2 + (ly2 - ly1) ** 2) || 1;
       const px  = (-(ly2 - ly1) / len) * 10;
       const py  = ((lx2 - lx1) / len) * 10;
+      const midX = (lx1 + lx2) / 2;
+      const midY = (ly1 + ly2) / 2;
+      const angleDeg = Math.atan2(ly2 - ly1, lx2 - lx1) * 180 / Math.PI;
+      let labelText: string;
+      if (scaleInfo) {
+        const dx = (d.x2 ?? 0) - (d.x1 ?? 0);
+        const dy = (d.y2 ?? 0) - (d.y1 ?? 0);
+        const ar = scaleInfo.aspectRatio;
+        const normDist = Math.sqrt((dx * ar) ** 2 + dy ** 2);
+        const realLen = normDist * scaleInfo.unitsPerNormDist;
+        labelText = `${realLen.toFixed(2)} ${scaleInfo.unit}`;
+      } else {
+        labelText = `${Math.round(len)} px`;
+      }
+      const lblW = labelText.length * 6 + 10;
       return (
         <g key={key} opacity={op}>
           <line x1={lx1} y1={ly1} x2={lx2} y2={ly2} stroke={c} strokeWidth={sw} />
@@ -331,6 +359,10 @@ const renderAnnotationContent = (
             stroke={c} strokeWidth={sw} strokeLinecap="round" />
           <line x1={lx2 + px} y1={ly2 + py} x2={lx2 - px} y2={ly2 - py}
             stroke={c} strokeWidth={sw} strokeLinecap="round" />
+          <g transform={`translate(${midX}, ${midY}) rotate(${angleDeg > 90 || angleDeg < -90 ? angleDeg + 180 : angleDeg})`}>
+            <rect x={-lblW / 2} y={-18} width={lblW} height={14} rx="3" fill="rgba(0,0,0,0.75)" />
+            <text x={0} y={-7} textAnchor="middle" fill={c} fontSize="10" fontFamily="monospace" fontWeight="bold">{labelText}</text>
+          </g>
         </g>
       );
     }
@@ -389,10 +421,11 @@ const renderAnnotationContent = (
 const renderAnnotationSvg = (
   ann: { toolType: ToolType; color: string; strokeWidth: number; data: AnyAnnotationData },
   w: number, h: number, key: string,
+  scaleInfo?: ScaleInfo | null,
 ): React.ReactElement | null => {
   const rotation = ann.data.rotation ?? 0;
   const innerKey = rotation ? `${key}-c` : key;
-  const content  = renderAnnotationContent(ann, w, h, innerKey);
+  const content  = renderAnnotationContent(ann, w, h, innerKey, scaleInfo);
   if (!content) return null;
   if (!rotation) return content;
   const bbox = getAnnotationBBox(ann as unknown as PdfAnnotation);
@@ -647,6 +680,18 @@ const applyHandleDrag = (
   return origData;
 };
 
+const nudgeAnnotationData = (data: AnyAnnotationData, toolType: ToolType, dx: number, dy: number): AnyAnnotationData => {
+  if (toolType === 'text' || toolType === 'stamp')
+    return { ...data, x: (data.x ?? 0) + dx, y: (data.y ?? 0) + dy };
+  if (toolType === 'pen' || toolType === 'highlighter') {
+    if (!data.points) return data;
+    return { ...data, points: data.points.map(p => ({ ...p, x: p.x + dx, y: p.y + dy })) };
+  }
+  if (data.x1 !== undefined)
+    return { ...data, x1: (data.x1 ?? 0) + dx, y1: (data.y1 ?? 0) + dy, x2: (data.x2 ?? 0) + dx, y2: (data.y2 ?? 0) + dy };
+  return data;
+};
+
 // ─────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────
@@ -686,11 +731,17 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   const [liveEditData, setLiveEditData]   = useState<AnyAnnotationData | null>(null);
   const [pendingAnnotations, setPendingAnnotations] = useState<Array<PdfAnnotation>>([]);
   const [filterAuthorId, setFilterAuthorId] = useState<string | null>(null);
+  const [scaleInfo, setScaleInfo] = useState<ScaleInfo | null>(null);
+  const [scaleInput, setScaleInput] = useState<{ lineStart: { x: number; y: number }; lineEnd: { x: number; y: number } } | null>(null);
+  const [scaleValue, setScaleValue] = useState('');
+  const [scaleUnit, setScaleUnit] = useState('ft');
+  const [editingAnnId, setEditingAnnId] = useState<string | null>(null);
 
   const canvasRef     = useRef<HTMLCanvasElement>(null);
   const containerRef  = useRef<HTMLDivElement>(null);
   const mainRef       = useRef<HTMLDivElement>(null);
   const textFieldRef  = useRef<HTMLInputElement>(null);
+  const scaleInputRef = useRef<HTMLInputElement>(null);
   const pdfDocRef     = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
   const renderTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
   const drawingPtrRef = useRef<number | null>(null);
@@ -1011,6 +1062,28 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     setIsSaving(false);
   }, [pendingAnnotations]);
 
+  const duplicateAnnotation = useCallback(() => {
+    const selId = selectedAnnIdRef.current;
+    if (!selId) return;
+    const allAnns = [...annotationsRef.current, ...pendingAnnotationsRef.current];
+    const sel = allAnns.find(a => a.id === selId);
+    if (!sel) return;
+    const newData = nudgeAnnotationData(sel.data as AnyAnnotationData, sel.toolType as ToolType, 0.022, 0.022);
+    const staged: PdfAnnotation = {
+      id: generateTempId(), createdAt: Date.now(),
+      printId: sel.printId, companyId: sel.companyId,
+      authorId: sel.authorId, authorName: sel.authorName,
+      pageNumber: sel.pageNumber, toolType: sel.toolType,
+      color: sel.color, strokeWidth: sel.strokeWidth,
+      data: newData as Record<string, unknown>,
+    };
+    setPendingAnnotations(prev => [...prev, staged]);
+    undoStackRef.current.push(staged);
+    if (undoStackRef.current.length > MAX_UNDO_STACK_SIZE) undoStackRef.current.shift();
+    redoStackRef.current = []; setCanUndo(true); setCanRedo(false);
+    setSelectedAnnId(staged.id);
+  }, []);
+
   // Keyboard shortcuts — placed after handleDeleteAnnotation to avoid forward reference
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1038,6 +1111,32 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
         return;
       }
 
+      // Arrow key nudge for selected annotation
+      if (e.type === 'keydown' && !e.ctrlKey && !e.metaKey &&
+          (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') &&
+          !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
+        const selId = selectedAnnIdRef.current;
+        if (selId) {
+          e.preventDefault();
+          const NUDGE = e.shiftKey ? 0.01 : 0.002;
+          const allAnns = [...annotationsRef.current, ...pendingAnnotationsRef.current];
+          const ann = allAnns.find(a => a.id === selId);
+          if (ann) {
+            const dx = e.key === 'ArrowLeft' ? -NUDGE : e.key === 'ArrowRight' ? NUDGE : 0;
+            const dy = e.key === 'ArrowUp' ? -NUDGE : e.key === 'ArrowDown' ? NUDGE : 0;
+            updateAnnotation(selId, nudgeAnnotationData(ann.data as AnyAnnotationData, ann.toolType as ToolType, dx, dy));
+          }
+        }
+        return;
+      }
+
+      // Ctrl+D to duplicate
+      if (e.type === 'keydown' && (e.ctrlKey || e.metaKey) && e.key === 'd') {
+        e.preventDefault();
+        duplicateAnnotation();
+        return;
+      }
+
       // Escape → deselect / stop drawing / cancel text input
       if (e.key === 'Escape') {
         setSelectedAnnId(null);
@@ -1051,7 +1150,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     window.addEventListener('keydown', onKey);
     window.addEventListener('keyup',   onKey);
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKey); };
-  }, [handleUndo, handleRedo, handleDeleteAnnotation]);
+  }, [handleUndo, handleRedo, handleDeleteAnnotation, updateAnnotation, duplicateAnnotation]);
 
   // Block browser-level pinch/scroll zoom (Ctrl+wheel) while the editor is open.
   // React's synthetic onWheel may be passive in some environments; a direct non-passive
@@ -1239,6 +1338,12 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       return;
     }
 
+    if (currentTool === 'scale') {
+      setIsDrawing(true);
+      setDrawStart(coords);
+      return;
+    }
+
     setIsDrawing(true);
     setDrawStart(coords);
     if (currentTool === 'pen' || currentTool === 'highlighter')
@@ -1361,6 +1466,16 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       }
     }
 
+    // Scale: draw reference line then show input dialog
+    if (currentTool === 'scale') {
+      setIsDrawing(false);
+      if (Math.hypot(coords.x - drawStart.x, coords.y - drawStart.y) > MIN_SHAPE_SIZE_NORM) {
+        setScaleInput({ lineStart: drawStart, lineEnd: coords });
+        setTimeout(() => scaleInputRef.current?.focus(), 50);
+      }
+      setPreviewData(null); setDrawStart(null); return;
+    }
+
     // Stamp: tap to place
     if (currentTool === 'stamp') {
       if (Math.hypot(coords.x - drawStart.x, coords.y - drawStart.y) < TAP_DISTANCE_NORM) {
@@ -1422,7 +1537,18 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   const handleTextSubmit = useCallback(() => {
     if (!textInput) return;
     setTextInput(null);
-    if (!textValue.trim()) { setTextValue(''); return; }
+    if (!textValue.trim()) { setTextValue(''); setEditingAnnId(null); return; }
+
+    if (editingAnnId) {
+      const allAnns = [...annotationsRef.current, ...pendingAnnotationsRef.current];
+      const existing = allAnns.find(a => a.id === editingAnnId);
+      if (existing) {
+        updateAnnotation(editingAnnId, { ...(existing.data as AnyAnnotationData), text: textValue.trim() });
+        setSelectedAnnId(editingAnnId);
+      }
+      setEditingAnnId(null); setTextValue(''); return;
+    }
+
     let placed: PdfAnnotation;
     if (textInput.calloutData) {
       placed = commitAnnotation({ ...textInput.calloutData, text: textValue.trim(), fontSize }, 'callout');
@@ -1433,7 +1559,85 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     setSelectedAnnId(placed.id);
     // After placing a callout, auto-switch to Select so handles are immediately visible and draggable
     if (textInput.calloutData) setCurrentTool('select');
-  }, [textInput, textValue, fontSize, commitAnnotation]);
+  }, [textInput, textValue, fontSize, commitAnnotation, editingAnnId, updateAnnotation]);
+
+  const handleScaleConfirm = useCallback(() => {
+    if (!scaleInput || !scaleValue) { setScaleInput(null); return; }
+    const inputVal = parseFloat(scaleValue);
+    if (isNaN(inputVal) || inputVal <= 0) { setScaleInput(null); return; }
+    const ar = canvasSize.width / (canvasSize.height || 1);
+    const dx = scaleInput.lineEnd.x - scaleInput.lineStart.x;
+    const dy = scaleInput.lineEnd.y - scaleInput.lineStart.y;
+    const normDist = Math.sqrt((dx * ar) ** 2 + dy ** 2);
+    if (normDist < 0.001) { setScaleInput(null); return; }
+    setScaleInfo({ unitsPerNormDist: inputVal / normDist, aspectRatio: ar, unit: scaleUnit });
+    setScaleInput(null); setScaleValue(''); setCurrentTool('select');
+  }, [scaleInput, scaleValue, scaleUnit, canvasSize]);
+
+  const flipAnnotationH = useCallback(() => {
+    const selId = selectedAnnIdRef.current;
+    if (!selId) return;
+    const allAnns = [...annotationsRef.current, ...pendingAnnotationsRef.current];
+    const ann = allAnns.find(a => a.id === selId);
+    if (!ann) return;
+    const d = ann.data as AnyAnnotationData;
+    if (ann.toolType === 'pen' || ann.toolType === 'highlighter') {
+      if (!d.points) return;
+      const xs = d.points.map(p => p.x), cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+      updateAnnotation(selId, { ...d, points: d.points.map(p => ({ ...p, x: 2 * cx - p.x })) });
+    } else if (d.x1 !== undefined) {
+      updateAnnotation(selId, { ...d, x1: d.x2, x2: d.x1 });
+    }
+  }, [updateAnnotation]);
+
+  const flipAnnotationV = useCallback(() => {
+    const selId = selectedAnnIdRef.current;
+    if (!selId) return;
+    const allAnns = [...annotationsRef.current, ...pendingAnnotationsRef.current];
+    const ann = allAnns.find(a => a.id === selId);
+    if (!ann) return;
+    const d = ann.data as AnyAnnotationData;
+    if (ann.toolType === 'pen' || ann.toolType === 'highlighter') {
+      if (!d.points) return;
+      const ys = d.points.map(p => p.y), cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+      updateAnnotation(selId, { ...d, points: d.points.map(p => ({ ...p, y: 2 * cy - p.y })) });
+    } else if (d.y1 !== undefined) {
+      updateAnnotation(selId, { ...d, y1: d.y2, y2: d.y1 });
+    }
+  }, [updateAnnotation]);
+
+  const updateOpacity = useCallback((id: string, newOpacity: number) => {
+    const allAnns = [...annotationsRef.current, ...pendingAnnotationsRef.current];
+    const ann = allAnns.find(a => a.id === id);
+    if (!ann) return;
+    updateAnnotation(id, { ...(ann.data as AnyAnnotationData), opacity: newOpacity });
+  }, [updateAnnotation]);
+
+  const handleDoubleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (currentTool !== 'select') return;
+    const coords = getCoords(e.clientX, e.clientY);
+    const pageAnns = [...annotations, ...pendingAnnotations].filter(a => a.pageNumber === pageNumber);
+    let nearest: PdfAnnotation | null = null;
+    let nearestScore = 0.06;
+    for (const ann of [...pageAnns].reverse()) {
+      if (ann.toolType !== 'text' && ann.toolType !== 'callout') continue;
+      const score = hitTestAnnotation(ann, coords);
+      if (score < nearestScore) { nearestScore = score; nearest = ann; }
+    }
+    if (!nearest) return;
+    const container = containerRef.current;
+    if (!container) return;
+    const r = container.getBoundingClientRect();
+    const d = nearest.data as AnyAnnotationData;
+    setEditingAnnId(nearest.id);
+    setTextValue((d.text as string | undefined) ?? '');
+    if (nearest.toolType === 'text') {
+      setTextInput({ px: e.clientX - r.left, py: e.clientY - r.top, rx: d.x ?? coords.x, ry: d.y ?? coords.y });
+    } else {
+      setTextInput({ px: e.clientX - r.left, py: e.clientY - r.top, rx: d.x1 ?? coords.x, ry: d.y1 ?? coords.y, calloutData: { x1: d.x1, y1: d.y1, x2: d.x2, y2: d.y2 } as AnyAnnotationData });
+    }
+    setTimeout(() => textFieldRef.current?.focus(), 30);
+  }, [currentTool, annotations, pendingAnnotations, pageNumber, getCoords]);
 
   // Derived
   const allDisplayAnnotations = useMemo(
@@ -1462,7 +1666,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     : null;
   const canDeleteAnn = (ann: PdfAnnotation) =>
     ann.authorId === sessionUser.id || sessionUser.role === UserRole.ADMIN || sessionUser.role === UserRole.SUPER_ADMIN;
-  const isNavTool  = currentTool === 'select' || currentTool === 'pan';
+  const isNavTool  = currentTool === 'select' || currentTool === 'pan' || currentTool === 'scale';
   const toolCursor = liveEditData !== null ? 'cursor-grabbing'
     : currentTool === 'text' || currentTool === 'callout' ? 'cursor-text'
     : currentTool === 'pan'    ? 'cursor-grab'
@@ -1576,6 +1780,17 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
           </svg>
           {pendingAnnotations.length > 0 ? `Save (${pendingAnnotations.length})` : 'Save'}
         </button>
+
+        {scaleInfo && (
+          <div className="flex items-center gap-1 shrink-0">
+            <span className="text-[9px] text-emerald-400 font-black uppercase tracking-widest bg-emerald-500/10 px-2 py-1 rounded-lg">
+              Scale: {scaleInfo.unit}
+            </span>
+            <button onClick={() => setScaleInfo(null)}
+              className="text-[9px] text-slate-500 hover:text-rose-400 font-black uppercase tracking-widest transition-colors px-1"
+              title="Clear scale calibration">×</button>
+          </div>
+        )}
 
         {inputDevice === 'pen' && (
           <span className="text-[10px] text-brand font-black uppercase tracking-widest shrink-0 bg-brand/10 px-2 py-1 rounded-lg">
@@ -1847,6 +2062,40 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
                 </>
               )}
 
+              {/* Duplicate */}
+              <div className="w-px h-6 bg-white/10 shrink-0" />
+              <button onClick={duplicateAnnotation}
+                title="Duplicate annotation (Ctrl+D)"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 text-slate-300 hover:bg-slate-700 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all min-h-[36px] shrink-0">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+                Dup <span className="opacity-50 font-normal normal-case">^D</span>
+              </button>
+
+              {/* Flip H / V */}
+              <button onClick={flipAnnotationH}
+                title="Flip horizontal"
+                className="px-3 py-1.5 bg-slate-800 text-slate-300 hover:bg-slate-700 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all min-h-[36px] shrink-0">
+                ↔ H
+              </button>
+              <button onClick={flipAnnotationV}
+                title="Flip vertical"
+                className="px-3 py-1.5 bg-slate-800 text-slate-300 hover:bg-slate-700 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all min-h-[36px] shrink-0">
+                ↕ V
+              </button>
+
+              {/* Opacity slider for selected annotation */}
+              <div className="w-px h-6 bg-white/10 shrink-0" />
+              <span className="text-[9px] text-slate-400 font-black uppercase tracking-widest shrink-0">Opacity</span>
+              <input type="range" min="0.05" max="1" step="0.05"
+                value={(selectedAnn.data as AnyAnnotationData).opacity ?? 1}
+                onChange={e => updateOpacity(selectedAnn.id, parseFloat(e.target.value))}
+                className="w-20 accent-[var(--brand,#3b82f6)] shrink-0" />
+              <span className="text-[10px] text-slate-300 font-bold w-8 shrink-0">
+                {Math.round(((selectedAnn.data as AnyAnnotationData).opacity ?? 1) * 100)}%
+              </span>
+
               {canDeleteAnn(selectedAnn) && (
                 <button onClick={() => handleDeleteAnnotation(selectedAnn.id)}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-rose-500 transition-all min-h-[36px] shrink-0">
@@ -1864,16 +2113,18 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       )}
 
       {/* Hint bar when drawing line/shape tools */}
-      {!isNavTool && (
+      {(!isNavTool || currentTool === 'scale') && (
         <div className="flex items-center gap-2 px-3 py-1 border-b border-white/5 bg-slate-950/40 shrink-0">
           <span className="text-[8px] text-brand/80 font-black uppercase tracking-widest shrink-0">{currentTool.replace(/_/g, ' ')}</span>
           <span className="text-[8px] text-slate-600 font-black uppercase tracking-widest">·</span>
           <span className="text-[8px] text-slate-600 font-black uppercase tracking-widest">
             {currentTool === 'callout'
               ? <>Press where the text box goes; drag to the arrow tip · tap tool to deactivate</>
-              : currentTool !== 'pen' && currentTool !== 'highlighter' && currentTool !== 'text' && currentTool !== 'stamp'
-                ? <>Tap again to deactivate · Hold <kbd className="text-slate-500 font-mono">⇧ Shift</kbd> to constrain / snap to 45°</>
-                : <>Tap the tool icon again to stop drawing</>
+              : currentTool === 'scale'
+                ? <>Draw a line on the document along a known distance, then enter the real-world length</>
+                : currentTool !== 'pen' && currentTool !== 'highlighter' && currentTool !== 'text' && currentTool !== 'stamp'
+                  ? <>Tap again to deactivate · Hold <kbd className="text-slate-500 font-mono">⇧ Shift</kbd> to constrain / snap to 45°</>
+                  : <>Tap the tool icon again to stop drawing</>
             }
           </span>
         </div>
@@ -1933,6 +2184,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onPointerCancel={handlePointerCancel}
+            onDoubleClick={handleDoubleClick}
           >
             <canvas ref={canvasRef} className="block" />
 
@@ -1944,7 +2196,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
                 const data = (ann.id === selectedAnnId && liveEditData !== null)
                   ? liveEditData
                   : ann.data as AnyAnnotationData;
-                return renderAnnotationSvg({ ...ann, data }, canvasSize.width, canvasSize.height, ann.id);
+                return renderAnnotationSvg({ ...ann, data }, canvasSize.width, canvasSize.height, ann.id, scaleInfo);
               })}
 
               {selectedAnn && currentTool === 'select' && (() => {
@@ -2076,10 +2328,26 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
                   opacity={currentTool === 'highlighter' ? opacity * 0.35 : opacity * 0.75} />
               )}
 
-              {previewData && currentTool !== 'pen' && currentTool !== 'highlighter' &&
+              {previewData && currentTool !== 'pen' && currentTool !== 'highlighter' && currentTool !== 'scale' &&
                 renderAnnotationSvg({ toolType: currentTool, color: currentColor, strokeWidth, data: previewData },
-                  canvasSize.width, canvasSize.height, 'preview')
+                  canvasSize.width, canvasSize.height, 'preview', scaleInfo)
               }
+
+              {isDrawing && currentTool === 'scale' && previewData && (
+                <line
+                  x1={(previewData.x1 ?? 0) * canvasSize.width} y1={(previewData.y1 ?? 0) * canvasSize.height}
+                  x2={(previewData.x2 ?? 0) * canvasSize.width} y2={(previewData.y2 ?? 0) * canvasSize.height}
+                  stroke="#fbbf24" strokeWidth="2" strokeDasharray="6 3" strokeLinecap="round" opacity="0.9"
+                />
+              )}
+
+              {scaleInput && (
+                <line
+                  x1={scaleInput.lineStart.x * canvasSize.width} y1={scaleInput.lineStart.y * canvasSize.height}
+                  x2={scaleInput.lineEnd.x * canvasSize.width} y2={scaleInput.lineEnd.y * canvasSize.height}
+                  stroke="#fbbf24" strokeWidth="2.5" strokeDasharray="6 3" strokeLinecap="round"
+                />
+              )}
 
               {/* Start-point crosshair while drawing lines / callout / shapes */}
               {isDrawing && drawStart && !['pen', 'highlighter', 'text', 'stamp', 'select', 'pan'].includes(currentTool) && (
@@ -2125,7 +2393,63 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
                   data: { ...textInput.calloutData, text: textValue.trim() || '\u00a0', fontSize },
                 }, canvasSize.width, canvasSize.height, 'callout-ghost')
               )}
+
+              {/* Scale bar */}
+              {scaleInfo && canvasSize.width > 0 && (() => {
+                const targetPx = canvasSize.width * 0.15;
+                const rawUnits = (targetPx / canvasSize.height) * scaleInfo.unitsPerNormDist;
+                const nices = [0.25,0.5,1,2,5,10,20,25,50,100,200,500,1000];
+                const nice = nices.reduce((a, b) => Math.abs(b - rawUnits) < Math.abs(a - rawUnits) ? b : a);
+                const barPx = (nice / scaleInfo.unitsPerNormDist) * canvasSize.height;
+                const barX = 16, barY = canvasSize.height - 16;
+                const label = `${nice} ${scaleInfo.unit}`;
+                const lblW = label.length * 6 + 12;
+                return (
+                  <g opacity="0.9">
+                    <rect x={barX - 4} y={barY - 24} width={Math.max(barPx + 8, lblW + 8)} height={28} rx="4" fill="rgba(0,0,0,0.72)" />
+                    <line x1={barX} y1={barY - 10} x2={barX + barPx} y2={barY - 10} stroke="white" strokeWidth="2" />
+                    <line x1={barX} y1={barY - 16} x2={barX} y2={barY - 4} stroke="white" strokeWidth="2" />
+                    <line x1={barX + barPx} y1={barY - 16} x2={barX + barPx} y2={barY - 4} stroke="white" strokeWidth="2" />
+                    <text x={barX + barPx / 2} y={barY} textAnchor="middle" fill="white" fontSize="9" fontFamily="monospace" fontWeight="bold">{label}</text>
+                  </g>
+                );
+              })()}
             </svg>
+
+            {scaleInput && (
+              <div className="absolute bg-slate-900 border border-white/20 rounded-xl p-4 shadow-2xl z-20 w-60"
+                style={{ left: Math.min(canvasSize.width - 248, Math.max(0, scaleInput.lineEnd.x * canvasSize.width - 120)),
+                         top: Math.min(canvasSize.height - 120, Math.max(0, scaleInput.lineEnd.y * canvasSize.height + 16)) }}>
+                <p className="text-[10px] text-brand font-black uppercase tracking-widest mb-3">Set Scale Reference</p>
+                <p className="text-[9px] text-slate-400 mb-2">What length does this line represent?</p>
+                <div className="flex gap-2 mb-3">
+                  <input ref={scaleInputRef} type="number" min="0.001" step="any" value={scaleValue}
+                    onChange={e => setScaleValue(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') handleScaleConfirm(); if (e.key === 'Escape') setScaleInput(null); }}
+                    placeholder="Distance"
+                    className="flex-1 bg-slate-800 text-white rounded-lg px-2 py-1.5 text-sm border border-white/10 outline-none focus:border-brand min-w-0" />
+                  <select value={scaleUnit} onChange={e => setScaleUnit(e.target.value)}
+                    className="bg-slate-800 text-white rounded-lg px-2 text-sm border border-white/10 outline-none focus:border-brand shrink-0">
+                    <option value="ft">ft</option>
+                    <option value="in">in</option>
+                    <option value="yd">yd</option>
+                    <option value="m">m</option>
+                    <option value="cm">cm</option>
+                    <option value="mm">mm</option>
+                  </select>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={handleScaleConfirm}
+                    className="flex-1 bg-brand text-slate-900 rounded-lg py-1.5 text-[11px] font-black hover:brightness-110 transition-all">
+                    Set Scale
+                  </button>
+                  <button onClick={() => { setScaleInput(null); setScaleValue(''); }}
+                    className="px-3 bg-slate-800 text-slate-300 hover:bg-slate-700 rounded-lg py-1.5 text-[11px] font-black transition-all">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
 
             {textInput && (
               <input
