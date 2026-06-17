@@ -39,6 +39,12 @@ declare global {
 
 const VALID_VIEWS: AppView[] = ['dashboard', 'calendar', 'jobs', 'photos', 'team', 'map', 'asbuilt', 'schedule'];
 
+// Mobile bottom-nav customization: which destinations appear directly in the bar
+// (the rest live behind the "More" sheet). Stored per-device in localStorage.
+const MOBILE_PRIMARY_TABS_KEY = 'dig_mobile_primary_tabs';
+const DEFAULT_PRIMARY_TABS: AppView[] = ['dashboard', 'map', 'schedule'];
+const MAX_PRIMARY_TABS = 4;
+
 const App: React.FC = () => {
   const [sessionUser, setSessionUser] = useState<User | null>(null);
   const [showCompanyRegistration, setShowCompanyRegistration] = useState(false);
@@ -51,6 +57,18 @@ const App: React.FC = () => {
     return initial;
   });
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('dig_theme_mode') === 'dark');
+  const [mobilePrimaryTabs, setMobilePrimaryTabs] = useState<AppView[]>(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(MOBILE_PRIMARY_TABS_KEY) || 'null');
+      if (Array.isArray(stored)) {
+        const valid = stored.filter((v): v is AppView => VALID_VIEWS.includes(v));
+        if (valid.length) return valid;
+      }
+    } catch { /* fall through to defaults */ }
+    return DEFAULT_PRIMARY_TABS;
+  });
+  const [showMoreSheet, setShowMoreSheet] = useState(false);
+  const [showEditTabs, setShowEditTabs] = useState(false);
   const [tickets, setTickets] = useState<DigTicket[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [photos, setPhotos] = useState<JobPhoto[]>([]);
@@ -113,6 +131,22 @@ const App: React.FC = () => {
     if (view !== 'photos') setMediaFolderFilter(null);
     window.history.pushState({ view }, '', `#${view}`);
     setActiveView(view);
+  };
+
+  const toggleMobilePrimaryTab = (id: AppView) => {
+    setMobilePrimaryTabs(prev => {
+      let next: AppView[];
+      if (prev.includes(id)) {
+        next = prev.filter(v => v !== id);
+      } else {
+        // Cap the bar at MAX_PRIMARY_TABS available destinations so it never re-crowds.
+        const availableSelected = prev.filter(v => NAV_ITEMS.some(n => n.id === v));
+        if (availableSelected.length >= MAX_PRIMARY_TABS) return prev;
+        next = [...prev, id];
+      }
+      localStorage.setItem(MOBILE_PRIMARY_TABS_KEY, JSON.stringify(next));
+      return next;
+    });
   };
 
   const handleShowInDashboard = useCallback((ticket: DigTicket) => {
@@ -661,6 +695,16 @@ const App: React.FC = () => {
       : []),
   ];
 
+  // Split the nav into the user's chosen primary tabs (shown in the mobile bar)
+  // and everything else (reachable via the "More" sheet). Only currently-available
+  // destinations are considered, so a stored tab for a disabled feature is ignored.
+  const primaryTabItems = mobilePrimaryTabs
+    .map(id => NAV_ITEMS.find(n => n.id === id))
+    .filter((n): n is typeof NAV_ITEMS[number] => !!n)
+    .slice(0, MAX_PRIMARY_TABS);
+  const moreItems = NAV_ITEMS.filter(n => !primaryTabItems.some(p => p.id === n.id));
+  const isMoreActive = moreItems.some(n => n.id === activeView);
+
   return (
     <div className={`flex h-screen overflow-hidden ${isDarkMode ? 'bg-[#07101f] text-slate-100' : 'bg-slate-100 text-slate-900'} transition-colors duration-300`}>
 
@@ -1117,7 +1161,7 @@ const App: React.FC = () => {
 
       {/* ── MOBILE BOTTOM NAV ── */}
       <nav className={`sm:hidden fixed bottom-0 left-0 right-0 z-50 flex justify-around items-center px-2 pt-2 pb-6 border-t backdrop-blur-xl ${isDarkMode ? 'bg-[#0b1629]/95 border-white/[0.05]' : 'bg-white/95 border-slate-200'}`}>
-        {NAV_ITEMS.map((item) => {
+        {primaryTabItems.map((item) => {
           const isActive = activeView === item.id;
           return (
             <button key={item.id} onClick={() => handleNavigate(item.id)} className={`flex flex-col items-center gap-1 transition-all px-3 py-1 rounded-xl ${isActive ? 'text-brand' : isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>
@@ -1126,7 +1170,60 @@ const App: React.FC = () => {
             </button>
           );
         })}
+        {moreItems.length > 0 && (
+          <button onClick={() => { setShowEditTabs(false); setShowMoreSheet(true); }} className={`flex flex-col items-center gap-1 transition-all px-3 py-1 rounded-xl ${isMoreActive ? 'text-brand' : isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>
+            <div className={`p-1.5 rounded-xl transition-all ${isMoreActive ? 'bg-brand/10' : ''}`}>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 6h16M4 12h16M4 18h16" /></svg>
+            </div>
+            <span className="text-[8px] font-black uppercase tracking-widest">More</span>
+          </button>
+        )}
       </nav>
+
+      {/* ── MOBILE "MORE" SHEET ── */}
+      {showMoreSheet && (
+        <div className="sm:hidden fixed inset-0 z-[100]" onClick={() => { setShowMoreSheet(false); setShowEditTabs(false); }}>
+          <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm" />
+          <div onClick={(e) => e.stopPropagation()} className={`absolute bottom-0 left-0 right-0 rounded-t-[2rem] border-t shadow-2xl pb-8 pt-3 px-4 max-h-[80vh] overflow-y-auto ${isDarkMode ? 'bg-[#0b1629] border-white/10' : 'bg-white border-slate-200'}`}>
+            <div className={`w-10 h-1 rounded-full mx-auto mb-4 ${isDarkMode ? 'bg-white/15' : 'bg-slate-300'}`} />
+            <div className="flex items-center justify-between mb-3 px-1">
+              <p className={`text-[11px] font-black uppercase tracking-widest ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{showEditTabs ? 'Edit Tabs' : 'More'}</p>
+              <button onClick={() => setShowEditTabs(v => !v)} className="text-[10px] font-black uppercase tracking-widest text-brand">{showEditTabs ? 'Done' : 'Edit Tabs'}</button>
+            </div>
+            {showEditTabs ? (
+              <div className="space-y-1">
+                <p className={`text-[10px] font-semibold px-1 mb-2 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Choose up to {MAX_PRIMARY_TABS} tabs to show in the bottom bar.</p>
+                {NAV_ITEMS.map((item) => {
+                  const isPrimary = mobilePrimaryTabs.includes(item.id);
+                  const atMax = !isPrimary && primaryTabItems.length >= MAX_PRIMARY_TABS;
+                  return (
+                    <button key={item.id} disabled={atMax} onClick={() => toggleMobilePrimaryTab(item.id)} className={`w-full flex items-center gap-3 px-3 py-3 rounded-2xl transition-all ${atMax ? 'opacity-40' : ''} ${isDarkMode ? 'hover:bg-white/5' : 'hover:bg-slate-100'}`}>
+                      <span className={isPrimary ? 'text-brand' : isDarkMode ? 'text-slate-500' : 'text-slate-400'}>{item.icon}</span>
+                      <span className={`flex-1 text-left text-xs font-bold uppercase tracking-wider ${isDarkMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.label}</span>
+                      <span className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 ${isPrimary ? 'bg-brand border-brand' : isDarkMode ? 'border-white/20' : 'border-slate-300'}`}>
+                        {isPrimary && <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {moreItems.map((item) => {
+                  const isActive = activeView === item.id;
+                  return (
+                    <button key={item.id} onClick={() => { handleNavigate(item.id); setShowMoreSheet(false); }} className={`w-full flex items-center gap-3 px-3 py-3 rounded-2xl transition-all ${isActive ? 'bg-brand/10 text-brand' : isDarkMode ? 'text-slate-200 hover:bg-white/5' : 'text-slate-700 hover:bg-slate-100'}`}>
+                      <span className={isActive ? 'text-brand' : isDarkMode ? 'text-slate-500' : 'text-slate-400'}>{item.icon}</span>
+                      <span className="flex-1 text-left text-xs font-bold uppercase tracking-wider">{item.label}</span>
+                    </button>
+                  );
+                })}
+                {moreItems.length === 0 && <p className={`text-[10px] font-semibold px-1 py-4 text-center ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>All tabs are pinned to your bar.</p>}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── MODALS ── */}
       {(showTicketForm || editingTicket) && <TicketForm onSave={handleSaveTicket} onDelete={editingTicket ? handleDeleteTicket : undefined} onClose={() => { setShowTicketForm(false); setEditingTicket(null); setEditFromMap(false); }} initialData={editingTicket} isDarkMode={isDarkMode} existingTickets={tickets} sidePanel={editFromMap} />}
