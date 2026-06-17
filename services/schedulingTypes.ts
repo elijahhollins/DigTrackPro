@@ -17,6 +17,9 @@ export interface Employee {
   name: string;
   role: string;
   hourlyRate: number;
+  // Optional link to an auth login (profiles.id). A linked employee can
+  // self-clock in the Time Tracker module. Null = not linked to a login.
+  profileId: string | null;
 }
 
 export interface Equipment {

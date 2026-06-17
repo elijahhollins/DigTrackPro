@@ -281,7 +281,8 @@ export const apiService = {
       createdAt: new Date(data.created_at).getTime(),
       isActive: data.is_active === true,
       inboundEnabled: data.inbound_enabled === true,
-      schedulingEnabled: data.scheduling_enabled === true
+      schedulingEnabled: data.scheduling_enabled === true,
+      timeTrackingEnabled: data.time_tracking_enabled === true
     };
   },
 
@@ -706,7 +707,8 @@ export const apiService = {
       createdAt: new Date(data.created_at).getTime(),
       isActive: data.is_active === true,
       inboundEnabled: data.inbound_enabled === true,
-      schedulingEnabled: data.scheduling_enabled === true
+      schedulingEnabled: data.scheduling_enabled === true,
+      timeTrackingEnabled: data.time_tracking_enabled === true
     };
   },
 
@@ -768,7 +770,8 @@ export const apiService = {
       createdAt: new Date(d.created_at).getTime(),
       isActive: d.is_active === true,
       inboundEnabled: d.inbound_enabled === true,
-      schedulingEnabled: d.scheduling_enabled === true
+      schedulingEnabled: d.scheduling_enabled === true,
+      timeTrackingEnabled: d.time_tracking_enabled === true
     }));
   },
 
@@ -798,7 +801,8 @@ export const apiService = {
       createdAt: new Date(data.created_at).getTime(),
       isActive: data.is_active === true,
       inboundEnabled: data.inbound_enabled === true,
-      schedulingEnabled: data.scheduling_enabled === true
+      schedulingEnabled: data.scheduling_enabled === true,
+      timeTrackingEnabled: data.time_tracking_enabled === true
     };
   },
 
@@ -814,6 +818,11 @@ export const apiService = {
 
   async setCompanySchedulingEnabled(id: string, enabled: boolean): Promise<void> {
     const { error } = await supabase.from('companies').update({ scheduling_enabled: enabled }).eq('id', id);
+    if (error) throw error;
+  },
+
+  async setCompanyTimeTrackingEnabled(id: string, enabled: boolean): Promise<void> {
+    const { error } = await supabase.from('companies').update({ time_tracking_enabled: enabled }).eq('id', id);
     if (error) throw error;
   },
 
