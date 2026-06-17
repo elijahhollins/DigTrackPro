@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { User, UserRole, UserRecord, Job, InventoryItem, InventoryItemType, InventoryLocation, InventoryMovement, InventoryMovementType } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
+import InventoryImportModal from './InventoryImportModal.tsx';
 
 interface InventoryViewProps {
   sessionUser: User;
@@ -9,6 +10,7 @@ interface InventoryViewProps {
   jobs: Job[];
   isDarkMode?: boolean;
   isAdmin: boolean;
+  companyId: string;
 }
 
 type InventoryTab = 'items' | 'locations' | 'history';
@@ -40,7 +42,7 @@ const MOVEMENT_COLORS_LIGHT: Record<InventoryMovementType, string> = {
   RETURN: 'text-slate-600 bg-slate-100 border-slate-200',
 };
 
-export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users, jobs, isDarkMode, isAdmin }) => {
+export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users, jobs, isDarkMode, isAdmin, companyId }) => {
   const [tab, setTab] = useState<InventoryTab>('items');
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [locations, setLocations] = useState<InventoryLocation[]>([]);
@@ -60,6 +62,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
   // Movement modal state
   const [movementItem, setMovementItem] = useState<InventoryItem | null>(null);
   const [itemHistory, setItemHistory] = useState<InventoryItem | null>(null);
+
+  // Import modal state
+  const [importType, setImportType] = useState<'EQUIPMENT' | 'MATERIAL' | null>(null);
 
   const isCrew = sessionUser.role === UserRole.CREW;
 
@@ -122,13 +127,35 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
           </p>
         </div>
         {isAdmin && tab === 'items' && (
-          <button
-            onClick={() => { setEditingItem(null); setShowItemForm(true); }}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-brand text-[#07101f] text-[10px] font-black uppercase tracking-widest shadow-lg shadow-brand/20 hover:opacity-90 transition-all"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
-            Add Item
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className={`flex rounded-xl border overflow-hidden ${isDarkMode ? 'border-white/10' : 'border-slate-200'}`}>
+              <button
+                onClick={() => setImportType('EQUIPMENT')}
+                className={`flex items-center gap-1.5 px-3 py-2 text-[9px] font-black uppercase tracking-widest transition-all border-r ${
+                  isDarkMode ? 'border-white/10 text-slate-400 hover:bg-white/5 hover:text-slate-200' : 'border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+                }`}
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                Import Equipment
+              </button>
+              <button
+                onClick={() => setImportType('MATERIAL')}
+                className={`flex items-center gap-1.5 px-3 py-2 text-[9px] font-black uppercase tracking-widest transition-all ${
+                  isDarkMode ? 'text-slate-400 hover:bg-white/5 hover:text-slate-200' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+                }`}
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                Import Materials
+              </button>
+            </div>
+            <button
+              onClick={() => { setEditingItem(null); setShowItemForm(true); }}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-brand text-[#07101f] text-[10px] font-black uppercase tracking-widest shadow-lg shadow-brand/20 hover:opacity-90 transition-all"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
+              Add Item
+            </button>
+          </div>
         )}
         {isAdmin && tab === 'locations' && (
           <button
@@ -499,6 +526,17 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
           locations={locationMap}
           isDarkMode={isDarkMode}
           onClose={() => setItemHistory(null)}
+        />
+      )}
+
+      {/* ── IMPORT MODAL ── */}
+      {importType && (
+        <InventoryImportModal
+          type={importType}
+          companyId={companyId}
+          isDarkMode={isDarkMode}
+          onClose={() => setImportType(null)}
+          onImported={() => { setImportType(null); load(); }}
         />
       )}
     </div>

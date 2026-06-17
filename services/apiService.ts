@@ -921,6 +921,39 @@ export const apiService = {
     if (error) throw error;
   },
 
+  async bulkCreateInventoryItems(
+    companyId: string,
+    items: Array<{
+      name: string;
+      itemType: InventoryItemType;
+      serialNumber?: string;
+      assetTag?: string;
+      licensePlate?: string;
+      vin?: string;
+      hourlyRate?: number;
+      quantity?: number;
+      unit?: string;
+      notes?: string;
+    }>
+  ): Promise<InventoryItem[]> {
+    const rows = items.map(item => ({
+      company_id: companyId,
+      name: item.name,
+      item_type: item.itemType,
+      serial_number: item.serialNumber || null,
+      asset_tag: item.assetTag || null,
+      license_plate: item.licensePlate || null,
+      vin: item.vin || null,
+      hourly_rate: item.hourlyRate ?? 0,
+      quantity: item.quantity ?? 0,
+      unit: item.unit || 'each',
+      notes: item.notes || '',
+    }));
+    const { data, error } = await supabase.from('inventory_items').insert(rows).select();
+    if (error) throw error;
+    return (data ?? []).map((d: Record<string, unknown>) => mapInvItem(d));
+  },
+
   // ── Inventory Movements ──────────────────────────────────────────────────
 
   async getInventoryMovements(itemId?: string): Promise<InventoryMovement[]> {
