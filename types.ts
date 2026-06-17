@@ -71,6 +71,7 @@ export interface InventoryItem {
   lastServiceDate?: string;
   nextServiceDue?: string;
   odometer?: number;
+  hourlyRate?: number;  // scheduler billing rate (EQUIPMENT only)
   // material fields
   quantity: number;
   unit: string;

@@ -235,6 +235,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
                               {item.serialNumber && <p className={d('text-[10px]', 'text-slate-500', 'text-slate-500')}>S/N: {item.serialNumber}</p>}
                               {item.odometer != null && <p className={d('text-[10px]', 'text-slate-500', 'text-slate-500')}>{item.odometer.toLocaleString()} mi</p>}
                               {item.nextServiceDue && <p className={d('text-[10px] font-bold', 'text-amber-500', 'text-amber-600')}>Service: {item.nextServiceDue}</p>}
+                              {item.hourlyRate != null && item.hourlyRate > 0 && <p className={d('text-[10px]', 'text-slate-400', 'text-slate-500')}>${item.hourlyRate}/hr</p>}
                             </div>
                           ) : (
                             <p className={d('text-[13px] font-black tabular-nums', 'text-slate-200', 'text-slate-800')}>
@@ -529,6 +530,7 @@ const ItemFormModal: React.FC<ItemFormProps> = ({ item, locations, users, jobs, 
   const [lastServiceDate, setLastServiceDate] = useState(item?.lastServiceDate || '');
   const [nextServiceDue, setNextServiceDue] = useState(item?.nextServiceDue || '');
   const [odometer, setOdometer] = useState(item?.odometer?.toString() || '');
+  const [hourlyRate, setHourlyRate] = useState(item?.hourlyRate?.toString() || '');
   const [quantity, setQuantity] = useState(item?.quantity?.toString() || '0');
   const [unit, setUnit] = useState(item?.unit || 'each');
   const [currentLocationId, setCurrentLocationId] = useState(item?.currentLocationId || '');
@@ -555,6 +557,7 @@ const ItemFormModal: React.FC<ItemFormProps> = ({ item, locations, users, jobs, 
         lastServiceDate: lastServiceDate || undefined,
         nextServiceDue: nextServiceDue || undefined,
         odometer: odometer ? parseFloat(odometer) : undefined,
+        hourlyRate: hourlyRate ? parseFloat(hourlyRate) : 0,
         quantity: parseFloat(quantity) || 0,
         unit: unit || 'each',
         currentLocationId: currentLocationId || undefined,
@@ -636,9 +639,13 @@ const ItemFormModal: React.FC<ItemFormProps> = ({ item, locations, users, jobs, 
                 <p className={labelCls}>Next Service Due</p>
                 <input type="date" className={inputCls} value={nextServiceDue} onChange={e => setNextServiceDue(e.target.value)} />
               </div>
-              <div className="space-y-1.5 col-span-2">
+              <div className="space-y-1.5">
                 <p className={labelCls}>Odometer (miles)</p>
                 <input type="number" className={inputCls} value={odometer} onChange={e => setOdometer(e.target.value)} placeholder="12500" />
+              </div>
+              <div className="space-y-1.5">
+                <p className={labelCls}>Hourly Rate ($)</p>
+                <input type="number" className={inputCls} value={hourlyRate} onChange={e => setHourlyRate(e.target.value)} placeholder="0.00" min="0" step="0.01" />
               </div>
             </div>
           ) : (

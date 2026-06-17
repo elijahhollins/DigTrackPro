@@ -13,7 +13,7 @@ export interface SchedulerEmployee {
 }
 
 export interface SchedulerEquipment {
-  id: number;
+  id: string;
   name: string;
   hourly_rate?: number;
 }
@@ -39,7 +39,7 @@ export interface ScheduleBlock {
   durationDays: number;
   type: 'job' | 'delay';
   extended: boolean;
-  equipmentIds?: number[];  // IDs of equipment assigned to be on site
+  equipmentIds?: string[];  // IDs of equipment assigned to be on site
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -80,11 +80,11 @@ export const MOCK_JOBS: JobOption[] = [
 ];
 
 export const MOCK_EQUIPMENT: SchedulerEquipment[] = [
-  { id: 1, name: 'Excavator',      hourly_rate: 150 },
-  { id: 2, name: 'Dump Truck',     hourly_rate: 80  },
-  { id: 3, name: 'Skid Steer',     hourly_rate: 70  },
-  { id: 4, name: 'Concrete Mixer', hourly_rate: 45  },
-  { id: 5, name: 'Compactor',      hourly_rate: 35  },
+  { id: 'mock-1', name: 'Excavator',      hourly_rate: 150 },
+  { id: 'mock-2', name: 'Dump Truck',     hourly_rate: 80  },
+  { id: 'mock-3', name: 'Skid Steer',     hourly_rate: 70  },
+  { id: 'mock-4', name: 'Concrete Mixer', hourly_rate: 45  },
+  { id: 'mock-5', name: 'Compactor',      hourly_rate: 35  },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -177,8 +177,8 @@ type Action =
   | { type: 'ADD_BLOCK_PUSH';     block: ScheduleBlock; shiftDays: number }
   | { type: 'DELETE_BLOCK';       id: string }
   | { type: 'REPLACE_ALL';        blocks: ScheduleBlock[] }
-  | { type: 'ASSIGN_EQUIPMENT';   blockId: string; equipmentId: number }
-  | { type: 'UNASSIGN_EQUIPMENT'; blockId: string; equipmentId: number }
+  | { type: 'ASSIGN_EQUIPMENT';   blockId: string; equipmentId: string }
+  | { type: 'UNASSIGN_EQUIPMENT'; blockId: string; equipmentId: string }
   | { type: 'SHIFT_CREW';         crewId: string; fromDate: string; days: number };
 
 /** Push all blocks for a crew that start on or after `fromDate` forward by `shiftDays`. */
@@ -301,9 +301,9 @@ const EquipmentTray = ({
   editMode,
 }: {
   equipment: SchedulerEquipment[];
-  onDragStart: (e: React.DragEvent, id: number) => void;
-  onTouchStart?: (e: React.TouchEvent, id: number) => void;
-  activeTouchId?: number | null;
+  onDragStart: (e: React.DragEvent, id: string) => void;
+  onTouchStart?: (e: React.TouchEvent, id: string) => void;
+  activeTouchId?: string | null;
   editMode?: boolean;
 }) => (
   <div
@@ -360,8 +360,8 @@ const BlockEquipmentModal = ({
   job: JobOption | undefined;
   crew: Crew | undefined;
   equipmentList: SchedulerEquipment[];
-  onAssign: (equipmentId: number) => void;
-  onUnassign: (equipmentId: number) => void;
+  onAssign: (equipmentId: string) => void;
+  onUnassign: (equipmentId: string) => void;
   onClose: () => void;
 }) => {
   const assigned  = block.equipmentIds ?? [];
@@ -1251,7 +1251,7 @@ interface JobBlockProps {
   onDelete?: () => void;
   equipmentCount?: number;
   isEquipDragOver?: boolean;
-  onEquipmentDrop?: (equipmentId: number) => void;
+  onEquipmentDrop?: (equipmentId: string) => void;
   onEquipmentDragOver?: () => void;
   onEquipmentDragLeave?: () => void;
   onEquipmentClick?: () => void;
@@ -1308,7 +1308,7 @@ const JobBlock = ({
         if (equipId) {
           e.stopPropagation();
           e.preventDefault();
-          onEquipmentDrop?.(Number(equipId));
+          onEquipmentDrop?.(equipId);
           onEquipmentDragLeave?.();
         }
       }}
@@ -1707,9 +1707,10 @@ export default function Scheduler({
   useEffect(() => {
     if (!companyId) return;
     supabase
-      .from('equipment')
+      .from('inventory_items')
       .select('id, name, hourly_rate')
       .eq('company_id', companyId)
+      .eq('item_type', 'EQUIPMENT')
       .order('name')
       .then(({ data, error }) => {
         if (error) console.error('[Scheduler] Failed to load equipment:', error.message);
@@ -1902,12 +1903,12 @@ export default function Scheduler({
 
   // ── Equipment drag handlers ──────────────────────────────────────────────────
 
-  const handleEquipDragStart = useCallback((e: React.DragEvent, equipmentId: number) => {
+  const handleEquipDragStart = useCallback((e: React.DragEvent, equipmentId: string) => {
     e.dataTransfer.effectAllowed = 'copy';
     e.dataTransfer.setData('application/x-equip-id', String(equipmentId));
   }, []);
 
-  const handleEquipDropOnBlock = useCallback((blockId: string, equipmentId: number) => {
+  const handleEquipDropOnBlock = useCallback((blockId: string, equipmentId: string) => {
     dispatchWithHistory({ type: 'ASSIGN_EQUIPMENT', blockId, equipmentId });
     setEquipDragOverBlockId(null);
   }, [dispatchWithHistory]);
@@ -1917,11 +1918,11 @@ export default function Scheduler({
   // e.preventDefault() actually suppresses scroll — the same pattern job blocks
   // use and the one that works reliably on iOS Safari.
 
-  const equipTouchRef = useRef<number | null>(null); // equipment id being touch-dragged
+  const equipTouchRef = useRef<string | null>(null); // equipment id being touch-dragged
   const [equipTouchGhostPos, setEquipTouchGhostPos] = useState<{ x: number; y: number } | null>(null);
-  const [equipTouchActiveId, setEquipTouchActiveId] = useState<number | null>(null);
+  const [equipTouchActiveId, setEquipTouchActiveId] = useState<string | null>(null);
 
-  const handleEquipTouchStart = useCallback((e: React.TouchEvent, equipmentId: number) => {
+  const handleEquipTouchStart = useCallback((e: React.TouchEvent, equipmentId: string) => {
     if (!editMode) return;
     e.preventDefault();
     const touch = e.touches[0];
