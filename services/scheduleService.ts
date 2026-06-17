@@ -29,10 +29,15 @@ const mapEmployee = (row: Record<string, unknown>): Employee => ({
 });
 
 const mapEquipment = (row: Record<string, unknown>): Equipment => ({
-  id:         String(row.id ?? ''),
-  companyId:  String(row.company_id ?? ''),
-  name:       String(row.name ?? ''),
-  hourlyRate: Number(row.hourly_rate ?? 0),
+  id:            String(row.id ?? ''),
+  companyId:     String(row.company_id ?? ''),
+  name:          String(row.name ?? ''),
+  hourlyRate:    Number(row.hourly_rate ?? 0),
+  unitNumber:    row.unit_number != null ? String(row.unit_number) : undefined,
+  equipmentType: row.equipment_type != null ? String(row.equipment_type) : undefined,
+  year:          row.year != null ? Number(row.year) : null,
+  make:          row.make != null ? String(row.make) : undefined,
+  model:         row.model != null ? String(row.model) : undefined,
 });
 
 const mapMaterial = (row: Record<string, unknown>): Material => ({
@@ -198,7 +203,17 @@ export const scheduleService = {
   },
 
   async bulkCreateEquipment(companyId: string, items: Omit<Equipment, 'id' | 'companyId'>[]): Promise<Equipment[]> {
-    const rows = items.map(e => ({ company_id: companyId, name: e.name, item_type: 'EQUIPMENT', hourly_rate: e.hourlyRate }));
+    const rows = items.map(e => ({
+      company_id:     companyId,
+      name:           e.name,
+      item_type:      'EQUIPMENT',
+      hourly_rate:    e.hourlyRate,
+      unit_number:    e.unitNumber ?? null,
+      equipment_type: e.equipmentType ?? null,
+      year:           e.year ?? null,
+      make:           e.make ?? null,
+      model:          e.model ?? null,
+    }));
     const { data, error } = await supabase.from('inventory_items').insert(rows).select();
     if (error) throw error;
     return (data ?? []).map(r => mapEquipment(r as Record<string, unknown>));
