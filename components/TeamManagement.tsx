@@ -15,6 +15,7 @@ interface TeamManagementProps {
   onToggleCompanyActive?: (id: string, isActive: boolean) => Promise<void>;
   onToggleCompanyInbound?: (id: string, enabled: boolean) => Promise<void>;
   onToggleCompanyScheduling?: (id: string, enabled: boolean) => Promise<void>;
+  onToggleCompanyTimeTracking?: (id: string, enabled: boolean) => Promise<void>;
   onToggleCompanyInventory?: (id: string, enabled: boolean) => Promise<void>;
   onAddUser: (user: Partial<UserRecord>) => Promise<void>;
   onDeleteUser: (id: string) => void;
@@ -39,8 +40,9 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
   onToggleCompanyActive,
   onToggleCompanyInbound,
   onToggleCompanyScheduling,
+  onToggleCompanyTimeTracking,
   onToggleCompanyInventory,
-  onDeleteUser, 
+  onDeleteUser,
   onToggleRole,
   onUpdateUserName,
   onSendPasswordReset,
@@ -648,6 +650,21 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                                 title={co.schedulingEnabled ? 'Disable Field Ops' : 'Enable Field Ops'}
                               >
                                 Field Ops {co.schedulingEnabled ? 'ON' : 'OFF'}
+                              </button>
+                              <button
+                                onClick={() => {
+                                  const nextEnabled = !co.timeTrackingEnabled;
+                                  if (!confirm(nextEnabled ? `Enable Time Tracker for ${co.name}?` : `Disable Time Tracker for ${co.name}? Their time data will be preserved.`)) return;
+                                  onToggleCompanyTimeTracking?.(co.id, nextEnabled);
+                                }}
+                                className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all hover:scale-105 active:scale-95 ${
+                                  co.timeTrackingEnabled
+                                    ? isDarkMode ? 'bg-sky-500/10 text-sky-400 hover:bg-sky-500/20' : 'bg-sky-50 text-sky-700 hover:bg-sky-100'
+                                    : isDarkMode ? 'bg-white/5 text-slate-500 hover:bg-white/10' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                                }`}
+                                title={co.timeTrackingEnabled ? 'Disable Time Tracker' : 'Enable Time Tracker'}
+                              >
+                                Time {co.timeTrackingEnabled ? 'ON' : 'OFF'}
                               </button>
                               <button
                                 onClick={() => {

@@ -33,6 +33,7 @@ export interface Company {
   isActive?: boolean;
   inboundEnabled?: boolean;
   schedulingEnabled?: boolean;
+  timeTrackingEnabled?: boolean;
   inventoryEnabled?: boolean;
 }
 
@@ -228,4 +229,4 @@ export interface JobNote {
 
 export type SortField = keyof DigTicket | 'status';
 export type SortOrder = 'asc' | 'desc';
-export type AppView = 'dashboard' | 'calendar' | 'jobs' | 'photos' | 'team' | 'map' | 'asbuilt' | 'schedule' | 'inventory';
+export type AppView = 'dashboard' | 'calendar' | 'jobs' | 'photos' | 'team' | 'map' | 'asbuilt' | 'schedule' | 'inventory' | 'timetracking';

@@ -63,6 +63,7 @@ export default function ResourcesManager({ companyId, isAdmin, isDarkMode }: Res
       name: empDraft.name.trim(),
       role: empDraft.role.trim(),
       hourlyRate: Number(empDraft.hourlyRate) || 0,
+      profileId: null,
     });
     setEmpDraft({ name: '', role: '', hourlyRate: '' });
     reload();

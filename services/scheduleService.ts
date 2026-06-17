@@ -25,6 +25,7 @@ const mapEmployee = (row: Record<string, unknown>): Employee => ({
   name:       String(row.name ?? ''),
   role:       String(row.role ?? ''),
   hourlyRate: Number(row.hourly_rate ?? 0),
+  profileId:  row.profile_id != null ? String(row.profile_id) : null,
 });
 
 const mapEquipment = (row: Record<string, unknown>): Equipment => ({
@@ -113,7 +114,7 @@ export const scheduleService = {
   async createEmployee(companyId: string, e: Omit<Employee, 'id' | 'companyId'>): Promise<Employee> {
     const { data, error } = await supabase
       .from('employees')
-      .insert({ company_id: companyId, name: e.name, role: e.role, hourly_rate: e.hourlyRate })
+      .insert({ company_id: companyId, name: e.name, role: e.role, hourly_rate: e.hourlyRate, profile_id: e.profileId ?? null })
       .select().single();
     if (error) throw error;
     return mapEmployee(data as Record<string, unknown>);
@@ -124,6 +125,7 @@ export const scheduleService = {
     if (updates.name       !== undefined) db.name        = updates.name;
     if (updates.role       !== undefined) db.role        = updates.role;
     if (updates.hourlyRate !== undefined) db.hourly_rate = updates.hourlyRate;
+    if (updates.profileId  !== undefined) db.profile_id  = updates.profileId;
     const { error } = await supabase.from('employees').update(db).eq('id', id);
     if (error) throw error;
   },
