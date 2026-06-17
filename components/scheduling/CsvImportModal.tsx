@@ -13,7 +13,14 @@ interface CsvImportModalProps {
   onImported: () => void;
 }
 
-type EquipmentDraft = { name: string; hourlyRate: number };
+type EquipmentDraft = {
+  unitNumber: string;
+  equipmentType: string;
+  year: number | null;
+  make: string;
+  model: string;
+  hourlyRate: number;
+};
 type MaterialDraft  = { name: string; unitPrice: number | null };
 
 function norm(s: string) { return s.toLowerCase().replace(/[\s_\-\/]/g, ''); }
@@ -41,14 +48,25 @@ async function parseSpreadsheet(file: File): Promise<Record<string, unknown>[]> 
 function toEquipmentRows(raw: Record<string, unknown>[]): EquipmentDraft[] {
   return raw.map(row => {
     const keys = Object.keys(row);
-    const nameKey = findKey(keys, ['name', 'equipment', 'item', 'description', 'equipmentname']) ?? keys[0];
-    const rateKey = findKey(keys, ['hourlyrate', 'rate', 'hr', 'hourlycost', 'costperhr', 'costperhour', 'hourlyrental']) ?? keys[1];
+    const unitKey  = findKey(keys, ['unitnumber', 'unit', 'unitno', 'unit#', 'equipno', 'equipnumber', 'equipmentnumber', 'truckno', 'assetno', 'assetnumber']);
+    const typeKey  = findKey(keys, ['equipmenttype', 'type', 'category', 'class', 'kind']);
+    const yearKey  = findKey(keys, ['year', 'yr', 'modelyear']);
+    const makeKey  = findKey(keys, ['make', 'manufacturer', 'brand', 'mfg']);
+    const modelKey = findKey(keys, ['model', 'modelnumber', 'modelno', 'series']);
+    const rateKey  = findKey(keys, ['hourlyrate', 'rate', 'hr', 'hourlycost', 'costperhr', 'costperhour', 'hourlyrental']);
+
     const rawRate = String(row[rateKey ?? ''] ?? '').replace(/[^0-9.]/g, '');
+    const rawYear = yearKey ? String(row[yearKey] ?? '').replace(/[^0-9]/g, '') : '';
+
     return {
-      name: String(row[nameKey ?? ''] ?? '').trim(),
-      hourlyRate: rawRate ? parseFloat(rawRate) : 0,
+      unitNumber:    unitKey  ? String(row[unitKey]  ?? '').trim() : '',
+      equipmentType: typeKey  ? String(row[typeKey]  ?? '').trim() : '',
+      year:          rawYear  ? parseInt(rawYear, 10) : null,
+      make:          makeKey  ? String(row[makeKey]  ?? '').trim() : '',
+      model:         modelKey ? String(row[modelKey] ?? '').trim() : '',
+      hourlyRate:    rawRate  ? parseFloat(rawRate)  : 0,
     };
-  }).filter(r => r.name);
+  }).filter(r => r.unitNumber || r.make || r.model || r.equipmentType);
 }
 
 function toMaterialRows(raw: Record<string, unknown>[]): MaterialDraft[] {
@@ -65,9 +83,11 @@ function toMaterialRows(raw: Record<string, unknown>[]): MaterialDraft[] {
 }
 
 function downloadTemplate(type: ImportType) {
-  const header  = type === 'equipment' ? 'name,hourlyRate' : 'name,unitPrice';
+  const header  = type === 'equipment'
+    ? 'unitNumber,equipmentType,year,make,model,hourlyRate'
+    : 'name,unitPrice';
   const example = type === 'equipment'
-    ? 'Excavator,75\nDump Truck,50\nCompactor,40'
+    ? '1001,Excavator,2020,Caterpillar,320,75\n1002,Dump Truck,2019,Kenworth,T880,50\n1003,Compactor,2021,Bomag,BW213D,40'
     : 'Concrete (cu yd),120\nRebar (ton),850\nConduit (ft),3.50';
   const blob = new Blob([`${header}\n${example}`], { type: 'text/csv' });
   const url  = URL.createObjectURL(blob);
@@ -124,7 +144,13 @@ export default function CsvImportModal({ type, companyId, isDarkMode, onClose, o
     setImportError(null);
     try {
       if (type === 'equipment') {
-        await scheduleService.bulkCreateEquipment(companyId, equipRows!);
+        await scheduleService.bulkCreateEquipment(
+          companyId,
+          equipRows!.map(e => ({
+            ...e,
+            name: [e.year, e.make, e.model].filter(Boolean).join(' ') || e.unitNumber || e.equipmentType || 'Equipment',
+          }))
+        );
       } else {
         await scheduleService.bulkCreateMaterial(companyId, matRows!);
       }
@@ -140,7 +166,7 @@ export default function CsvImportModal({ type, companyId, isDarkMode, onClose, o
   return (
     <div className={overlay} onClick={onClose}>
       <div
-        className={`w-full max-w-lg mx-4 rounded-2xl border shadow-2xl ${card} p-6`}
+        className={`w-full max-w-2xl mx-4 rounded-2xl border shadow-2xl ${card} p-6`}
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -172,9 +198,23 @@ export default function CsvImportModal({ type, companyId, isDarkMode, onClose, o
             </div>
 
             <div className={`mt-3 text-xs ${subtext} text-center`}>
-              Expected columns:{' '}
-              <code className="font-mono">name</code>,{' '}
-              <code className="font-mono">{type === 'equipment' ? 'hourlyRate' : 'unitPrice'}</code>
+              {type === 'equipment' ? (
+                <>
+                  Expected columns:{' '}
+                  <code className="font-mono">unitNumber</code>,{' '}
+                  <code className="font-mono">equipmentType</code>,{' '}
+                  <code className="font-mono">year</code>,{' '}
+                  <code className="font-mono">make</code>,{' '}
+                  <code className="font-mono">model</code>,{' '}
+                  <code className="font-mono">hourlyRate</code>
+                </>
+              ) : (
+                <>
+                  Expected columns:{' '}
+                  <code className="font-mono">name</code>,{' '}
+                  <code className="font-mono">unitPrice</code>
+                </>
+              )}
               {' · '}
               <button
                 className="underline hover:opacity-75"
@@ -206,21 +246,46 @@ export default function CsvImportModal({ type, companyId, isDarkMode, onClose, o
               <table className="w-full">
                 <thead className={isDarkMode ? 'bg-slate-900' : 'bg-slate-50'}>
                   <tr>
-                    <th className={thCls}>Name</th>
-                    <th className={`${thCls} text-right`}>{type === 'equipment' ? 'Rate / hr' : 'Unit Price'}</th>
+                    {type === 'equipment' ? (
+                      <>
+                        <th className={thCls}>Unit #</th>
+                        <th className={thCls}>Type</th>
+                        <th className={thCls}>Year</th>
+                        <th className={thCls}>Make / Model</th>
+                        <th className={`${thCls} text-right`}>Rate / hr</th>
+                      </>
+                    ) : (
+                      <>
+                        <th className={thCls}>Name</th>
+                        <th className={`${thCls} text-right`}>Unit Price</th>
+                      </>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((r, i) => (
                     <tr key={i}>
-                      <td className={tdCls}>{r.name}</td>
-                      <td className={`${tdCls} text-right`}>
-                        {type === 'equipment'
-                          ? `$${(r as EquipmentDraft).hourlyRate.toFixed(2)}/hr`
-                          : (r as MaterialDraft).unitPrice != null
-                            ? `$${(r as MaterialDraft).unitPrice!.toFixed(2)}`
-                            : <span className={subtext}>—</span>}
-                      </td>
+                      {type === 'equipment' ? (() => {
+                        const e = r as EquipmentDraft;
+                        return (
+                          <>
+                            <td className={tdCls}>{e.unitNumber || <span className={subtext}>—</span>}</td>
+                            <td className={tdCls}>{e.equipmentType || <span className={subtext}>—</span>}</td>
+                            <td className={tdCls}>{e.year ?? <span className={subtext}>—</span>}</td>
+                            <td className={tdCls}>{[e.make, e.model].filter(Boolean).join(' ') || <span className={subtext}>—</span>}</td>
+                            <td className={`${tdCls} text-right`}>${e.hourlyRate.toFixed(2)}/hr</td>
+                          </>
+                        );
+                      })() : (
+                        <>
+                          <td className={tdCls}>{(r as MaterialDraft).name}</td>
+                          <td className={`${tdCls} text-right`}>
+                            {(r as MaterialDraft).unitPrice != null
+                              ? `$${(r as MaterialDraft).unitPrice!.toFixed(2)}`
+                              : <span className={subtext}>—</span>}
+                          </td>
+                        </>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -256,11 +321,21 @@ export default function CsvImportModal({ type, companyId, isDarkMode, onClose, o
         {rows && rows.length === 0 && (
           <div className={`text-sm text-center py-6 space-y-2 ${subtext}`}>
             <p>No valid rows found. Make sure the file has a header row with:</p>
-            <p>
-              <code className="font-mono text-xs">name</code>
-              {', '}
-              <code className="font-mono text-xs">{type === 'equipment' ? 'hourlyRate' : 'unitPrice'}</code>
-            </p>
+            {type === 'equipment' ? (
+              <p>
+                <code className="font-mono text-xs">unitNumber</code>{', '}
+                <code className="font-mono text-xs">equipmentType</code>{', '}
+                <code className="font-mono text-xs">year</code>{', '}
+                <code className="font-mono text-xs">make</code>{', '}
+                <code className="font-mono text-xs">model</code>{', '}
+                <code className="font-mono text-xs">hourlyRate</code>
+              </p>
+            ) : (
+              <p>
+                <code className="font-mono text-xs">name</code>{', '}
+                <code className="font-mono text-xs">unitPrice</code>
+              </p>
+            )}
             <button className="underline text-xs mt-1" onClick={clearRows}>Try another file</button>
           </div>
         )}

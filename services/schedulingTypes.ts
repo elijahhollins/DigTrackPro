@@ -27,6 +27,11 @@ export interface Equipment {
   companyId: string;
   name: string;
   hourlyRate: number;
+  unitNumber?: string;
+  equipmentType?: string;
+  year?: number | null;
+  make?: string;
+  model?: string;
 }
 
 export interface Material {
