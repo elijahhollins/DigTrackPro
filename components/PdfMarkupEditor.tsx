@@ -1062,6 +1062,28 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     setIsSaving(false);
   }, [pendingAnnotations]);
 
+  const duplicateAnnotation = useCallback(() => {
+    const selId = selectedAnnIdRef.current;
+    if (!selId) return;
+    const allAnns = [...annotationsRef.current, ...pendingAnnotationsRef.current];
+    const sel = allAnns.find(a => a.id === selId);
+    if (!sel) return;
+    const newData = nudgeAnnotationData(sel.data as AnyAnnotationData, sel.toolType as ToolType, 0.022, 0.022);
+    const staged: PdfAnnotation = {
+      id: generateTempId(), createdAt: Date.now(),
+      printId: sel.printId, companyId: sel.companyId,
+      authorId: sel.authorId, authorName: sel.authorName,
+      pageNumber: sel.pageNumber, toolType: sel.toolType,
+      color: sel.color, strokeWidth: sel.strokeWidth,
+      data: newData as Record<string, unknown>,
+    };
+    setPendingAnnotations(prev => [...prev, staged]);
+    undoStackRef.current.push(staged);
+    if (undoStackRef.current.length > MAX_UNDO_STACK_SIZE) undoStackRef.current.shift();
+    redoStackRef.current = []; setCanUndo(true); setCanRedo(false);
+    setSelectedAnnId(staged.id);
+  }, []);
+
   // Keyboard shortcuts — placed after handleDeleteAnnotation to avoid forward reference
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1551,28 +1573,6 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     setScaleInfo({ unitsPerNormDist: inputVal / normDist, aspectRatio: ar, unit: scaleUnit });
     setScaleInput(null); setScaleValue(''); setCurrentTool('select');
   }, [scaleInput, scaleValue, scaleUnit, canvasSize]);
-
-  const duplicateAnnotation = useCallback(() => {
-    const selId = selectedAnnIdRef.current;
-    if (!selId) return;
-    const allAnns = [...annotationsRef.current, ...pendingAnnotationsRef.current];
-    const sel = allAnns.find(a => a.id === selId);
-    if (!sel) return;
-    const newData = nudgeAnnotationData(sel.data as AnyAnnotationData, sel.toolType as ToolType, 0.022, 0.022);
-    const staged: PdfAnnotation = {
-      id: generateTempId(), createdAt: Date.now(),
-      printId: sel.printId, companyId: sel.companyId,
-      authorId: sel.authorId, authorName: sel.authorName,
-      pageNumber: sel.pageNumber, toolType: sel.toolType,
-      color: sel.color, strokeWidth: sel.strokeWidth,
-      data: newData as Record<string, unknown>,
-    };
-    setPendingAnnotations(prev => [...prev, staged]);
-    undoStackRef.current.push(staged);
-    if (undoStackRef.current.length > MAX_UNDO_STACK_SIZE) undoStackRef.current.shift();
-    redoStackRef.current = []; setCanUndo(true); setCanRedo(false);
-    setSelectedAnnId(staged.id);
-  }, []);
 
   const flipAnnotationH = useCallback(() => {
     const selId = selectedAnnIdRef.current;
