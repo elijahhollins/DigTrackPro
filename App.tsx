@@ -26,6 +26,7 @@ import InboundCalendarView from './components/InboundCalendarView.tsx';
 import InboundMapView from './components/InboundMapView.tsx';
 import SchedulingView from './components/scheduling/SchedulingView.tsx';
 import TimeTrackingView from './components/timetracking/TimeTrackingView.tsx';
+import { InventoryView } from './components/InventoryView.tsx';
 
 declare global {
   interface AIStudio {
@@ -38,7 +39,7 @@ declare global {
   }
 }
 
-const VALID_VIEWS: AppView[] = ['dashboard', 'calendar', 'jobs', 'photos', 'team', 'map', 'asbuilt', 'schedule', 'timetracking'];
+const VALID_VIEWS: AppView[] = ['dashboard', 'calendar', 'jobs', 'photos', 'team', 'map', 'asbuilt', 'schedule', 'inventory', 'timetracking'];
 
 // Mobile bottom-nav customization: which destinations appear directly in the bar
 // (the rest live behind the "More" sheet). Stored per-device in localStorage.
@@ -476,6 +477,12 @@ const App: React.FC = () => {
     if (company?.id === id) setCompany({ ...company, timeTrackingEnabled });
   };
 
+  const handleToggleCompanyInventory = async (id: string, inventoryEnabled: boolean) => {
+    await apiService.setCompanyInventoryEnabled(id, inventoryEnabled);
+    setAllCompanies(prev => prev.map(co => co.id === id ? { ...co, inventoryEnabled } : co));
+    if (company?.id === id) setCompany({ ...company, inventoryEnabled });
+  };
+
   const handleToggleArchive = async (ticket: DigTicket, e: React.MouseEvent) => {
     e.stopPropagation();
     const willArchive = !ticket.isArchived;
@@ -692,6 +699,7 @@ const App: React.FC = () => {
   const isSchedulingEnabled = isSuperAdmin || company?.schedulingEnabled === true;
   // Time Tracker module — gated per-company like Inbound / Scheduling.
   const isTimeTrackingEnabled = isSuperAdmin || company?.timeTrackingEnabled === true;
+  const isInventoryEnabled = isSuperAdmin || company?.inventoryEnabled === true;
   const NAV_ITEMS: { id: AppView; label: string; icon: React.ReactNode }[] = [
     { id: 'dashboard', label: 'Tickets', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg> },
     { id: 'calendar', label: 'Schedule', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> },
@@ -704,6 +712,9 @@ const App: React.FC = () => {
       : []),
     ...(isTimeTrackingEnabled
       ? [{ id: 'timetracking' as AppView, label: 'Time', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> }]
+      : []),
+    ...(isInventoryEnabled
+      ? [{ id: 'inventory' as AppView, label: 'Inventory', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg> }]
       : []),
   ];
 
@@ -1164,10 +1175,11 @@ const App: React.FC = () => {
             )}
             {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} isAdmin={isAdmin} isDarkMode={isDarkMode} onJobSelect={(job: Job) => handleJobSelection(job.jobNumber, job)} onViewDoc={setViewingDocUrl} />}
             {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} isAdmin={isAdmin} companyId={sessionUser.companyId} onAddPhoto={(data, file) => apiService.addPhoto({ ...data, companyId: sessionUser.companyId }, file)} onDeletePhoto={(id: string) => apiService.deletePhoto(id)} onDeleteJob={async (id) => { await apiService.deleteJob(id); initApp(); }} initialSearch={mediaFolderFilter} />}
-            {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} company={company || undefined} isDarkMode={isDarkMode} isSuperAdmin={isSuperAdmin} allCompanies={allCompanies} onCompanyCreated={(co) => setAllCompanies(prev => [...prev, co])} onCompanyUpdated={handleUpdateCompany} onToggleCompanyActive={handleToggleCompanyActive} onToggleCompanyInbound={handleToggleCompanyInbound} onToggleCompanyScheduling={handleToggleCompanyScheduling} onToggleCompanyTimeTracking={handleToggleCompanyTimeTracking} onAddUser={async (u) => { await apiService.addUser({ ...u, companyId: sessionUser.companyId }); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onUpdateUserName={async (id, name) => { await apiService.updateUserName(id, name); initApp(); }} onSendPasswordReset={async (email) => { await apiService.sendPasswordReset(email); }} onUpdateCurrentUserPassword={async (password) => { await apiService.updateCurrentUserPassword(password); }} onUpdateNotificationEmail={handleUpdateNotificationEmail} onUpdateUserNotificationEmail={handleUpdateUserNotificationEmail} onTestEmail={handleTestEmail} />}
+            {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} company={company || undefined} isDarkMode={isDarkMode} isSuperAdmin={isSuperAdmin} allCompanies={allCompanies} onCompanyCreated={(co) => setAllCompanies(prev => [...prev, co])} onCompanyUpdated={handleUpdateCompany} onToggleCompanyActive={handleToggleCompanyActive} onToggleCompanyInbound={handleToggleCompanyInbound} onToggleCompanyScheduling={handleToggleCompanyScheduling} onToggleCompanyTimeTracking={handleToggleCompanyTimeTracking} onToggleCompanyInventory={handleToggleCompanyInventory} onAddUser={async (u) => { await apiService.addUser({ ...u, companyId: sessionUser.companyId }); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onUpdateUserName={async (id, name) => { await apiService.updateUserName(id, name); initApp(); }} onSendPasswordReset={async (email) => { await apiService.sendPasswordReset(email); }} onUpdateCurrentUserPassword={async (password) => { await apiService.updateCurrentUserPassword(password); }} onUpdateNotificationEmail={handleUpdateNotificationEmail} onUpdateUserNotificationEmail={handleUpdateUserNotificationEmail} onTestEmail={handleTestEmail} />}
             {activeView === 'asbuilt' && <AsBuiltView jobs={jobs} sessionUser={sessionUser} isAdmin={isAdmin} isDarkMode={isDarkMode} onDeleteJob={async (id) => { await apiService.deleteJob(id); initApp(); }} />}
             {activeView === 'schedule' && isSchedulingEnabled && <SchedulingView sessionUser={sessionUser} jobs={jobs} companyName={company?.name} isDarkMode={isDarkMode} />}
             {activeView === 'timetracking' && isTimeTrackingEnabled && <TimeTrackingView sessionUser={sessionUser} jobs={jobs} companyName={company?.name} isDarkMode={isDarkMode} />}
+            {activeView === 'inventory' && isInventoryEnabled && <InventoryView sessionUser={sessionUser} users={users} jobs={jobs} isDarkMode={isDarkMode} isAdmin={isAdmin} />}
           </div>
         </main>
       </div>

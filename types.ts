@@ -34,6 +34,73 @@ export interface Company {
   inboundEnabled?: boolean;
   schedulingEnabled?: boolean;
   timeTrackingEnabled?: boolean;
+  inventoryEnabled?: boolean;
+}
+
+export enum InventoryItemType {
+  EQUIPMENT = 'EQUIPMENT',
+  MATERIAL = 'MATERIAL',
+}
+
+export enum InventoryMovementType {
+  CHECK_OUT = 'CHECK_OUT',
+  CHECK_IN = 'CHECK_IN',
+  TRANSFER = 'TRANSFER',
+  CONSUME = 'CONSUME',
+  ASSIGN = 'ASSIGN',
+  RETURN = 'RETURN',
+}
+
+export interface InventoryLocation {
+  id: string;
+  companyId: string;
+  name: string;
+  address?: string;
+  createdAt: number;
+}
+
+export interface InventoryItem {
+  id: string;
+  companyId: string;
+  name: string;
+  itemType: InventoryItemType;
+  // equipment fields
+  serialNumber?: string;
+  licensePlate?: string;
+  vin?: string;
+  assetTag?: string;
+  lastServiceDate?: string;
+  nextServiceDue?: string;
+  odometer?: number;
+  hourlyRate?: number;  // scheduler billing rate (EQUIPMENT only)
+  // material fields
+  quantity: number;
+  unit: string;
+  // current state
+  currentLocationId?: string;
+  currentJobId?: string;
+  currentAssigneeId?: string;
+  notes?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface InventoryMovement {
+  id: string;
+  companyId: string;
+  itemId: string;
+  movementType: InventoryMovementType;
+  performedById?: string;
+  performedByName: string;
+  jobId?: string;
+  jobNumber?: string;
+  fromLocationId?: string;
+  toLocationId?: string;
+  assigneeId?: string;
+  assigneeName?: string;
+  quantityDelta?: number;
+  notes?: string;
+  createdAt: number;
 }
 
 export interface User {
@@ -162,4 +229,4 @@ export interface JobNote {
 
 export type SortField = keyof DigTicket | 'status';
 export type SortOrder = 'asc' | 'desc';
-export type AppView = 'dashboard' | 'calendar' | 'jobs' | 'photos' | 'team' | 'map' | 'asbuilt' | 'schedule' | 'timetracking';
+export type AppView = 'dashboard' | 'calendar' | 'jobs' | 'photos' | 'team' | 'map' | 'asbuilt' | 'schedule' | 'inventory' | 'timetracking';

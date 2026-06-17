@@ -16,6 +16,7 @@ interface TeamManagementProps {
   onToggleCompanyInbound?: (id: string, enabled: boolean) => Promise<void>;
   onToggleCompanyScheduling?: (id: string, enabled: boolean) => Promise<void>;
   onToggleCompanyTimeTracking?: (id: string, enabled: boolean) => Promise<void>;
+  onToggleCompanyInventory?: (id: string, enabled: boolean) => Promise<void>;
   onAddUser: (user: Partial<UserRecord>) => Promise<void>;
   onDeleteUser: (id: string) => void;
   onToggleRole?: (user: UserRecord) => void;
@@ -40,7 +41,8 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
   onToggleCompanyInbound,
   onToggleCompanyScheduling,
   onToggleCompanyTimeTracking,
-  onDeleteUser, 
+  onToggleCompanyInventory,
+  onDeleteUser,
   onToggleRole,
   onUpdateUserName,
   onSendPasswordReset,
@@ -663,6 +665,21 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                                 title={co.timeTrackingEnabled ? 'Disable Time Tracker' : 'Enable Time Tracker'}
                               >
                                 Time {co.timeTrackingEnabled ? 'ON' : 'OFF'}
+                              </button>
+                              <button
+                                onClick={() => {
+                                  const nextEnabled = !co.inventoryEnabled;
+                                  if (!confirm(nextEnabled ? `Enable Inventory Tracking for ${co.name}?` : `Disable Inventory for ${co.name}? Their inventory data will be preserved.`)) return;
+                                  onToggleCompanyInventory?.(co.id, nextEnabled);
+                                }}
+                                className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all hover:scale-105 active:scale-95 ${
+                                  co.inventoryEnabled
+                                    ? isDarkMode ? 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                    : isDarkMode ? 'bg-white/5 text-slate-500 hover:bg-white/10' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                                }`}
+                                title={co.inventoryEnabled ? 'Disable Inventory' : 'Enable Inventory'}
+                              >
+                                Inventory {co.inventoryEnabled ? 'ON' : 'OFF'}
                               </button>
                               <button
                                 onClick={() => {
