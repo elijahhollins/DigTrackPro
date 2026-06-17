@@ -23,7 +23,7 @@ type EquipmentDraft = {
 };
 type MaterialDraft  = { name: string; unitPrice: number | null };
 
-function norm(s: string) { return s.toLowerCase().replace(/[\s_\-\/]/g, ''); }
+function norm(s: string) { return s.toLowerCase().replace(/[\s_\-\/\.#()]/g, ''); }
 
 function findKey(keys: string[], candidates: string[]): string | undefined {
   return keys.find(k => candidates.includes(norm(k)));
