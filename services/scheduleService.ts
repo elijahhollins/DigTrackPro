@@ -33,11 +33,15 @@ const mapEquipment = (row: Record<string, unknown>): Equipment => ({
   companyId:     String(row.company_id ?? ''),
   name:          String(row.name ?? ''),
   hourlyRate:    Number(row.hourly_rate ?? 0),
-  unitNumber:    row.unit_number != null ? String(row.unit_number) : undefined,
+  unitNumber:    row.unit_number    != null ? String(row.unit_number)    : undefined,
   equipmentType: row.equipment_type != null ? String(row.equipment_type) : undefined,
-  year:          row.year != null ? Number(row.year) : null,
-  make:          row.make != null ? String(row.make) : undefined,
-  model:         row.model != null ? String(row.model) : undefined,
+  year:          row.year           != null ? Number(row.year)           : null,
+  make:          row.make           != null ? String(row.make)           : undefined,
+  model:         row.model          != null ? String(row.model)          : undefined,
+  vin:           row.vin            != null ? String(row.vin)            : undefined,
+  serialNumber:  row.serial_number  != null ? String(row.serial_number)  : undefined,
+  licensePlate:  row.license_plate  != null ? String(row.license_plate)  : undefined,
+  notes:         row.notes          != null ? String(row.notes)          : undefined,
 });
 
 const mapMaterial = (row: Record<string, unknown>): Material => ({
@@ -213,11 +217,15 @@ export const scheduleService = {
       name:           e.name,
       item_type:      'EQUIPMENT',
       hourly_rate:    e.hourlyRate,
-      unit_number:    e.unitNumber ?? null,
+      unit_number:    e.unitNumber    ?? null,
       equipment_type: e.equipmentType ?? null,
-      year:           e.year ?? null,
-      make:           e.make ?? null,
-      model:          e.model ?? null,
+      year:           e.year          ?? null,
+      make:           e.make          ?? null,
+      model:          e.model         ?? null,
+      vin:            e.vin           ?? null,
+      serial_number:  e.serialNumber  ?? null,
+      license_plate:  e.licensePlate  ?? null,
+      notes:          e.notes         ?? null,
     }));
     const { data, error } = await supabase.from('inventory_items').insert(rows).select();
     if (error) throw error;

@@ -20,6 +20,10 @@ type EquipmentDraft = {
   make: string;
   model: string;
   hourlyRate: number;
+  vin: string;
+  serialNumber: string;
+  licensePlate: string;
+  notes: string;
 };
 type MaterialDraft  = { name: string; unitPrice: number | null };
 
@@ -45,26 +49,87 @@ async function parseSpreadsheet(file: File): Promise<Record<string, unknown>[]> 
   });
 }
 
+// Splits "2020 Chevrolet 2500 HD LT" → { year: 2020, make: "Chevrolet", model: "2500 HD LT" }
+function parseYearMakeModel(raw: string): { year: number | null; make: string; model: string } {
+  const s = (raw ?? '').trim();
+  if (!s || s === 'X') return { year: null, make: '', model: '' };
+  const m = s.match(/^(\d{4})\s+(.+)/);
+  if (m) {
+    const year = parseInt(m[1], 10);
+    const rest = m[2];
+    const sp   = rest.indexOf(' ');
+    return sp === -1
+      ? { year, make: rest, model: '' }
+      : { year, make: rest.slice(0, sp), model: rest.slice(sp + 1) };
+  }
+  const sp = s.indexOf(' ');
+  return sp === -1
+    ? { year: null, make: s, model: '' }
+    : { year: null, make: s.slice(0, sp), model: s.slice(sp + 1) };
+}
+
+// Splits "VIN#1GC4..." → vin field; "Ser#..." / "SN#..." → serialNumber field
+function parseVinSerial(raw: string): { vin: string; serialNumber: string } {
+  const s = (raw ?? '').trim();
+  if (!s) return { vin: '', serialNumber: '' };
+  if (/^VIN#?\s*/i.test(s)) {
+    return { vin: s.replace(/^VIN#?\s*/i, '').split('/')[0].trim(), serialNumber: '' };
+  }
+  const serial = s.replace(/^(S\/N#?|SN#?|Ser#?|Serial#?)\s*/i, '').split('/')[0].trim();
+  return { vin: '', serialNumber: serial };
+}
+
+// Strips "Lic# " prefix and trailing asterisks from license plate values
+function parseLicense(raw: string): string {
+  return (raw ?? '').trim().replace(/^Lic\s*#?\s*/i, '').replace(/\*$/, '').trim();
+}
+
 function toEquipmentRows(raw: Record<string, unknown>[]): EquipmentDraft[] {
   return raw.map(row => {
     const keys = Object.keys(row);
-    const unitKey  = findKey(keys, ['unitnumber', 'unit', 'unitno', 'unit#', 'equipno', 'equipnumber', 'equipmentnumber', 'truckno', 'assetno', 'assetnumber']);
-    const typeKey  = findKey(keys, ['equipmenttype', 'type', 'category', 'class', 'kind']);
-    const yearKey  = findKey(keys, ['year', 'yr', 'modelyear']);
-    const makeKey  = findKey(keys, ['make', 'manufacturer', 'brand', 'mfg']);
-    const modelKey = findKey(keys, ['model', 'modelnumber', 'modelno', 'series']);
-    const rateKey  = findKey(keys, ['hourlyrate', 'rate', 'hr', 'hourlycost', 'costperhr', 'costperhour', 'hourlyrental']);
+    const unitKey     = findKey(keys, ['unitnumber', 'unit', 'unitno', 'unit#', 'equipno', 'equipnumber', 'equipmentnumber', 'truckno', 'assetno', 'assetnumber']);
+    const typeKey     = findKey(keys, ['equipmenttype', 'type', 'category', 'class', 'kind']);
+    const yearKey     = findKey(keys, ['year', 'yr', 'modelyear']);
+    const makeKey     = findKey(keys, ['make', 'manufacturer', 'brand', 'mfg']);
+    const modelKey    = findKey(keys, ['model', 'modelnumber', 'modelno', 'series']);
+    const rateKey     = findKey(keys, ['hourlyrate', 'rate', 'hr', 'hourlycost', 'costperhr', 'costperhour', 'hourlyrental']);
+    const ymmKey      = findKey(keys, ['yearmakemodel', 'yearmodel', 'makemodel', 'ymm']);
+    const vinKey      = findKey(keys, ['vinserial', 'vinserialnumber', 'vin', 'serial', 'serialnumber', 'sn']);
+    const licenseKey  = findKey(keys, ['license', 'licensenumber', 'licenseplate', 'licno', 'lic', 'plate']);
+    const notesKey    = findKey(keys, ['notes', 'note', 'comments', 'comment', 'remarks']);
 
     const rawRate = String(row[rateKey ?? ''] ?? '').replace(/[^0-9.]/g, '');
-    const rawYear = yearKey ? String(row[yearKey] ?? '').replace(/[^0-9]/g, '') : '';
+
+    // Year/Make/Model: prefer separate columns, fall back to combined column
+    let year: number | null = null;
+    let make = '';
+    let model = '';
+    if (yearKey || makeKey || modelKey) {
+      const rawYear = yearKey ? String(row[yearKey] ?? '').replace(/[^0-9]/g, '') : '';
+      year  = rawYear ? parseInt(rawYear, 10) : null;
+      make  = makeKey  ? String(row[makeKey]  ?? '').trim() : '';
+      model = modelKey ? String(row[modelKey] ?? '').trim() : '';
+    } else if (ymmKey) {
+      ({ year, make, model } = parseYearMakeModel(String(row[ymmKey] ?? '')));
+    }
+
+    const { vin, serialNumber } = vinKey
+      ? parseVinSerial(String(row[vinKey] ?? ''))
+      : { vin: '', serialNumber: '' };
+
+    const rawType = typeKey ? String(row[typeKey] ?? '').trim() : '';
 
     return {
       unitNumber:    unitKey  ? String(row[unitKey]  ?? '').trim() : '',
-      equipmentType: typeKey  ? String(row[typeKey]  ?? '').trim() : '',
-      year:          rawYear  ? parseInt(rawYear, 10) : null,
-      make:          makeKey  ? String(row[makeKey]  ?? '').trim() : '',
-      model:         modelKey ? String(row[modelKey] ?? '').trim() : '',
+      equipmentType: rawType === 'X' ? '' : rawType,
+      year,
+      make,
+      model,
       hourlyRate:    rawRate  ? parseFloat(rawRate)  : 0,
+      vin,
+      serialNumber,
+      licensePlate:  licenseKey ? parseLicense(String(row[licenseKey] ?? '')) : '',
+      notes:         notesKey   ? String(row[notesKey] ?? '').trim() : '',
     };
   }).filter(r => r.unitNumber || r.make || r.model || r.equipmentType);
 }
@@ -149,6 +214,10 @@ export default function CsvImportModal({ type, companyId, isDarkMode, onClose, o
           equipRows!.map(e => ({
             ...e,
             name: [e.year, e.make, e.model].filter(Boolean).join(' ') || e.unitNumber || e.equipmentType || 'Equipment',
+            vin:          e.vin,
+            serialNumber: e.serialNumber,
+            licensePlate: e.licensePlate,
+            notes:        e.notes,
           }))
         );
       } else {

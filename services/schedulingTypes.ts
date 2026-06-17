@@ -32,6 +32,10 @@ export interface Equipment {
   year?: number | null;
   make?: string;
   model?: string;
+  vin?: string;
+  serialNumber?: string;
+  licensePlate?: string;
+  notes?: string;
 }
 
 export interface Material {
