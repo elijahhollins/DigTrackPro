@@ -215,6 +215,19 @@ export const scheduleService = {
     if (error) throw error;
   },
 
+  async bulkCreateEmployee(companyId: string, items: Pick<Employee, 'name' | 'role' | 'hourlyRate'>[]): Promise<Employee[]> {
+    const rows = items.map(e => ({
+      company_id:  companyId,
+      name:        e.name,
+      role:        e.role,
+      hourly_rate: e.hourlyRate,
+      profile_id:  null,
+    }));
+    const { data, error } = await supabase.from('employees').insert(rows).select();
+    if (error) throw error;
+    return (data ?? []).map(r => mapEmployee(r as Record<string, unknown>));
+  },
+
   async bulkCreateEquipment(companyId: string, items: Omit<Equipment, 'id' | 'companyId'>[]): Promise<Equipment[]> {
     const rows = items.map(e => ({
       company_id:     companyId,
