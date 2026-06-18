@@ -8,6 +8,13 @@ import { resolve } from 'path';
 export default defineConfig({
   base: './',
   plugins: [react()],
+  resolve: {
+    alias: [
+      // Swap the Supabase-backed data service for an in-memory mock so the
+      // data-driven scheduling views render without the backend.
+      { find: /^.*services\/scheduleService\.ts$/, replacement: resolve(__dirname, 'preview/mockScheduleService.ts') },
+    ],
+  },
   define: {
     'process.env.SUPABASE_URL': '""',
     'process.env.SUPABASE_ANON_KEY': '""',
