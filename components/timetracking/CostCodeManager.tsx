@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, Trash2, Search } from 'lucide-react';
+import { Plus, Trash2, Search, Upload } from 'lucide-react';
 import { CostCode, ClockableJob, JobCostCodeAssignment } from '../../services/timeTrackingTypes.ts';
 import { timeTrackingService } from '../../services/timeTrackingService.ts';
+import CsvImportModal from '../scheduling/CsvImportModal.tsx';
 
 interface CostCodeManagerProps {
   companyId: string;
@@ -22,6 +23,7 @@ export default function CostCodeManager({ companyId, costCodes, clockableJobs, o
   const [jobSearch, setJobSearch] = useState('');
   const [selectedJob, setSelectedJob] = useState<ClockableJob | null>(null);
   const [busy, setBusy] = useState(false);
+  const [showImport, setShowImport] = useState(false);
 
   const card = isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200';
   const input = `px-3 py-2 rounded-lg border text-sm ${isDarkMode ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-300 text-slate-900'}`;
@@ -78,10 +80,25 @@ export default function CostCodeManager({ companyId, costCodes, clockableJobs, o
   };
 
   return (
+    <>
+    {showImport && (
+      <CsvImportModal
+        type="costcodes"
+        companyId={companyId}
+        isDarkMode={isDarkMode}
+        onClose={() => setShowImport(false)}
+        onImported={async () => { setShowImport(false); await onChange(); }}
+      />
+    )}
     <div className="grid gap-4 lg:grid-cols-2">
       {/* Global cost-code list */}
       <div className={`rounded-xl border p-4 ${card}`}>
-        <h3 className="text-sm font-bold uppercase tracking-wide text-slate-500 mb-3">Cost codes</h3>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-bold uppercase tracking-wide text-slate-500">Cost codes</h3>
+          <button onClick={() => setShowImport(true)} className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold border ${isDarkMode ? 'border-slate-600 text-slate-300 hover:bg-slate-700' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}>
+            <Upload size={13} /> Import CSV
+          </button>
+        </div>
         <div className="flex flex-wrap gap-2 mb-3">
           <input className={`${input} w-24`} placeholder="Code" value={draft.code} onChange={e => setDraft({ ...draft, code: e.target.value })} />
           <input className={`${input} flex-1 min-w-[140px]`} placeholder="Description" value={draft.description} onChange={e => setDraft({ ...draft, description: e.target.value })} />
@@ -152,5 +169,6 @@ export default function CostCodeManager({ companyId, costCodes, clockableJobs, o
         )}
       </div>
     </div>
+    </>
   );
 }

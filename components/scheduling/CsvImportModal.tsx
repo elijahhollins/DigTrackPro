@@ -2,8 +2,9 @@ import { useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { X, FileSpreadsheet, CheckCircle, AlertCircle } from 'lucide-react';
 import { scheduleService } from '../../services/scheduleService.ts';
+import { timeTrackingService } from '../../services/timeTrackingService.ts';
 
-type ImportType = 'equipment' | 'materials' | 'employees';
+type ImportType = 'equipment' | 'materials' | 'employees' | 'costcodes';
 
 interface CsvImportModalProps {
   type: ImportType;
@@ -27,6 +28,7 @@ type EquipmentDraft = {
 };
 type MaterialDraft  = { name: string; unitPrice: number | null };
 type EmployeeDraft  = { name: string; role: string; hourlyRate: number | null };
+type CostCodeDraft  = { code: string; description: string };
 
 function norm(s: string) { return s.toLowerCase().replace(/[\s_\-\/\.#()]/g, ''); }
 
@@ -148,6 +150,18 @@ function toMaterialRows(raw: Record<string, unknown>[]): MaterialDraft[] {
   }).filter(r => r.name);
 }
 
+function toCostCodeRows(raw: Record<string, unknown>[]): CostCodeDraft[] {
+  return raw.map(row => {
+    const keys = Object.keys(row);
+    const codeKey = findKey(keys, ['code', 'costcode', 'costcodeid', 'cc', 'id', 'number']) ?? keys[0];
+    const descKey = findKey(keys, ['description', 'desc', 'name', 'label', 'title', 'detail']) ?? keys[1];
+    return {
+      code:        String(row[codeKey ?? ''] ?? '').trim().toUpperCase(),
+      description: descKey ? String(row[descKey] ?? '').trim() : '',
+    };
+  }).filter(r => r.code);
+}
+
 function toEmployeeRows(raw: Record<string, unknown>[]): EmployeeDraft[] {
   return raw.map(row => {
     const keys = Object.keys(row);
@@ -168,12 +182,16 @@ function downloadTemplate(type: ImportType) {
     ? 'unitNumber,equipmentType,year,make,model,hourlyRate'
     : type === 'employees'
       ? 'name,role,hourlyRate'
-      : 'name,unitPrice';
+      : type === 'costcodes'
+        ? 'code,description'
+        : 'name,unitPrice';
   const example = type === 'equipment'
     ? '1001,Excavator,2020,Caterpillar,320,75\n1002,Dump Truck,2019,Kenworth,T880,50\n1003,Compactor,2021,Bomag,BW213D,40'
     : type === 'employees'
       ? 'Jane Smith,Operator,32.50\nBob Johnson,Laborer,28.00\nMaria Garcia,Foreman,'
-      : 'Concrete (cu yd),120\nRebar (ton),850\nConduit (ft),3.50';
+      : type === 'costcodes'
+        ? 'EXCAV,Excavation\nLABOR,General Labor\nCONC,Concrete Pour\nGRADE,Grading & Compaction'
+        : 'Concrete (cu yd),120\nRebar (ton),850\nConduit (ft),3.50';
   const blob = new Blob([`${header}\n${example}`], { type: 'text/csv' });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
@@ -185,16 +203,17 @@ function downloadTemplate(type: ImportType) {
 
 export default function CsvImportModal({ type, companyId, isDarkMode, onClose, onImported }: CsvImportModalProps) {
   const [isDragging,   setIsDragging]   = useState(false);
-  const [equipRows,    setEquipRows]    = useState<EquipmentDraft[] | null>(null);
-  const [matRows,      setMatRows]      = useState<MaterialDraft[]  | null>(null);
-  const [empRows,      setEmpRows]      = useState<EmployeeDraft[]  | null>(null);
+  const [equipRows,    setEquipRows]    = useState<EquipmentDraft[]  | null>(null);
+  const [matRows,      setMatRows]      = useState<MaterialDraft[]   | null>(null);
+  const [empRows,      setEmpRows]      = useState<EmployeeDraft[]   | null>(null);
+  const [ccRows,       setCcRows]       = useState<CostCodeDraft[]   | null>(null);
   const [parseError,   setParseError]   = useState<string | null>(null);
   const [importing,    setImporting]    = useState(false);
   const [importError,  setImportError]  = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const label = type === 'equipment' ? 'Equipment' : type === 'employees' ? 'Employee' : 'Materials';
-  const rows  = (type === 'equipment' ? equipRows : type === 'employees' ? empRows : matRows) as (EquipmentDraft | EmployeeDraft | MaterialDraft)[] | null;
+  const label = type === 'equipment' ? 'Equipment' : type === 'employees' ? 'Employee' : type === 'costcodes' ? 'Cost Code' : 'Materials';
+  const rows  = (type === 'equipment' ? equipRows : type === 'employees' ? empRows : type === 'costcodes' ? ccRows : matRows) as (EquipmentDraft | EmployeeDraft | MaterialDraft | CostCodeDraft)[] | null;
   const count = rows?.length ?? 0;
 
   const overlay  = 'fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4';
@@ -209,7 +228,7 @@ export default function CsvImportModal({ type, companyId, isDarkMode, onClose, o
   const thCls = `px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide border-b ${isDarkMode ? 'text-slate-400 border-slate-700' : 'text-slate-500 border-slate-200'}`;
   const tdCls = `px-3 py-1.5 border-b text-sm ${isDarkMode ? 'border-slate-700 text-slate-200' : 'border-slate-100 text-slate-700'}`;
 
-  const clearRows = () => { setEquipRows(null); setMatRows(null); setEmpRows(null); setParseError(null); };
+  const clearRows = () => { setEquipRows(null); setMatRows(null); setEmpRows(null); setCcRows(null); setParseError(null); };
 
   const processFile = async (file: File) => {
     clearRows();
@@ -217,6 +236,7 @@ export default function CsvImportModal({ type, companyId, isDarkMode, onClose, o
       const raw = await parseSpreadsheet(file);
       if (type === 'equipment') setEquipRows(toEquipmentRows(raw));
       else if (type === 'employees') setEmpRows(toEmployeeRows(raw));
+      else if (type === 'costcodes') setCcRows(toCostCodeRows(raw));
       else setMatRows(toMaterialRows(raw));
     } catch {
       setParseError('Could not parse this file. Make sure it is a valid CSV or Excel spreadsheet.');
@@ -247,6 +267,8 @@ export default function CsvImportModal({ type, companyId, isDarkMode, onClose, o
           companyId,
           empRows!.map(e => ({ name: e.name, role: e.role, hourlyRate: e.hourlyRate ?? 0 }))
         );
+      } else if (type === 'costcodes') {
+        await timeTrackingService.bulkCreateCostCodes(companyId, ccRows!);
       } else {
         await scheduleService.bulkCreateMaterial(companyId, matRows!);
       }
@@ -317,6 +339,13 @@ export default function CsvImportModal({ type, companyId, isDarkMode, onClose, o
                   <code className="font-mono">role</code>,{' '}
                   <code className="font-mono">hourlyRate</code>{' '}(can be set later)
                 </>
+              ) : type === 'costcodes' ? (
+                <>
+                  Required:{' '}
+                  <code className="font-mono">code</code>
+                  {' · '}Optional:{' '}
+                  <code className="font-mono">description</code>
+                </>
               ) : (
                 <>
                   Expected columns:{' '}
@@ -376,6 +405,11 @@ export default function CsvImportModal({ type, companyId, isDarkMode, onClose, o
                         <th className={thCls}>Role</th>
                         <th className={`${thCls} text-right`}>Rate / hr</th>
                       </>
+                    ) : type === 'costcodes' ? (
+                      <>
+                        <th className={thCls}>Code</th>
+                        <th className={thCls}>Description</th>
+                      </>
                     ) : (
                       <>
                         <th className={thCls}>Name</th>
@@ -412,14 +446,21 @@ export default function CsvImportModal({ type, companyId, isDarkMode, onClose, o
                           </>
                         );
                       })() : (
-                        <>
-                          <td className={tdCls}>{(r as MaterialDraft).name}</td>
-                          <td className={`${tdCls} text-right`}>
-                            {(r as MaterialDraft).unitPrice != null
-                              ? `$${(r as MaterialDraft).unitPrice!.toFixed(2)}`
-                              : <span className={subtext}>—</span>}
-                          </td>
-                        </>
+                        type === 'costcodes' ? (
+                          <>
+                            <td className={tdCls}><span className="font-bold">{(r as CostCodeDraft).code}</span></td>
+                            <td className={tdCls}>{(r as CostCodeDraft).description || <span className={subtext}>—</span>}</td>
+                          </>
+                        ) : (
+                          <>
+                            <td className={tdCls}>{(r as MaterialDraft).name}</td>
+                            <td className={`${tdCls} text-right`}>
+                              {(r as MaterialDraft).unitPrice != null
+                                ? `$${(r as MaterialDraft).unitPrice!.toFixed(2)}`
+                                : <span className={subtext}>—</span>}
+                            </td>
+                          </>
+                        )
                       )}
                     </tr>
                   ))}
@@ -463,6 +504,11 @@ export default function CsvImportModal({ type, companyId, isDarkMode, onClose, o
                 <code className="font-mono text-xs">name</code>{' (required), '}
                 <code className="font-mono text-xs">role</code>{' and '}
                 <code className="font-mono text-xs">hourlyRate</code>{' (optional)'}
+              </p>
+            ) : type === 'costcodes' ? (
+              <p>
+                <code className="font-mono text-xs">code</code>{' (required), '}
+                <code className="font-mono text-xs">description</code>{' (optional)'}
               </p>
             ) : (
               <p>
