@@ -1,3 +1,7 @@
 node_modules/
 dist/
 package-lock.json
+
+# Throwaway Scheduler preview build artifacts
+preview-dist/
+DigTrackPro-Scheduler-Preview.html
