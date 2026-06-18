@@ -24,6 +24,7 @@ import InboundTicketsDashboard from './components/InboundTicketsDashboard.tsx';
 import InboundTechQueue from './components/InboundTechQueue.tsx';
 import InboundCalendarView from './components/InboundCalendarView.tsx';
 import InboundMapView from './components/InboundMapView.tsx';
+import EquipmentMapView from './components/EquipmentMapView.tsx';
 import SchedulingView from './components/scheduling/SchedulingView.tsx';
 import TimeTrackingView from './components/timetracking/TimeTrackingView.tsx';
 import { InventoryView } from './components/InventoryView.tsx';
@@ -94,7 +95,7 @@ const App: React.FC = () => {
   const [noShowTicket, setNoShowTicket] = useState<DigTicket | null>(null);
   const [notesTicket, setNotesTicket] = useState<DigTicket | null>(null);
   const [digConfirmTicket, setDigConfirmTicket] = useState<DigTicket | null>(null);
-  const [ticketMode, setTicketMode] = useState<'regular' | 'inbound'>('regular');
+  const [ticketMode, setTicketMode] = useState<'regular' | 'inbound' | 'equipment'>('regular');
   const [snoozedDigConfirmIds, setSnoozedDigConfirmIds] = useState<Set<string>>(new Set());
   const [globalSearch, setGlobalSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<TicketStatus | 'NO_SHOW' | null>(null);
@@ -121,6 +122,9 @@ const App: React.FC = () => {
   };
 
   const handleNavigate = (view: AppView) => {
+    // 'equipment' is a map-only ticket mode; reset it when leaving the map so the
+    // dashboard/calendar (which only understand 'regular'/'inbound') never blank out.
+    if (view !== 'map') setTicketMode(prev => prev === 'equipment' ? 'regular' : prev);
     setShowTicketForm(false);
     setEditingTicket(null);
     setShowJobForm(false);
@@ -1133,10 +1137,18 @@ const App: React.FC = () => {
             )}
             {activeView === 'map' && (
               <div className="space-y-4">
-                {/* ── Ticket mode toggle ── */}
-                {isInboundEnabled && (
+                {/* ── Map mode toggle ── */}
+                {(() => {
+                  const mapModes: Array<'regular' | 'inbound' | 'equipment'> = [
+                    'regular',
+                    ...(isInboundEnabled ? ['inbound' as const] : []),
+                    ...(isInventoryEnabled ? ['equipment' as const] : []),
+                  ];
+                  if (mapModes.length < 2) return null;
+                  const labels = { regular: 'Regular', inbound: 'Inbound', equipment: 'Equipment' };
+                  return (
                 <div className={`flex rounded-xl border p-0.5 gap-0.5 w-fit ${isDarkMode ? 'bg-[#0b1629] border-white/[0.08]' : 'bg-slate-100 border-slate-200'}`}>
-                  {(['regular', 'inbound'] as const).map(mode => (
+                  {mapModes.map(mode => (
                     <button
                       key={mode}
                       onClick={() => setTicketMode(mode)}
@@ -1146,12 +1158,13 @@ const App: React.FC = () => {
                           : isDarkMode ? 'text-slate-600 hover:text-slate-300' : 'text-slate-400 hover:text-slate-700'
                       }`}
                     >
-                      {mode === 'regular' ? 'Regular' : 'Inbound'}
+                      {labels[mode]}
                     </button>
                   ))}
                 </div>
-                )}
-                {(!isInboundEnabled || ticketMode === 'regular') && <MapView
+                  );
+                })()}
+                {ticketMode === 'regular' && <MapView
                   tickets={activeTicketsList}
                   isDarkMode={isDarkMode}
                   onEditTicket={isAdmin ? (ticket) => { setEditFromMap(true); setEditingTicket(ticket); } : undefined}
@@ -1171,6 +1184,7 @@ const App: React.FC = () => {
                   }}
                 />}
                 {isInboundEnabled && ticketMode === 'inbound' && <InboundMapView sessionUser={sessionUser} users={users} isAdmin={isAdmin} isDarkMode={isDarkMode} />}
+                {isInventoryEnabled && ticketMode === 'equipment' && <EquipmentMapView sessionUser={sessionUser} users={users} jobs={jobs} tickets={tickets} isAdmin={isAdmin} isDarkMode={isDarkMode} />}
               </div>
             )}
             {activeView === 'jobs' && <JobReview tickets={tickets} jobs={jobs} isAdmin={isAdmin} isDarkMode={isDarkMode} onJobSelect={(job: Job) => handleJobSelection(job.jobNumber, job)} onViewDoc={setViewingDocUrl} />}
