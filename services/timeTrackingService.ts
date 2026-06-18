@@ -101,6 +101,15 @@ export const timeTrackingService = {
     if (error) throw error;
   },
 
+  async bulkCreateCostCodes(companyId: string, items: { code: string; description: string }[]): Promise<CostCode[]> {
+    const { data, error } = await supabase
+      .from('cost_codes')
+      .insert(items.map(c => ({ company_id: companyId, code: c.code, description: c.description, is_active: true })))
+      .select();
+    if (error) throw error;
+    return (data ?? []).map(r => mapCostCode(r as Record<string, unknown>));
+  },
+
   // ── Job <-> cost code assignments ──────────────────────────────────────────
   async getAssignments(): Promise<JobCostCodeAssignment[]> {
     const { data, error } = await supabase.from('job_cost_codes').select('*');
