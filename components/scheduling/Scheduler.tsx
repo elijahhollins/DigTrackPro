@@ -200,6 +200,41 @@ function shiftAfter(
   });
 }
 
+/**
+ * Push crew blocks that overlap with a newly inserted/moved block to start
+ * right after it ends, then cascade only as far as needed to close any
+ * chain of newly-created overlaps. Blocks already beyond the pushed region
+ * are left untouched.
+ */
+function pushConflictingForward(
+  blocks: ScheduleBlock[],
+  crewId: string,
+  newStart: string,
+  newDuration: number,
+  excludeId?: string,
+): ScheduleBlock[] {
+  const newEnd = addDays(newStart, newDuration);
+
+  const crewBlocks = blocks
+    .filter(b => b.crewId === crewId && b.id !== excludeId)
+    .sort((a, b) => a.startDate.localeCompare(b.startDate));
+
+  let pushBoundary = newEnd;
+  const updates = new Map<string, string>();
+
+  for (const b of crewBlocks) {
+    if (b.startDate >= newStart && b.startDate < pushBoundary) {
+      updates.set(b.id, pushBoundary);
+      pushBoundary = addDays(pushBoundary, b.durationDays);
+    }
+  }
+
+  return blocks.map(b => {
+    const updated = updates.get(b.id);
+    return updated ? { ...b, startDate: updated } : b;
+  });
+}
+
 function reducer(state: ScheduleBlock[], action: Action): ScheduleBlock[] {
   switch (action.type) {
     case 'MOVE_BLOCK':
@@ -210,14 +245,14 @@ function reducer(state: ScheduleBlock[], action: Action): ScheduleBlock[] {
       );
 
     case 'MOVE_BLOCK_PUSH': {
-      // Move the block to its new position, then push all subsequent crew blocks
-      // (starting on or after the new start date) forward to make room.
+      // Move the block to its new position, then push only the crew blocks
+      // that actually overlap with it (cascading as needed) to make room.
       const moved = state.map(b =>
         b.id === action.id
           ? { ...b, crewId: action.crewId, startDate: action.startDate }
           : b,
       );
-      return shiftAfter(moved, action.crewId, action.startDate, action.shiftDays, action.id);
+      return pushConflictingForward(moved, action.crewId, action.startDate, action.shiftDays, action.id);
     }
 
     case 'INSERT_DELAY': {
@@ -254,9 +289,11 @@ function reducer(state: ScheduleBlock[], action: Action): ScheduleBlock[] {
       return [...state, action.block];
 
     case 'ADD_BLOCK_PUSH': {
-      // Push all existing blocks of the crew that start on or after the new
-      // block's start date forward to make room, then insert the new block.
-      const shifted = shiftAfter(state, action.block.crewId, action.block.startDate, action.shiftDays);
+      // Push only crew blocks that actually overlap with the new block
+      // (cascading as needed), then insert the new block.
+      const shifted = pushConflictingForward(
+        state, action.block.crewId, action.block.startDate, action.block.durationDays,
+      );
       return [...shifted, action.block];
     }
 
