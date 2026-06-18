@@ -588,7 +588,7 @@ const RelocateModal: React.FC<RelocateModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[300] flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[2000] flex items-center justify-center p-4" onClick={onClose}>
       <div
         className={`w-full max-w-md rounded-[2rem] shadow-2xl border p-8 space-y-5 ${d('bg-[#1e293b] border-white/10', 'bg-white border-slate-200')}`}
         onClick={e => e.stopPropagation()}
