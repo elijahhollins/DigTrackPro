@@ -111,7 +111,7 @@ export default function CsvImportModal({ type, companyId, isDarkMode, onClose, o
   const rows  = (type === 'equipment' ? equipRows : matRows) as (EquipmentDraft | MaterialDraft)[] | null;
   const count = rows?.length ?? 0;
 
-  const overlay  = 'fixed inset-0 z-50 flex items-center justify-center bg-black/50';
+  const overlay  = 'fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4';
   const card     = isDarkMode ? 'bg-slate-800 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-900';
   const subtext  = isDarkMode ? 'text-slate-400' : 'text-slate-500';
   const dropZone = [
@@ -166,13 +166,18 @@ export default function CsvImportModal({ type, companyId, isDarkMode, onClose, o
   return (
     <div className={overlay} onClick={onClose}>
       <div
-        className={`w-full max-w-2xl mx-4 rounded-2xl border shadow-2xl ${card} p-6`}
+        className={`w-full max-w-2xl rounded-2xl border shadow-2xl ${card} p-6`}
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-bold">Import {label} List</h2>
-          <button onClick={onClose} className={`${subtext} hover:text-rose-500 transition`}><X size={20} /></button>
+          <div className="flex items-center gap-2.5">
+            <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-brand/10 text-brand">
+              <FileSpreadsheet size={16} />
+            </span>
+            <h2 className="text-lg font-bold">Import {label} List</h2>
+          </div>
+          <button onClick={onClose} className={`w-8 h-8 flex items-center justify-center rounded-lg ${subtext} hover:text-rose-500 hover:bg-rose-500/10 transition`}><X size={18} /></button>
         </div>
 
         {/* Drop zone (shown until a file is parsed) */}
