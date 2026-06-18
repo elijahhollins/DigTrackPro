@@ -49,27 +49,30 @@ export default function SchedulingView({ sessionUser, jobs, companyName, isDarkM
   ];
 
   return (
-    <div className="space-y-4">
-      <div
-        className={`inline-flex items-center gap-1 p-1 rounded-xl border ${
-          isDarkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-slate-100/70 border-slate-200'
-        }`}
-      >
-        {TABS.map(t => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
-              tab === t.id
-                ? 'bg-brand text-white shadow-sm'
-                : isDarkMode
-                  ? 'text-slate-300 hover:text-white hover:bg-white/5'
-                  : 'text-slate-500 hover:text-slate-900 hover:bg-white'
-            }`}
-          >
-            {t.icon}{t.label}
-          </button>
-        ))}
+    <div className="flex flex-col gap-4">
+      <div className="overflow-x-auto no-scrollbar shrink-0">
+        <div
+          className={`inline-flex items-center gap-1 p-1 rounded-xl border ${
+            isDarkMode ? 'bg-slate-800/60 border-slate-700' : 'bg-slate-100/70 border-slate-200'
+          }`}
+        >
+          {TABS.map(t => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all shrink-0 ${
+                tab === t.id
+                  ? 'bg-brand text-white shadow-sm'
+                  : isDarkMode
+                    ? 'text-slate-300 hover:text-white hover:bg-white/5'
+                    : 'text-slate-500 hover:text-slate-900 hover:bg-white'
+              }`}
+            >
+              {t.icon}
+              <span className="hidden sm:inline">{t.label}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       {tab === 'board' && (

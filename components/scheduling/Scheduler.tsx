@@ -2205,7 +2205,7 @@ export default function Scheduler({
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col h-full bg-white select-none rounded-2xl border border-slate-200 overflow-hidden shadow-sm" style={{ minHeight: 0 }}>
+    <div className="flex flex-col bg-white select-none rounded-2xl border border-slate-200 overflow-hidden shadow-sm" style={{ height: 'calc(100svh - 220px)', minHeight: '420px' }}>
       {/* ─── Toolbar ─── */}
       <div
         className="flex items-center gap-x-3 gap-y-2.5 px-5 py-3.5 shrink-0 flex-wrap"
