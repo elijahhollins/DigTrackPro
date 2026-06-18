@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Trash2, Users, Wrench, Package, Upload } from 'lucide-react';
+import { Plus, Trash2, Users, Wrench, Package, Upload, Pencil, X, Check } from 'lucide-react';
 import { scheduleService } from '../../services/scheduleService.ts';
 import { Employee, Equipment, Material } from '../../services/schedulingTypes.ts';
 import CsvImportModal from './CsvImportModal.tsx';
@@ -11,6 +11,11 @@ interface ResourcesManagerProps {
   isAdmin: boolean;
   isDarkMode?: boolean;
 }
+
+const BLANK_EDIT: Partial<Equipment> = {
+  name: '', hourlyRate: 0, equipmentType: '', unitNumber: '',
+  year: undefined, make: '', model: '', vin: '', serialNumber: '', licensePlate: '', notes: '',
+};
 
 /**
  * Admin CRUD for the costing resources that the scheduler and work logs draw
@@ -30,6 +35,11 @@ export default function ResourcesManager({ companyId, isAdmin, isDarkMode }: Res
   const [empDraft, setEmpDraft] = useState({ name: '', role: '', hourlyRate: '' });
   const [eqDraft, setEqDraft]   = useState({ name: '', hourlyRate: '' });
   const [matDraft, setMatDraft] = useState({ name: '', unitPrice: '' });
+
+  // Equipment edit modal
+  const [editingEq, setEditingEq]   = useState<Equipment | null>(null);
+  const [editDraft, setEditDraft]   = useState<Partial<Equipment>>(BLANK_EDIT);
+  const [saving, setSaving]         = useState(false);
 
   const reload = async () => {
     setLoading(true);
@@ -92,6 +102,37 @@ export default function ResourcesManager({ companyId, isAdmin, isDarkMode }: Res
     });
     setMatDraft({ name: '', unitPrice: '' });
     reload();
+  };
+
+  const openEditEq = (eq: Equipment) => {
+    setEditingEq(eq);
+    setEditDraft({ ...eq });
+  };
+  const closeEditEq = () => { setEditingEq(null); setEditDraft(BLANK_EDIT); };
+  const saveEditEq = async () => {
+    if (!editingEq) return;
+    setSaving(true);
+    try {
+      await scheduleService.updateEquipment(editingEq.id, {
+        name:          editDraft.name,
+        hourlyRate:    editDraft.hourlyRate,
+        equipmentType: editDraft.equipmentType || undefined,
+        unitNumber:    editDraft.unitNumber    || undefined,
+        year:          editDraft.year          ?? undefined,
+        make:          editDraft.make          || undefined,
+        model:         editDraft.model         || undefined,
+        vin:           editDraft.vin           || undefined,
+        serialNumber:  editDraft.serialNumber  || undefined,
+        licensePlate:  editDraft.licensePlate  || undefined,
+        notes:         editDraft.notes         || undefined,
+      });
+      closeEditEq();
+      reload();
+    } catch (err) {
+      console.error('[ResourcesManager] save equipment failed', err);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const TABS: { id: ResourceTab; label: string; icon: React.ReactNode }[] = [
@@ -189,17 +230,32 @@ export default function ResourcesManager({ companyId, isAdmin, isDarkMode }: Res
             <div className="space-y-1">
               <div className="flex items-center gap-3 px-3 pb-2">
                 <span className={`flex-1 ${label}`}>Name</span>
+                <span className={`w-32 ${label}`}>Type</span>
                 <span className={`w-24 text-right ${label}`}>Rate / hr</span>
-                {isAdmin && <span className="w-6 shrink-0" />}
+                {isAdmin && <span className="w-12 shrink-0" />}
               </div>
               {equipment.map(e => (
                 <div key={e.id} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border-b last:border-b-0 transition-colors ${rowCls}`}>
                   <span className={`flex-1 font-medium ${text}`}>{e.name}</span>
+                  <span className={`w-32 text-sm ${subtext} truncate`}>{e.equipmentType || '—'}</span>
                   <span className={`w-24 text-right font-mono tabular-nums text-sm ${text}`}>${e.hourlyRate.toFixed(2)}</span>
                   {isAdmin && (
-                    <button onClick={() => scheduleService.deleteEquipment(e.id).then(reload)} className="w-6 shrink-0 flex justify-center text-slate-400 hover:text-rose-600 transition-colors" aria-label={`Delete ${e.name}`}>
-                      <Trash2 size={16} />
-                    </button>
+                    <div className="w-12 shrink-0 flex justify-end gap-1">
+                      <button
+                        onClick={() => openEditEq(e)}
+                        className="w-6 flex justify-center text-slate-400 hover:text-brand transition-colors"
+                        aria-label={`Edit ${e.name}`}
+                      >
+                        <Pencil size={15} />
+                      </button>
+                      <button
+                        onClick={() => scheduleService.deleteEquipment(e.id).then(reload)}
+                        className="w-6 flex justify-center text-slate-400 hover:text-rose-600 transition-colors"
+                        aria-label={`Delete ${e.name}`}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
                   )}
                 </div>
               ))}
@@ -286,6 +342,114 @@ export default function ResourcesManager({ companyId, isAdmin, isDarkMode }: Res
           onClose={() => setCsvModal(null)}
           onImported={reload}
         />
+      )}
+
+      {/* Equipment Edit Modal */}
+      {editingEq && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={e => { if (e.target === e.currentTarget) closeEditEq(); }}>
+          <div className={`w-full max-w-lg rounded-2xl border shadow-2xl ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+            {/* Header */}
+            <div className={`flex items-center justify-between px-5 py-4 border-b ${isDarkMode ? 'border-slate-700' : 'border-slate-100'}`}>
+              <div className="flex items-center gap-2">
+                <Wrench size={17} className="text-brand" />
+                <h2 className={`text-base font-semibold ${text}`}>Edit Equipment</h2>
+              </div>
+              <button onClick={closeEditEq} className={`rounded-lg p-1.5 transition hover:bg-slate-100 ${isDarkMode ? 'hover:bg-slate-700 text-slate-400' : 'text-slate-400'}`}>
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 space-y-4 overflow-y-auto max-h-[70vh]">
+              {/* Name & Rate */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className={`mb-1 ${label}`}>Name *</p>
+                  <input className={input} value={editDraft.name ?? ''} onChange={e => setEditDraft(d => ({ ...d, name: e.target.value }))} />
+                </div>
+                <div>
+                  <p className={`mb-1 ${label}`}>Rate / hr ($)</p>
+                  <input className={input} type="number" value={editDraft.hourlyRate ?? ''} onChange={e => setEditDraft(d => ({ ...d, hourlyRate: Number(e.target.value) }))} />
+                </div>
+              </div>
+
+              {/* Type & Unit # */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className={`mb-1 ${label}`}>Equipment Type</p>
+                  <input className={input} placeholder="e.g. Excavator" value={editDraft.equipmentType ?? ''} onChange={e => setEditDraft(d => ({ ...d, equipmentType: e.target.value }))} />
+                </div>
+                <div>
+                  <p className={`mb-1 ${label}`}>Unit Number</p>
+                  <input className={input} placeholder="e.g. EQ-042" value={editDraft.unitNumber ?? ''} onChange={e => setEditDraft(d => ({ ...d, unitNumber: e.target.value }))} />
+                </div>
+              </div>
+
+              {/* Year / Make / Model */}
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <p className={`mb-1 ${label}`}>Year</p>
+                  <input className={input} type="number" placeholder="2022" value={editDraft.year ?? ''} onChange={e => setEditDraft(d => ({ ...d, year: e.target.value ? Number(e.target.value) : undefined }))} />
+                </div>
+                <div>
+                  <p className={`mb-1 ${label}`}>Make</p>
+                  <input className={input} placeholder="Caterpillar" value={editDraft.make ?? ''} onChange={e => setEditDraft(d => ({ ...d, make: e.target.value }))} />
+                </div>
+                <div>
+                  <p className={`mb-1 ${label}`}>Model</p>
+                  <input className={input} placeholder="320" value={editDraft.model ?? ''} onChange={e => setEditDraft(d => ({ ...d, model: e.target.value }))} />
+                </div>
+              </div>
+
+              {/* VIN / Serial / License */}
+              <div className="grid grid-cols-1 gap-3">
+                <div>
+                  <p className={`mb-1 ${label}`}>VIN</p>
+                  <input className={input} placeholder="Vehicle identification number" value={editDraft.vin ?? ''} onChange={e => setEditDraft(d => ({ ...d, vin: e.target.value }))} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className={`mb-1 ${label}`}>Serial Number</p>
+                  <input className={input} value={editDraft.serialNumber ?? ''} onChange={e => setEditDraft(d => ({ ...d, serialNumber: e.target.value }))} />
+                </div>
+                <div>
+                  <p className={`mb-1 ${label}`}>License Plate</p>
+                  <input className={input} value={editDraft.licensePlate ?? ''} onChange={e => setEditDraft(d => ({ ...d, licensePlate: e.target.value }))} />
+                </div>
+              </div>
+
+              {/* Notes */}
+              <div>
+                <p className={`mb-1 ${label}`}>Notes</p>
+                <textarea
+                  className={`${input} resize-none`}
+                  rows={3}
+                  value={editDraft.notes ?? ''}
+                  onChange={e => setEditDraft(d => ({ ...d, notes: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className={`flex items-center justify-end gap-2 px-5 py-4 border-t ${isDarkMode ? 'border-slate-700' : 'border-slate-100'}`}>
+              <button
+                onClick={closeEditEq}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition ${isDarkMode ? 'text-slate-300 hover:bg-slate-700' : 'text-slate-600 hover:bg-slate-100'}`}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveEditEq}
+                disabled={saving || !editDraft.name?.trim()}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-brand text-white text-sm font-semibold transition hover:opacity-90 disabled:opacity-50"
+              >
+                {saving ? <span className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" /> : <Check size={15} />}
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
