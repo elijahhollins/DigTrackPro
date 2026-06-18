@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Trash2, Users, Wrench, Package, Upload, Pencil, X, Check } from 'lucide-react';
+import { Plus, Trash2, Users, Wrench, Package, Upload, Pencil, X, Check, DollarSign } from 'lucide-react';
 import { scheduleService } from '../../services/scheduleService.ts';
 import { Employee, Equipment, Material } from '../../services/schedulingTypes.ts';
 import CsvImportModal from './CsvImportModal.tsx';
@@ -29,7 +29,7 @@ export default function ResourcesManager({ companyId, isAdmin, isDarkMode }: Res
   const [equipment, setEquipment] = useState<Equipment[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [loading, setLoading] = useState(true);
-  const [csvModal, setCsvModal] = useState<'equipment' | 'materials' | null>(null);
+  const [csvModal, setCsvModal] = useState<'equipment' | 'materials' | 'employees' | null>(null);
 
   // New-row drafts
   const [empDraft, setEmpDraft] = useState({ name: '', role: '', hourlyRate: '' });
@@ -40,6 +40,11 @@ export default function ResourcesManager({ companyId, isAdmin, isDarkMode }: Res
   const [editingEq, setEditingEq]   = useState<Equipment | null>(null);
   const [editDraft, setEditDraft]   = useState<Partial<Equipment>>(BLANK_EDIT);
   const [saving, setSaving]         = useState(false);
+
+  // Employee edit modal
+  const [editingEmp, setEditingEmp]     = useState<Employee | null>(null);
+  const [editEmpDraft, setEditEmpDraft] = useState({ name: '', role: '', hourlyRate: '' });
+  const [savingEmp, setSavingEmp]       = useState(false);
 
   const reload = async () => {
     setLoading(true);
@@ -135,6 +140,29 @@ export default function ResourcesManager({ companyId, isAdmin, isDarkMode }: Res
     }
   };
 
+  const openEditEmp = (emp: Employee) => {
+    setEditingEmp(emp);
+    setEditEmpDraft({ name: emp.name, role: emp.role, hourlyRate: emp.hourlyRate > 0 ? String(emp.hourlyRate) : '' });
+  };
+  const closeEditEmp = () => { setEditingEmp(null); setEditEmpDraft({ name: '', role: '', hourlyRate: '' }); };
+  const saveEditEmp = async () => {
+    if (!editingEmp || !editEmpDraft.name.trim()) return;
+    setSavingEmp(true);
+    try {
+      await scheduleService.updateEmployee(editingEmp.id, {
+        name:       editEmpDraft.name.trim(),
+        role:       editEmpDraft.role.trim(),
+        hourlyRate: editEmpDraft.hourlyRate !== '' ? Number(editEmpDraft.hourlyRate) : 0,
+      });
+      closeEditEmp();
+      reload();
+    } catch (err) {
+      console.error('[ResourcesManager] save employee failed', err);
+    } finally {
+      setSavingEmp(false);
+    }
+  };
+
   const TABS: { id: ResourceTab; label: string; icon: React.ReactNode }[] = [
     { id: 'employees', label: 'Employees', icon: <Users size={16} /> },
     { id: 'equipment', label: 'Equipment', icon: <Wrench size={16} /> },
@@ -189,17 +217,32 @@ export default function ResourcesManager({ companyId, isAdmin, isDarkMode }: Res
                 <span className={`flex-1 ${label}`}>Name</span>
                 <span className={`flex-1 ${label}`}>Role</span>
                 <span className={`w-24 text-right ${label}`}>Rate / hr</span>
-                {isAdmin && <span className="w-6 shrink-0" />}
+                {isAdmin && <span className="w-12 shrink-0" />}
               </div>
               {employees.map(e => (
                 <div key={e.id} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border-b last:border-b-0 transition-colors ${rowCls}`}>
                   <span className={`flex-1 font-medium ${text}`}>{e.name}</span>
                   <span className={`flex-1 ${subtext}`}>{e.role || '—'}</span>
-                  <span className={`w-24 text-right font-mono tabular-nums text-sm ${text}`}>${e.hourlyRate.toFixed(2)}</span>
+                  <span className={`w-24 text-right font-mono tabular-nums text-sm ${e.hourlyRate > 0 ? text : subtext}`}>
+                    {e.hourlyRate > 0 ? `$${e.hourlyRate.toFixed(2)}` : '—'}
+                  </span>
                   {isAdmin && (
-                    <button onClick={() => scheduleService.deleteEmployee(e.id).then(reload)} className="w-6 shrink-0 flex justify-center text-slate-400 hover:text-rose-600 transition-colors" aria-label={`Delete ${e.name}`}>
-                      <Trash2 size={16} />
-                    </button>
+                    <div className="w-12 shrink-0 flex justify-end gap-1">
+                      <button
+                        onClick={() => openEditEmp(e)}
+                        className="w-6 flex justify-center text-slate-400 hover:text-brand transition-colors"
+                        aria-label={`Edit ${e.name}`}
+                      >
+                        <Pencil size={15} />
+                      </button>
+                      <button
+                        onClick={() => scheduleService.deleteEmployee(e.id).then(reload)}
+                        className="w-6 flex justify-center text-slate-400 hover:text-rose-600 transition-colors"
+                        aria-label={`Delete ${e.name}`}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   )}
                 </div>
               ))}
@@ -213,13 +256,19 @@ export default function ResourcesManager({ companyId, isAdmin, isDarkMode }: Res
                 <div className={`mt-3 pt-3 border-t ${isDarkMode ? 'border-slate-700' : 'border-slate-100'} space-y-2`}>
                   <p className={label}>Add employee</p>
                   <div className="flex flex-col sm:flex-row gap-2">
-                    <input className={input} placeholder="Name" value={empDraft.name} onChange={e => setEmpDraft({ ...empDraft, name: e.target.value })} />
-                    <input className={input} placeholder="Role" value={empDraft.role} onChange={e => setEmpDraft({ ...empDraft, role: e.target.value })} />
-                    <input className={input} placeholder="Rate/hr" type="number" value={empDraft.hourlyRate} onChange={e => setEmpDraft({ ...empDraft, hourlyRate: e.target.value })} />
+                    <input className={input} placeholder="Name *" value={empDraft.name} onChange={e => setEmpDraft({ ...empDraft, name: e.target.value })} />
+                    <input className={input} placeholder="Role (optional)" value={empDraft.role} onChange={e => setEmpDraft({ ...empDraft, role: e.target.value })} />
+                    <input className={input} placeholder="Rate/hr (optional)" type="number" value={empDraft.hourlyRate} onChange={e => setEmpDraft({ ...empDraft, hourlyRate: e.target.value })} />
                     <button onClick={addEmployee} className={addBtn}>
                       <Plus size={16} />Add
                     </button>
                   </div>
+                  <button
+                    onClick={() => setCsvModal('employees')}
+                    className={`flex items-center gap-2 text-sm font-medium px-3 py-1.5 rounded-lg border transition ${isDarkMode ? 'border-slate-600 text-slate-300 hover:bg-slate-700' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}
+                  >
+                    <Upload size={14} />Import CSV / Spreadsheet
+                  </button>
                 </div>
               )}
             </div>
@@ -342,6 +391,64 @@ export default function ResourcesManager({ companyId, isAdmin, isDarkMode }: Res
           onClose={() => setCsvModal(null)}
           onImported={reload}
         />
+      )}
+
+      {/* Employee Edit Modal */}
+      {editingEmp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={e => { if (e.target === e.currentTarget) closeEditEmp(); }}>
+          <div className={`w-full max-w-sm rounded-2xl border shadow-2xl ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+            <div className={`flex items-center justify-between px-5 py-4 border-b ${isDarkMode ? 'border-slate-700' : 'border-slate-100'}`}>
+              <div className="flex items-center gap-2">
+                <Users size={17} className="text-brand" />
+                <h2 className={`text-base font-semibold ${text}`}>Edit Employee</h2>
+              </div>
+              <button onClick={closeEditEmp} className={`rounded-lg p-1.5 transition hover:bg-slate-100 ${isDarkMode ? 'hover:bg-slate-700 text-slate-400' : 'text-slate-400'}`}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <p className={`mb-1 ${label}`}>Name *</p>
+                <input className={input} value={editEmpDraft.name} onChange={e => setEditEmpDraft(d => ({ ...d, name: e.target.value }))} />
+              </div>
+              <div>
+                <p className={`mb-1 ${label}`}>Role</p>
+                <input className={input} placeholder="e.g. Operator, Foreman, Laborer" value={editEmpDraft.role} onChange={e => setEditEmpDraft(d => ({ ...d, role: e.target.value }))} />
+              </div>
+              <div>
+                <p className={`mb-1 ${label}`}>Rate / hr ($)</p>
+                <div className="relative">
+                  <DollarSign size={14} className={`absolute left-3 top-1/2 -translate-y-1/2 ${subtext}`} />
+                  <input
+                    className={`${input} pl-7`}
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={editEmpDraft.hourlyRate}
+                    onChange={e => setEditEmpDraft(d => ({ ...d, hourlyRate: e.target.value }))}
+                  />
+                </div>
+              </div>
+            </div>
+            <div className={`flex items-center justify-end gap-2 px-5 py-4 border-t ${isDarkMode ? 'border-slate-700' : 'border-slate-100'}`}>
+              <button
+                onClick={closeEditEmp}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition ${isDarkMode ? 'text-slate-300 hover:bg-slate-700' : 'text-slate-600 hover:bg-slate-100'}`}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveEditEmp}
+                disabled={savingEmp || !editEmpDraft.name.trim()}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-brand text-white text-sm font-semibold transition hover:opacity-90 disabled:opacity-50"
+              >
+                {savingEmp ? <span className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" /> : <Check size={15} />}
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Equipment Edit Modal */}
