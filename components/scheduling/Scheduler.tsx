@@ -2242,7 +2242,7 @@ export default function Scheduler({
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col h-full bg-white select-none rounded-2xl border border-slate-200 overflow-hidden shadow-sm" style={{ minHeight: 0 }}>
+    <div className="flex flex-col bg-white select-none rounded-2xl border border-slate-200 overflow-hidden shadow-sm" style={{ height: 'calc(100svh - 220px)', minHeight: '420px' }}>
       {/* ─── Toolbar ─── */}
       <div
         className="flex items-center gap-x-3 gap-y-2.5 px-5 py-3.5 shrink-0 flex-wrap"
@@ -2328,7 +2328,7 @@ export default function Scheduler({
                 : 'bg-white/10 hover:bg-white/20 text-slate-200 border-white/10'
             }`}
           >
-            <Pencil className="w-3.5 h-3.5" /> {editMode ? 'Editing' : 'Edit'}
+            <Pencil className="w-3.5 h-3.5" /><span className="hidden sm:inline">{editMode ? 'Editing' : 'Edit'}</span>
           </button>
           {/* Undo button — visible only in edit mode */}
           {editMode && (
@@ -2343,7 +2343,7 @@ export default function Scheduler({
                   : 'bg-white/5 text-slate-600 border-white/5 cursor-not-allowed'
               }`}
             >
-              <RotateCcw className="w-3.5 h-3.5" /> Undo
+              <RotateCcw className="w-3.5 h-3.5" /><span className="hidden sm:inline"> Undo</span>
             </button>
           )}
 
@@ -2354,15 +2354,17 @@ export default function Scheduler({
             <>
               <button
                 onClick={() => setShowManageCrews(true)}
+                title="Manage crews"
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-slate-200 text-xs font-semibold rounded-lg transition-colors border border-white/10"
               >
-                <Users className="w-3.5 h-3.5" /> Crews
+                <Users className="w-3.5 h-3.5" /><span className="hidden sm:inline"> Crews</span>
               </button>
               <button
                 onClick={() => setShowManageJobs(true)}
+                title="Manage jobs"
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-slate-200 text-xs font-semibold rounded-lg transition-colors border border-white/10"
               >
-                <Briefcase className="w-3.5 h-3.5" /> Jobs
+                <Briefcase className="w-3.5 h-3.5" /><span className="hidden sm:inline"> Jobs</span>
               </button>
             </>
           )}
@@ -2370,19 +2372,22 @@ export default function Scheduler({
             onClick={() => setShowEquipTray(t => !t)}
             aria-pressed={showEquipTray}
             aria-label="Toggle equipment tray"
+            title="Toggle equipment tray"
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors border ${
               showEquipTray
                 ? 'bg-amber-500 text-white border-amber-400 shadow-sm'
                 : 'bg-white/10 hover:bg-white/20 text-slate-200 border-white/10'
             }`}
           >
-            <Wrench className="w-3.5 h-3.5" /> Equipment
+            <Wrench className="w-3.5 h-3.5" /><span className="hidden sm:inline"> Equipment</span>
           </button>
           <button
             onClick={() => setShowAddModal(true)}
+            aria-label="Add job"
+            title="Add job"
             className="flex items-center gap-1.5 px-3.5 py-1.5 bg-brand hover:opacity-90 text-white text-xs font-semibold rounded-lg transition-all shadow-brand/20 hover:-translate-y-px"
           >
-            <Plus className="w-3.5 h-3.5" /> Add Job
+            <Plus className="w-3.5 h-3.5" /><span className="hidden sm:inline"> Add Job</span>
           </button>
         </div>
       </div>
