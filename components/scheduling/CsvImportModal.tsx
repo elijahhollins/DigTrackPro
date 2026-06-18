@@ -235,7 +235,7 @@ export default function CsvImportModal({ type, companyId, isDarkMode, onClose, o
   return (
     <div className={overlay} onClick={onClose}>
       <div
-        className={`w-full max-w-2xl rounded-2xl border shadow-2xl ${card} p-6`}
+        className={`w-full max-w-2xl rounded-2xl border shadow-2xl ${card} p-6 max-h-[90vh] overflow-y-auto`}
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -316,7 +316,14 @@ export default function CsvImportModal({ type, companyId, isDarkMode, onClose, o
               <button onClick={clearRows} className={`ml-auto text-xs underline ${subtext}`}>Change file</button>
             </div>
 
-            <div className={`overflow-auto max-h-56 rounded-lg border ${isDarkMode ? 'border-slate-700' : 'border-slate-200'}`}>
+            {importError && (
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-sm">
+                <AlertCircle size={16} className="mt-0.5 shrink-0" />
+                <span>{importError}</span>
+              </div>
+            )}
+
+            <div className={`overflow-auto max-h-48 rounded-lg border ${isDarkMode ? 'border-slate-700' : 'border-slate-200'}`}>
               <table className="w-full">
                 <thead className={isDarkMode ? 'bg-slate-900' : 'bg-slate-50'}>
                   <tr>
@@ -365,13 +372,6 @@ export default function CsvImportModal({ type, companyId, isDarkMode, onClose, o
                 </tbody>
               </table>
             </div>
-
-            {importError && (
-              <div className="flex items-start gap-2 p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-sm">
-                <AlertCircle size={16} className="mt-0.5 shrink-0" />
-                <span>{importError}</span>
-              </div>
-            )}
 
             <div className="flex gap-3">
               <button
