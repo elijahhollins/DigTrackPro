@@ -1,6 +1,7 @@
 import React, { useState, useReducer, useRef, useCallback, useEffect } from 'react';
 import { Plus, X, ChevronLeft, ChevronRight, Clock, Calendar, Pencil, Trash2, Briefcase, Users, Wrench, GripHorizontal, RotateCcw } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient.ts';
+import { scheduleService } from '../../services/scheduleService.ts';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -1760,19 +1761,12 @@ export default function Scheduler({
       });
   }, [companyId]);
 
-  // Fetch equipment from Supabase when companyId is available
+  // Fetch equipment via scheduleService so the board shares the same list as ResourcesManager
   useEffect(() => {
     if (!companyId) return;
-    supabase
-      .from('inventory_items')
-      .select('id, name, hourly_rate')
-      .eq('company_id', companyId)
-      .eq('item_type', 'EQUIPMENT')
-      .order('name')
-      .then(({ data, error }) => {
-        if (error) console.error('[Scheduler] Failed to load equipment:', error.message);
-        else if (data && data.length > 0) setEquipmentList(data as SchedulerEquipment[]);
-      });
+    scheduleService.getEquipment()
+      .then(data => setEquipmentList(data.map(e => ({ id: e.id, name: e.name, hourly_rate: e.hourlyRate }))))
+      .catch(err => console.error('[Scheduler] Failed to load equipment:', err));
   }, [companyId]);
 
   const dayWidth  = view === 'week' ? 60 : 24;

@@ -166,13 +166,17 @@ export const scheduleService = {
 
   async updateEquipment(id: string, updates: Partial<Omit<Equipment, 'id' | 'companyId'>>): Promise<void> {
     const db: Record<string, unknown> = {};
-    if (updates.name          !== undefined) db.name           = updates.name;
-    if (updates.hourlyRate    !== undefined) db.hourly_rate    = updates.hourlyRate;
-    if (updates.unitNumber    !== undefined) db.unit_number    = updates.unitNumber;
-    if (updates.equipmentType !== undefined) db.equipment_type = updates.equipmentType;
-    if (updates.year          !== undefined) db.year           = updates.year;
-    if (updates.make          !== undefined) db.make           = updates.make;
-    if (updates.model         !== undefined) db.model          = updates.model;
+    if (updates.name          !== undefined) db.name            = updates.name;
+    if (updates.hourlyRate    !== undefined) db.hourly_rate     = updates.hourlyRate;
+    if (updates.unitNumber    !== undefined) db.unit_number     = updates.unitNumber;
+    if (updates.equipmentType !== undefined) db.equipment_type  = updates.equipmentType;
+    if (updates.year          !== undefined) db.year            = updates.year;
+    if (updates.make          !== undefined) db.make            = updates.make;
+    if (updates.model         !== undefined) db.model           = updates.model;
+    if (updates.vin           !== undefined) db.vin             = updates.vin;
+    if (updates.serialNumber  !== undefined) db.serial_number   = updates.serialNumber;
+    if (updates.licensePlate  !== undefined) db.license_plate   = updates.licensePlate;
+    if (updates.notes         !== undefined) db.notes           = updates.notes;
     const { error } = await supabase.from('inventory_items').update(db).eq('id', id);
     if (error) throw error;
   },
