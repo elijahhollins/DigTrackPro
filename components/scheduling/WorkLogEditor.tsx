@@ -58,7 +58,8 @@ export default function WorkLogEditor({ companyId, isAdmin, isDarkMode }: WorkLo
   const card    = isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200';
   const text    = isDarkMode ? 'text-slate-100' : 'text-slate-900';
   const subtext = isDarkMode ? 'text-slate-400' : 'text-slate-500';
-  const input   = `px-2.5 py-1.5 rounded-lg border text-sm ${isDarkMode ? 'bg-slate-900 border-slate-600 text-slate-100' : 'bg-white border-slate-300 text-slate-900'}`;
+  const input   = `px-2.5 py-1.5 rounded-lg border text-sm transition focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand ${isDarkMode ? 'bg-slate-900 border-slate-600 text-slate-100' : 'bg-white border-slate-300 text-slate-900'}`;
+  const ghostBtn = `flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm border transition-colors ${isDarkMode ? 'border-slate-600 text-slate-200 hover:bg-slate-700' : 'border-slate-300 text-slate-700 hover:bg-slate-50'}`;
 
   const createJob = async () => {
     if (!jobDraft.jobNumber.trim() && !jobDraft.jobName.trim()) return;
@@ -113,66 +114,82 @@ export default function WorkLogEditor({ companyId, isAdmin, isDarkMode }: WorkLo
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
       {/* Jobs list */}
-      <div className={`rounded-xl border ${card} p-3 space-y-2`}>
-        <div className="flex items-center justify-between">
-          <h3 className={`text-sm font-bold ${text}`}>Jobs</h3>
+      <div className={`rounded-2xl border ${card} p-3 space-y-2 shadow-sm self-start`}>
+        <div className="flex items-center justify-between px-1">
+          <h3 className={`text-[10px] font-bold uppercase tracking-widest ${subtext}`}>Jobs</h3>
           {isAdmin && (
-            <button onClick={() => setShowJobForm(s => !s)} className="text-brand hover:opacity-80">
+            <button
+              onClick={() => setShowJobForm(s => !s)}
+              aria-label={showJobForm ? 'Cancel new job' : 'New job'}
+              className="w-6 h-6 flex items-center justify-center rounded-lg text-brand hover:bg-brand/10 transition-colors"
+            >
               {showJobForm ? <X size={16} /> : <Plus size={16} />}
             </button>
           )}
         </div>
         {showJobForm && (
-          <div className="space-y-1.5 pb-2 border-b border-slate-700/30">
+          <div className={`space-y-1.5 p-2.5 rounded-xl ${isDarkMode ? 'bg-slate-900/50' : 'bg-slate-50'}`}>
             <input className={`${input} w-full`} placeholder="Job number" value={jobDraft.jobNumber} onChange={e => setJobDraft({ ...jobDraft, jobNumber: e.target.value })} />
             <input className={`${input} w-full`} placeholder="Job name" value={jobDraft.jobName} onChange={e => setJobDraft({ ...jobDraft, jobName: e.target.value })} />
             <input className={`${input} w-full`} placeholder="Customer" value={jobDraft.customerName} onChange={e => setJobDraft({ ...jobDraft, customerName: e.target.value })} />
             <input className={`${input} w-full`} placeholder="Address" value={jobDraft.address} onChange={e => setJobDraft({ ...jobDraft, address: e.target.value })} />
-            <button onClick={createJob} className="w-full px-3 py-1.5 rounded-lg bg-brand text-white text-sm font-semibold">Create job</button>
+            <button onClick={createJob} className="w-full px-3 py-1.5 rounded-lg bg-brand text-white text-sm font-semibold transition-all hover:opacity-90 shadow-sm">Create job</button>
           </div>
         )}
-        {loading ? <p className={subtext}>Loading…</p> : jobs.map(j => (
-          <button
-            key={j.id}
-            onClick={() => setSelectedId(j.id)}
-            className={`w-full text-left px-3 py-2 rounded-lg text-sm transition ${
-              selectedId === j.id ? 'bg-brand text-white' : isDarkMode ? 'hover:bg-slate-700 text-slate-200' : 'hover:bg-slate-100 text-slate-700'
-            }`}
-          >
-            <span className="font-semibold">{j.jobNumber || j.jobName || `Job ${j.id}`}</span>
-            <span className="block text-xs opacity-70">{j.customerName}</span>
-          </button>
-        ))}
-        {!loading && jobs.length === 0 && <p className={subtext}>No jobs yet.</p>}
+        {loading ? (
+          <p className={`px-3 py-2 text-sm ${subtext}`}>Loading…</p>
+        ) : jobs.map(j => {
+          const active = selectedId === j.id;
+          return (
+            <button
+              key={j.id}
+              onClick={() => setSelectedId(j.id)}
+              className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-all border ${
+                active
+                  ? 'bg-brand text-white border-transparent shadow-sm'
+                  : isDarkMode
+                    ? 'border-transparent hover:bg-slate-700 text-slate-200'
+                    : 'border-transparent hover:bg-slate-50 hover:border-slate-200 text-slate-700'
+              }`}
+            >
+              <span className="font-semibold">{j.jobNumber || j.jobName || `Job ${j.id}`}</span>
+              <span className="block text-xs opacity-70">{j.customerName || '—'}</span>
+            </button>
+          );
+        })}
+        {!loading && jobs.length === 0 && <p className={`px-3 py-2 text-sm ${subtext}`}>No jobs yet.</p>}
       </div>
 
       {/* Selected job logs + editor */}
       <div className="lg:col-span-2 space-y-4">
         {!selected ? (
-          <div className={`rounded-xl border ${card} p-6 ${subtext}`}>Select or create a job to log work.</div>
+          <div className={`rounded-2xl border ${card} p-10 text-center shadow-sm ${subtext}`}>
+            <FileStack size={26} className="mx-auto mb-2 opacity-40" />
+            <p className="text-sm">Select or create a job to log work.</p>
+          </div>
         ) : (
           <>
             {/* Existing logs */}
-            <div className={`rounded-xl border ${card} p-4`}>
-              <h3 className={`text-sm font-bold mb-2 ${text}`}>Daily logs — {selected.jobNumber || selected.jobName}</h3>
+            <div className={`rounded-2xl border ${card} p-4 sm:p-5 shadow-sm`}>
+              <h3 className={`text-sm font-bold mb-3 ${text}`}>Daily logs — {selected.jobNumber || selected.jobName}</h3>
               {(selected.logs ?? []).length === 0 && <p className={subtext}>No logs recorded yet.</p>}
               {(selected.logs ?? []).map(log => {
                 const t = computeTotals([log], materials);
                 return (
-                  <div key={log.id} className={`flex items-center gap-3 py-2 border-b ${isDarkMode ? 'border-slate-700' : 'border-slate-100'}`}>
-                    <span className={`flex-1 text-sm ${text}`}>{new Date(log.date).toLocaleDateString('en-US')}</span>
+                  <div key={log.id} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border-b last:border-b-0 transition-colors ${isDarkMode ? 'border-slate-700/70 hover:bg-slate-700/40' : 'border-slate-100 hover:bg-slate-50'}`}>
+                    <span className={`flex-1 text-sm font-medium ${text}`}>{new Date(log.date).toLocaleDateString('en-US')}</span>
                     <span className={`text-xs ${subtext}`}>
                       {log.data.employees.length} labor · {log.data.equipment.length} equip · {log.data.materials.length} mat
                     </span>
-                    <span className={`w-24 text-right font-mono text-sm ${text}`}>${t.grand.toFixed(2)}</span>
-                    <button onClick={() => scheduleService.deleteWorkLog(log.id).then(reload)} className="text-rose-500 hover:text-rose-600"><Trash2 size={15} /></button>
+                    <span className={`w-24 text-right font-mono tabular-nums text-sm ${text}`}>${t.grand.toFixed(2)}</span>
+                    <button onClick={() => scheduleService.deleteWorkLog(log.id).then(reload)} className="text-slate-400 hover:text-rose-600 transition-colors" aria-label="Delete log"><Trash2 size={15} /></button>
                   </div>
                 );
               })}
             </div>
 
             {/* New log editor */}
-            <div className={`rounded-xl border ${card} p-4 space-y-3`}>
+            <div className={`rounded-2xl border ${card} p-4 sm:p-5 space-y-3 shadow-sm`}>
               <div className="flex items-center justify-between gap-2">
                 <h3 className={`text-sm font-bold ${text}`}>Add daily log</h3>
                 <div className="flex items-center gap-2">
@@ -238,11 +255,14 @@ export default function WorkLogEditor({ companyId, isAdmin, isDarkMode }: WorkLo
 
               <input className={`${input} w-full`} placeholder="Notes" value={notes} onChange={e => setNotes(e.target.value)} />
 
-              <div className="flex items-center justify-between pt-1">
-                <span className={`font-mono text-sm ${text}`}>Total: ${totals.grand.toFixed(2)}</span>
+              <div className={`flex flex-wrap items-center justify-between gap-2 pt-3 border-t ${isDarkMode ? 'border-slate-700' : 'border-slate-100'}`}>
+                <div className="flex items-baseline gap-2">
+                  <span className={`text-[10px] font-bold uppercase tracking-widest ${subtext}`}>Total</span>
+                  <span className={`font-mono tabular-nums text-lg font-bold ${text}`}>${totals.grand.toFixed(2)}</span>
+                </div>
                 <div className="flex gap-2">
-                  <button onClick={saveTemplate} className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm border ${card} ${text}`}><FileStack size={15} />Save as template</button>
-                  <button onClick={saveLog} className="flex items-center gap-1 px-4 py-1.5 rounded-lg bg-brand text-white text-sm font-semibold"><Save size={15} />Save log</button>
+                  <button onClick={saveTemplate} className={ghostBtn}><FileStack size={15} />Save as template</button>
+                  <button onClick={saveLog} className="flex items-center gap-1 px-4 py-1.5 rounded-lg bg-brand text-white text-sm font-semibold transition-all hover:opacity-90 hover:-translate-y-px shadow-sm"><Save size={15} />Save log</button>
                 </div>
               </div>
             </div>
@@ -257,8 +277,15 @@ function Section({ title, onAdd, disabled, text, children }: { title: string; on
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
-        <span className={`text-xs font-bold uppercase tracking-wide ${text} opacity-70`}>{title}</span>
-        <button onClick={onAdd} disabled={disabled} className="text-brand disabled:opacity-30"><Plus size={15} /></button>
+        <span className={`text-[10px] font-bold uppercase tracking-widest ${text} opacity-60`}>{title}</span>
+        <button
+          onClick={onAdd}
+          disabled={disabled}
+          aria-label={`Add ${title.toLowerCase()}`}
+          className="flex items-center justify-center w-6 h-6 rounded-md text-brand hover:bg-brand/10 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+        >
+          <Plus size={15} />
+        </button>
       </div>
       {children}
     </div>
