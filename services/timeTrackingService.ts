@@ -13,6 +13,7 @@ import {
   CostCode,
   JobCostCodeAssignment,
   JobKind,
+  TimeClockCrew,
   TimeEntry,
 } from './timeTrackingTypes.ts';
 
@@ -32,6 +33,14 @@ const mapAssignment = (row: Record<string, unknown>): JobCostCodeAssignment => (
   jobKind:    (row.job_kind as JobKind) ?? 'dig',
   jobRef:     String(row.job_ref ?? ''),
   costCodeId: Number(row.cost_code_id ?? 0),
+});
+
+const mapCrew = (row: Record<string, unknown>): TimeClockCrew => ({
+  id:             Number(row.id ?? 0),
+  companyId:      String(row.company_id ?? ''),
+  ownerProfileId: String(row.owner_profile_id ?? ''),
+  name:           String(row.name ?? 'My Crew'),
+  memberIds:      Array.isArray(row.member_ids) ? (row.member_ids as unknown[]).map(Number) : [],
 });
 
 const mapEntry = (row: Record<string, unknown>): TimeEntry => ({
@@ -208,6 +217,53 @@ export const timeTrackingService = {
   /** Clock several employees into the SAME job + cost code in one action (crew). */
   async clockInMany(companyId: string, employeeIds: number[], input: Omit<ClockInInput, 'employeeId'>): Promise<void> {
     await Promise.all(employeeIds.map(id => this.clockIn(companyId, { ...input, employeeId: id })));
+  },
+
+  /**
+   * Clock a crew into one job, allowing a per-person cost code (e.g. operator vs
+   * laborer on the same dig). Each member carries its own costCodeId.
+   */
+  async clockInCrew(
+    companyId: string,
+    members: { employeeId: number; costCodeId: number | null }[],
+    input: Omit<ClockInInput, 'employeeId' | 'costCodeId'>,
+  ): Promise<void> {
+    await Promise.all(
+      members.map(m => this.clockIn(companyId, { ...input, employeeId: m.employeeId, costCodeId: m.costCodeId })),
+    );
+  },
+
+  /** Clock several employees out at once (end-of-day "Clock out crew"). */
+  async clockOutMany(employeeIds: number[]): Promise<void> {
+    await Promise.all(employeeIds.map(id => this.closeOpenEntries(id)));
+  },
+
+  // ── Foreman crews ──────────────────────────────────────────────────────────
+  /** The signed-in foreman's saved crew, or null if they haven't built one yet. */
+  async getMyCrew(ownerProfileId: string): Promise<TimeClockCrew | null> {
+    const { data, error } = await supabase
+      .from('time_clock_crews')
+      .select('*')
+      .eq('owner_profile_id', ownerProfileId)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? mapCrew(data as Record<string, unknown>) : null;
+  },
+
+  /**
+   * Create or update the foreman's personal crew (one per owner). Upserts on the
+   * unique owner_profile_id so repeated saves edit the same roster.
+   */
+  async saveMyCrew(companyId: string, ownerProfileId: string, name: string, memberIds: number[]): Promise<TimeClockCrew> {
+    const { data, error } = await supabase
+      .from('time_clock_crews')
+      .upsert(
+        { company_id: companyId, owner_profile_id: ownerProfileId, name, member_ids: memberIds, updated_at: new Date().toISOString() },
+        { onConflict: 'owner_profile_id' },
+      )
+      .select().single();
+    if (error) throw error;
+    return mapCrew(data as Record<string, unknown>);
   },
 
   /** Clock a specific entry out by id (server timestamp). */

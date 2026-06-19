@@ -43,7 +43,7 @@ export default function ResourcesManager({ companyId, isAdmin, isDarkMode }: Res
 
   // Employee edit modal
   const [editingEmp, setEditingEmp]     = useState<Employee | null>(null);
-  const [editEmpDraft, setEditEmpDraft] = useState({ name: '', role: '', hourlyRate: '' });
+  const [editEmpDraft, setEditEmpDraft] = useState({ name: '', role: '', hourlyRate: '', isForeman: false });
   const [savingEmp, setSavingEmp]       = useState(false);
 
   const reload = async () => {
@@ -86,6 +86,7 @@ export default function ResourcesManager({ companyId, isAdmin, isDarkMode }: Res
       role: empDraft.role.trim(),
       hourlyRate: Number(empDraft.hourlyRate) || 0,
       profileId: null,
+      isForeman: false,
     });
     setEmpDraft({ name: '', role: '', hourlyRate: '' });
     reload();
@@ -142,9 +143,9 @@ export default function ResourcesManager({ companyId, isAdmin, isDarkMode }: Res
 
   const openEditEmp = (emp: Employee) => {
     setEditingEmp(emp);
-    setEditEmpDraft({ name: emp.name, role: emp.role, hourlyRate: emp.hourlyRate > 0 ? String(emp.hourlyRate) : '' });
+    setEditEmpDraft({ name: emp.name, role: emp.role, hourlyRate: emp.hourlyRate > 0 ? String(emp.hourlyRate) : '', isForeman: emp.isForeman });
   };
-  const closeEditEmp = () => { setEditingEmp(null); setEditEmpDraft({ name: '', role: '', hourlyRate: '' }); };
+  const closeEditEmp = () => { setEditingEmp(null); setEditEmpDraft({ name: '', role: '', hourlyRate: '', isForeman: false }); };
   const saveEditEmp = async () => {
     if (!editingEmp || !editEmpDraft.name.trim()) return;
     setSavingEmp(true);
@@ -153,6 +154,7 @@ export default function ResourcesManager({ companyId, isAdmin, isDarkMode }: Res
         name:       editEmpDraft.name.trim(),
         role:       editEmpDraft.role.trim(),
         hourlyRate: editEmpDraft.hourlyRate !== '' ? Number(editEmpDraft.hourlyRate) : 0,
+        isForeman:  editEmpDraft.isForeman,
       });
       closeEditEmp();
       reload();
@@ -430,6 +432,24 @@ export default function ResourcesManager({ companyId, isAdmin, isDarkMode }: Res
                   />
                 </div>
               </div>
+              {/* Foreman switch: unlocks crew clock-in for this employee's login. */}
+              <button
+                type="button"
+                onClick={() => setEditEmpDraft(d => ({ ...d, isForeman: !d.isForeman }))}
+                className={`w-full flex items-center justify-between gap-3 rounded-lg border px-3 py-3 text-left transition ${
+                  editEmpDraft.isForeman
+                    ? 'border-brand bg-brand/10'
+                    : isDarkMode ? 'border-slate-600 hover:bg-slate-700/50' : 'border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                <span>
+                  <span className={`block text-sm font-semibold ${text}`}>Foreman</span>
+                  <span className={`block text-xs ${subtext}`}>Can save a crew and clock the whole crew in/out.</span>
+                </span>
+                <span className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition ${editEmpDraft.isForeman ? 'bg-brand' : isDarkMode ? 'bg-slate-600' : 'bg-slate-300'}`}>
+                  <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${editEmpDraft.isForeman ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                </span>
+              </button>
             </div>
             <div className={`flex items-center justify-end gap-2 px-5 py-4 border-t ${isDarkMode ? 'border-slate-700' : 'border-slate-100'}`}>
               <button
