@@ -55,7 +55,10 @@ export interface InventoryLocation {
   id: string;
   companyId: string;
   name: string;
-  address?: string;
+  address?: string;  // street line
+  city?: string;
+  state?: string;
+  zip?: string;
   createdAt: number;
 }
 
