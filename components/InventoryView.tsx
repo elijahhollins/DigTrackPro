@@ -520,6 +520,8 @@ interface ItemFormProps {
   onClose: () => void;
 }
 
+type ItemLocKind = 'shop' | 'job' | 'crew';
+
 const ItemFormModal: React.FC<ItemFormProps> = ({ item, locations, users, jobs, companyId, isDarkMode, onSave, onClose }) => {
   const [name, setName] = useState(item?.name || '');
   const [itemType, setItemType] = useState<InventoryItemType>(item?.itemType || InventoryItemType.EQUIPMENT);
@@ -537,7 +539,15 @@ const ItemFormModal: React.FC<ItemFormProps> = ({ item, locations, users, jobs, 
   // first location) so it lands on the equipment map right away. Existing items
   // keep whatever location they already have.
   const defaultLocationId = (locations.find(l => l.address || l.city || l.zip) ?? locations[0])?.id ?? '';
+  const initLocKind = (): ItemLocKind => {
+    if (item?.currentJobId) return 'job';
+    if (item?.currentAssigneeId) return 'crew';
+    return 'shop';
+  };
+  const [locKind, setLocKind] = useState<ItemLocKind>(initLocKind());
   const [currentLocationId, setCurrentLocationId] = useState(item?.currentLocationId ?? (item ? '' : defaultLocationId));
+  const [currentJobId, setCurrentJobId] = useState(item?.currentJobId || '');
+  const [currentAssigneeId, setCurrentAssigneeId] = useState(item?.currentAssigneeId || '');
   const [notes, setNotes] = useState(item?.notes || '');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
@@ -564,7 +574,9 @@ const ItemFormModal: React.FC<ItemFormProps> = ({ item, locations, users, jobs, 
         hourlyRate: hourlyRate ? parseFloat(hourlyRate) : 0,
         quantity: parseFloat(quantity) || 0,
         unit: unit || 'each',
-        currentLocationId: currentLocationId || undefined,
+        currentLocationId: locKind === 'shop' ? (currentLocationId || undefined) : undefined,
+        currentJobId: locKind === 'job' ? (currentJobId || undefined) : undefined,
+        currentAssigneeId: locKind === 'crew' ? (currentAssigneeId || undefined) : undefined,
         notes: notes || '',
       });
       onSave(saved);
@@ -665,12 +677,48 @@ const ItemFormModal: React.FC<ItemFormProps> = ({ item, locations, users, jobs, 
             </div>
           )}
 
-          <div className="space-y-1.5">
-            <p className={labelCls}>Storage Location</p>
-            <select className={inputCls} value={currentLocationId} onChange={e => setCurrentLocationId(e.target.value)}>
-              <option value="">— None —</option>
-              {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-            </select>
+          <div className="space-y-2">
+            <p className={labelCls}>Current Location</p>
+            <div className="grid grid-cols-3 gap-1.5">
+              {([
+                { id: 'shop' as ItemLocKind, label: 'Shop' },
+                { id: 'job'  as ItemLocKind, label: 'Job Site' },
+                { id: 'crew' as ItemLocKind, label: 'Crew' },
+              ]).map(opt => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setLocKind(opt.id)}
+                  className={`py-2 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-all ${
+                    locKind === opt.id
+                      ? d('bg-brand/20 text-brand border-brand/30', 'bg-brand/10 text-brand border-brand/30')
+                      : d('border-white/10 text-slate-500 hover:border-white/20 hover:text-slate-300', 'border-slate-200 text-slate-500 hover:border-slate-300 hover:text-slate-700')
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            {locKind === 'shop' && (
+              <select className={inputCls} value={currentLocationId} onChange={e => setCurrentLocationId(e.target.value)}>
+                <option value="">— None / Unassigned —</option>
+                {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>
+            )}
+            {locKind === 'job' && (
+              <select className={inputCls} value={currentJobId} onChange={e => setCurrentJobId(e.target.value)}>
+                <option value="">— Select job —</option>
+                {jobs.filter(j => !j.isComplete).map(j => (
+                  <option key={j.id} value={j.id}>#{j.jobNumber} — {j.customer}</option>
+                ))}
+              </select>
+            )}
+            {locKind === 'crew' && (
+              <select className={inputCls} value={currentAssigneeId} onChange={e => setCurrentAssigneeId(e.target.value)}>
+                <option value="">— Select crew member —</option>
+                {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+              </select>
+            )}
           </div>
 
           <div className="space-y-1.5">
@@ -808,7 +856,7 @@ const MovementModal: React.FC<MovementModalProps> = ({ item, locations, users, j
 
   const availableTypes = isEquip
     ? [InventoryMovementType.CHECK_OUT, InventoryMovementType.CHECK_IN, InventoryMovementType.TRANSFER, InventoryMovementType.ASSIGN, InventoryMovementType.RETURN]
-    : [InventoryMovementType.CONSUME, InventoryMovementType.CHECK_IN];
+    : [InventoryMovementType.CHECK_OUT, InventoryMovementType.CONSUME, InventoryMovementType.CHECK_IN];
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -833,12 +881,39 @@ const MovementModal: React.FC<MovementModalProps> = ({ item, locations, users, j
         notes,
       });
 
-      // Update item state optimistically via API
+      // Update item's current location — exactly one of the three fields should be set.
+      let newJobId      = item.currentJobId;
+      let newLocationId = item.currentLocationId;
+      let newAssigneeId = item.currentAssigneeId;
+
+      switch (movementType) {
+        case InventoryMovementType.CHECK_OUT:
+          newJobId      = jobId || undefined;
+          newLocationId = undefined;
+          newAssigneeId = undefined;
+          break;
+        case InventoryMovementType.CHECK_IN:
+        case InventoryMovementType.TRANSFER:
+        case InventoryMovementType.RETURN:
+          newJobId      = undefined;
+          newLocationId = toLocationId || item.currentLocationId || undefined;
+          newAssigneeId = undefined;
+          break;
+        case InventoryMovementType.ASSIGN:
+          newJobId      = undefined;
+          newLocationId = undefined;
+          newAssigneeId = assigneeId || undefined;
+          break;
+        case InventoryMovementType.CONSUME:
+          // No location change; keep current assignment.
+          break;
+      }
+
       const updatedItem: Partial<InventoryItem> & { companyId: string; name: string; itemType: InventoryItemType } = {
         ...item,
-        currentLocationId: toLocationId || item.currentLocationId,
-        currentJobId: jobId || item.currentJobId,
-        currentAssigneeId: assigneeId || item.currentAssigneeId,
+        currentLocationId: newLocationId,
+        currentJobId: newJobId,
+        currentAssigneeId: newAssigneeId,
         quantity: movementType === InventoryMovementType.CONSUME && delta
           ? Math.max(0, item.quantity - Math.abs(delta))
           : movementType === InventoryMovementType.CHECK_IN && delta
@@ -886,9 +961,31 @@ const MovementModal: React.FC<MovementModalProps> = ({ item, locations, users, j
           </div>
         </div>
 
-        {(movementType === InventoryMovementType.TRANSFER || movementType === InventoryMovementType.CHECK_OUT) && (
+        {movementType === InventoryMovementType.CHECK_OUT && (
+          <div className="space-y-1.5">
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Destination Job</p>
+            <select className={inputCls} value={jobId} onChange={e => setJobId(e.target.value)}>
+              <option value="">— Select job —</option>
+              {jobs.filter(j => !j.isComplete).map(j => (
+                <option key={j.id} value={j.id}>#{j.jobNumber} — {j.customer}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {movementType === InventoryMovementType.TRANSFER && (
           <div className="space-y-1.5">
             <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">To Location</p>
+            <select className={inputCls} value={toLocationId} onChange={e => setToLocationId(e.target.value)}>
+              <option value="">— Select location —</option>
+              {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+            </select>
+          </div>
+        )}
+
+        {(movementType === InventoryMovementType.CHECK_IN || movementType === InventoryMovementType.RETURN) && (
+          <div className="space-y-1.5">
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Return to Location</p>
             <select className={inputCls} value={toLocationId} onChange={e => setToLocationId(e.target.value)}>
               <option value="">— Select location —</option>
               {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
@@ -906,7 +1003,7 @@ const MovementModal: React.FC<MovementModalProps> = ({ item, locations, users, j
           </div>
         )}
 
-        {!isEquip && (
+        {!isEquip && movementType !== InventoryMovementType.CHECK_OUT && (
           <div className="space-y-1.5">
             <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">
               {movementType === InventoryMovementType.CONSUME ? 'Quantity Used' : 'Quantity Received'}
@@ -919,13 +1016,15 @@ const MovementModal: React.FC<MovementModalProps> = ({ item, locations, users, j
           </div>
         )}
 
-        <div className="space-y-1.5">
-          <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Linked Job (optional)</p>
-          <select className={inputCls} value={jobId} onChange={e => setJobId(e.target.value)}>
-            <option value="">— No job —</option>
-            {jobs.filter(j => !j.isComplete).map(j => <option key={j.id} value={j.id}>#{j.jobNumber} — {j.customer}</option>)}
-          </select>
-        </div>
+        {movementType !== InventoryMovementType.CHECK_OUT && movementType !== InventoryMovementType.ASSIGN && (
+          <div className="space-y-1.5">
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Linked Job (optional)</p>
+            <select className={inputCls} value={jobId} onChange={e => setJobId(e.target.value)}>
+              <option value="">— No job —</option>
+              {jobs.filter(j => !j.isComplete).map(j => <option key={j.id} value={j.id}>#{j.jobNumber} — {j.customer}</option>)}
+            </select>
+          </div>
+        )}
 
         <div className="space-y-1.5">
           <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Notes</p>
