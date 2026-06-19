@@ -31,6 +31,24 @@ interface EquipmentMapViewProps {
 // A grouping of inventory that shares a single map location — either a job
 // site or a shop (inventory location). Multiple items parked at the same place
 // collapse into one marker so pins never stack on top of each other.
+// Structured address used for geocoding. Nominatim resolves these far more
+// reliably than a single free-text line.
+interface GeoInput {
+  street?: string;
+  city?:   string;
+  state?:  string;
+  zip?:    string;
+}
+
+const geoToText = (g: GeoInput): string =>
+  [g.street, g.city, g.state, g.zip].map(s => s?.trim()).filter(Boolean).join(', ');
+
+const locGeo = (l: InventoryLocation): GeoInput =>
+  ({ street: l.address, city: l.city, state: l.state, zip: l.zip });
+
+const locHasAddress = (l?: InventoryLocation | null): boolean =>
+  !!l && geoToText(locGeo(l)).length > 0;
+
 interface Placement {
   key:      string;
   kind:     'job' | 'shop';
@@ -39,7 +57,7 @@ interface Placement {
   items:    InventoryItem[];
   lat?:     number;
   lng?:     number;
-  geoQuery?: string;       // address to geocode when coords aren't known yet
+  geo?:     GeoInput;      // address to geocode when coords aren't known yet
 }
 
 const JOB_COLOR  = '#3b82f6'; // blue — out on a job
@@ -64,17 +82,43 @@ const createMarkerIcon = (kind: 'job' | 'shop', count: number) => {
   });
 };
 
-const geocodeAddress = async (query: string): Promise<{ lat: number; lng: number } | null> => {
-  if (!query) return null;
+const parseHit = (data: any): { lat: number; lng: number } | null =>
+  data?.length > 0 ? { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) } : null;
+
+// Geocode an address, preferring Nominatim's structured search (street / city /
+// state / postalcode) — the same high-accuracy path the dig-ticket map uses —
+// and falling back to a free-text query when structured search comes up empty.
+const geocodeAddress = async (geo: GeoInput): Promise<{ lat: number; lng: number } | null> => {
+  const text = geoToText(geo);
+  if (!text) return null;
+
+  // Strategy 1: structured search (most accurate).
+  if (geo.street || geo.city || geo.zip) {
+    const params = new URLSearchParams({ format: 'json', limit: '1', countrycodes: 'us' });
+    if (geo.street) params.set('street', geo.street.trim());
+    if (geo.city)   params.set('city', geo.city.trim());
+    if (geo.state)  params.set('state', geo.state.trim());
+    if (geo.zip)    params.set('postalcode', geo.zip.trim());
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`,
+        { headers: { 'Accept-Language': 'en' } });
+      const hit = parseHit(await res.json());
+      if (hit) return hit;
+    } catch {
+      // fall through to free-text
+    }
+    // Honor the rate limit between the two requests.
+    await new Promise(r => setTimeout(r, NOMINATIM_RATE_LIMIT_MS));
+  }
+
+  // Strategy 2: free-text fallback.
   try {
     const res = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=us&q=${encodeURIComponent(query)}`,
+      `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=us&q=${encodeURIComponent(text)}`,
       { headers: { 'Accept-Language': 'en' } },
     );
-    const data = await res.json();
-    if (data?.length > 0) {
-      return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
-    }
+    const hit = parseHit(await res.json());
+    if (hit) return hit;
   } catch {
     // Geocoding failed — return null
   }
@@ -115,6 +159,14 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
   const jobMap  = useMemo(() => new Map(jobs.map(j => [j.id, j])), [jobs]);
   const locMap  = useMemo(() => new Map(locations.map(l => [l.id, l])), [locations]);
   const userMap = useMemo(() => new Map(users.map(u => [u.id, u])), [users]);
+
+  // The "default shop" is where otherwise-idle equipment is parked on the map.
+  // Prefer the first location that has a usable address (so it can be geocoded);
+  // fall back to the first location if none have an address yet.
+  const defaultShop = useMemo(
+    () => locations.find(l => geoToText(locGeo(l))) ?? locations[0] ?? null,
+    [locations],
+  );
 
   // Look up a job's coordinates from any of its dig tickets that already carry
   // GPS/geocoded coords — saves a network round-trip whenever possible.
@@ -164,19 +216,26 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
   // nowhere with a known address) — surfaced in a list beneath the map.
   const unplaced = useMemo(() => {
     return visibleItems.filter(e => {
-      if (e.currentJobId && jobMap.has(e.currentJobId)) return false;
-      if (e.currentLocationId && locMap.get(e.currentLocationId)?.address) return false;
-      return true;
+      if (e.currentJobId && jobMap.has(e.currentJobId)) return false;          // out on a job
+      if (e.currentAssigneeId && !e.currentLocationId && userMap.has(e.currentAssigneeId)) {
+        return true;                                                            // checked out to a crew member — can't be mapped
+      }
+      // Everything else defaults to a shop: its own addressed location, or the
+      // default shop. It's only unmappable if no shop has an address at all.
+      const ownLoc = e.currentLocationId ? locMap.get(e.currentLocationId) : undefined;
+      const shop = locHasAddress(ownLoc) ? ownLoc : defaultShop;
+      return !locHasAddress(shop);
     });
-  }, [visibleItems, jobMap, locMap]);
+  }, [visibleItems, jobMap, locMap, userMap, defaultShop]);
 
   // ── Build placement groups and resolve coordinates ─────────────────────────
   const placementKey = useMemo(() => {
+    const locFingerprint = locations.map(l => `${l.id}:${geoToText(locGeo(l))}`).join(',');
     return visibleItems
-      .map(e => `${e.id}:${e.currentJobId ?? ''}:${e.currentLocationId ?? ''}:${e.updatedAt}`)
+      .map(e => `${e.id}:${e.currentJobId ?? ''}:${e.currentLocationId ?? ''}:${e.currentAssigneeId ?? ''}:${e.updatedAt}`)
       .sort()
-      .join('|') + `#${jobMap.size}#${locMap.size}#${jobTicketCoords.size}`;
-  }, [visibleItems, jobMap, locMap, jobTicketCoords]);
+      .join('|') + `#${jobMap.size}#${locMap.size}#${jobTicketCoords.size}#${userMap.size}#${defaultShop?.id ?? ''}#${locFingerprint}`;
+  }, [visibleItems, jobMap, locMap, userMap, jobTicketCoords, defaultShop, locations]);
 
   useEffect(() => {
     // Group inventory by destination (job site or shop).
@@ -191,28 +250,38 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
         const job = jobMap.get(item.currentJobId)!;
         key = `job:${job.id}`;
         if (!groups.has(key)) {
-          const addressParts = [job.address, job.city, job.state].filter(Boolean);
-          const geoQuery = addressParts.join(', ');
+          const geo: GeoInput = { street: job.address, city: job.city, state: job.state };
+          const geoQuery = geoToText(geo);
           placement = {
             key, kind: 'job',
             label: `Job #${job.jobNumber}`,
             sublabel: geoQuery || job.customer || '',
-            items: [], geoQuery,
+            items: [], geo,
           };
           // Prefer coords already resolved on one of the job's dig tickets.
           const coords = jobTicketCoords.get(job.jobNumber) ?? (geoQuery ? cache.get(geoQuery) : undefined);
           if (coords) { placement.lat = coords.lat; placement.lng = coords.lng; }
         }
-      } else if (item.currentLocationId && locMap.get(item.currentLocationId)?.address) {
-        const loc = locMap.get(item.currentLocationId)!;
-        key = `shop:${loc.id}`;
+      } else if (item.currentAssigneeId && !item.currentLocationId && userMap.has(item.currentAssigneeId)) {
+        // Checked out to a crew member with no shop — can't be mapped; shown in
+        // the "Not on map" list instead.
+        continue;
+      } else {
+        // Default to a shop: the item's own addressed location when it has one,
+        // otherwise the company's default shop. This parks all otherwise-idle
+        // equipment at the shop address and keeps the shop pinned on the map.
+        const ownLoc = item.currentLocationId ? locMap.get(item.currentLocationId) : undefined;
+        const shop = locHasAddress(ownLoc) ? ownLoc! : defaultShop;
+        if (!locHasAddress(shop)) continue; // no shop with an address defined yet
+        key = `shop:${shop!.id}`;
         if (!groups.has(key)) {
-          const geoQuery = loc.address || loc.name;
+          const geo = locGeo(shop!);
+          const geoQuery = geoToText(geo);
           placement = {
             key, kind: 'shop',
-            label: loc.name,
-            sublabel: loc.address || '',
-            items: [], geoQuery,
+            label: shop!.name,
+            sublabel: geoQuery,
+            items: [], geo,
           };
           const coords = cache.get(geoQuery);
           if (coords) { placement.lat = coords.lat; placement.lng = coords.lng; }
@@ -228,7 +297,7 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
     setPlacements(list);
 
     // Geocode any placements without known coordinates, honoring the rate limit.
-    const needGeocode = list.filter(p => (p.lat == null || p.lng == null) && p.geoQuery);
+    const needGeocode = list.filter(p => (p.lat == null || p.lng == null) && p.geo && geoToText(p.geo));
     setTotalToGeocode(needGeocode.length);
     setGeocodedCount(0);
 
@@ -243,10 +312,10 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
     (async () => {
       for (const placement of needGeocode) {
         if (cancelled) break;
-        const coords = await geocodeAddress(placement.geoQuery!);
+        const coords = await geocodeAddress(placement.geo!);
         if (!cancelled) {
           if (coords) {
-            cache.set(placement.geoQuery!, coords);
+            cache.set(geoToText(placement.geo!), coords);
             setPlacements(prev => prev.map(p =>
               p.key === placement.key ? { ...p, lat: coords.lat, lng: coords.lng } : p,
             ));

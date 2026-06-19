@@ -326,7 +326,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
                       <p className={d('text-[13px] font-bold', 'text-slate-100', 'text-slate-900')}>{loc.name}</p>
                     </td>
                     <td className="px-5 py-4">
-                      <p className={d('text-[11px]', 'text-slate-500', 'text-slate-500')}>{loc.address || '—'}</p>
+                      <p className={d('text-[11px]', 'text-slate-500', 'text-slate-500')}>{[loc.address, loc.city, loc.state, loc.zip].filter(Boolean).join(', ') || '—'}</p>
                     </td>
                     <td className="px-5 py-4">
                       <span className={d('text-[10px] font-black uppercase px-2 py-1 rounded-lg', 'bg-white/[0.04] text-slate-500', 'bg-slate-100 text-slate-500')}>{hereCount}</span>
@@ -533,7 +533,11 @@ const ItemFormModal: React.FC<ItemFormProps> = ({ item, locations, users, jobs, 
   const [hourlyRate, setHourlyRate] = useState(item?.hourlyRate?.toString() || '');
   const [quantity, setQuantity] = useState(item?.quantity?.toString() || '0');
   const [unit, setUnit] = useState(item?.unit || 'each');
-  const [currentLocationId, setCurrentLocationId] = useState(item?.currentLocationId || '');
+  // New equipment defaults to the shop (first location with an address, else the
+  // first location) so it lands on the equipment map right away. Existing items
+  // keep whatever location they already have.
+  const defaultLocationId = (locations.find(l => l.address || l.city || l.zip) ?? locations[0])?.id ?? '';
+  const [currentLocationId, setCurrentLocationId] = useState(item?.currentLocationId ?? (item ? '' : defaultLocationId));
   const [notes, setNotes] = useState(item?.notes || '');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
@@ -701,6 +705,9 @@ interface LocationFormProps {
 const LocationFormModal: React.FC<LocationFormProps> = ({ location, companyId, isDarkMode, onSave, onClose }) => {
   const [name, setName] = useState(location?.name || '');
   const [address, setAddress] = useState(location?.address || '');
+  const [city, setCity] = useState(location?.city || '');
+  const [state, setState] = useState(location?.state || '');
+  const [zip, setZip] = useState(location?.zip || '');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -715,7 +722,7 @@ const LocationFormModal: React.FC<LocationFormProps> = ({ location, companyId, i
     setIsSaving(true);
     setError('');
     try {
-      const saved = await apiService.saveInventoryLocation({ ...(location ? { id: location.id } : {}), companyId, name: name.trim(), address: address.trim() });
+      const saved = await apiService.saveInventoryLocation({ ...(location ? { id: location.id } : {}), companyId, name: name.trim(), address: address.trim(), city: city.trim(), state: state.trim(), zip: zip.trim() });
       onSave(saved);
     } catch (e: any) {
       setError(e.message || 'Save failed');
@@ -738,9 +745,24 @@ const LocationFormModal: React.FC<LocationFormProps> = ({ location, companyId, i
           <input className={inputCls} value={name} onChange={e => setName(e.target.value)} placeholder="Main Yard, Warehouse B…" />
         </div>
         <div className="space-y-1.5">
-          <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Address (optional)</p>
-          <input className={inputCls} value={address} onChange={e => setAddress(e.target.value)} placeholder="123 Storage Rd, City, ST" />
+          <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Street Address</p>
+          <input className={inputCls} value={address} onChange={e => setAddress(e.target.value)} placeholder="123 Storage Rd" />
         </div>
+        <div className="space-y-1.5">
+          <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">City</p>
+          <input className={inputCls} value={city} onChange={e => setCity(e.target.value)} placeholder="Springfield" />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">State</p>
+            <input className={inputCls} value={state} onChange={e => setState(e.target.value)} placeholder="IL" />
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">ZIP Code</p>
+            <input className={inputCls} value={zip} onChange={e => setZip(e.target.value)} placeholder="62704" />
+          </div>
+        </div>
+        <p className={d('text-[10px] text-slate-500', 'text-[10px] text-slate-400')}>Add a full address so equipment parked here pins accurately on the map.</p>
         {error && <p className="text-[11px] font-bold text-rose-400">{error}</p>}
         <div className="flex gap-3 pt-2">
           <button onClick={onClose} className={`flex-1 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${d('border-white/10 text-slate-500 hover:text-slate-200', 'border-slate-200 text-slate-500 hover:text-slate-700')}`}>Cancel</button>

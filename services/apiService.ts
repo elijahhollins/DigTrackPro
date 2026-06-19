@@ -25,6 +25,17 @@ const mapInvItem = (d: Record<string, unknown>): InventoryItem => ({
   updatedAt: new Date(d.updated_at as string).getTime(),
 });
 
+const mapInvLocation = (d: Record<string, unknown>): InventoryLocation => ({
+  id: d.id as string,
+  companyId: d.company_id as string,
+  name: d.name as string,
+  address: (d.address as string) || '',
+  city: (d.city as string) || '',
+  state: (d.state as string) || '',
+  zip: (d.zip as string) || '',
+  createdAt: new Date(d.created_at as string).getTime(),
+});
+
 const mapRole = (role: string | undefined): UserRole => {
   const r = role?.toUpperCase();
   if (r === 'SUPER_ADMIN') return UserRole.SUPER_ADMIN;
@@ -860,25 +871,26 @@ export const apiService = {
   async getInventoryLocations(): Promise<InventoryLocation[]> {
     const { data, error } = await supabase.from('inventory_locations').select('*').order('name');
     if (error) throw error;
-    return (data || []).map((d: Record<string, unknown>) => ({
-      id: d.id as string,
-      companyId: d.company_id as string,
-      name: d.name as string,
-      address: (d.address as string) || '',
-      createdAt: new Date(d.created_at as string).getTime(),
-    }));
+    return (data || []).map((d: Record<string, unknown>) => mapInvLocation(d));
   },
 
-  async saveInventoryLocation(loc: { id?: string; companyId: string; name: string; address?: string }): Promise<InventoryLocation> {
-    const payload = { company_id: loc.companyId, name: loc.name, address: loc.address || '' };
+  async saveInventoryLocation(loc: { id?: string; companyId: string; name: string; address?: string; city?: string; state?: string; zip?: string }): Promise<InventoryLocation> {
+    const payload = {
+      company_id: loc.companyId,
+      name: loc.name,
+      address: loc.address || '',
+      city: loc.city || '',
+      state: loc.state || '',
+      zip: loc.zip || '',
+    };
     if (loc.id) {
       const { data, error } = await supabase.from('inventory_locations').update(payload).eq('id', loc.id).select().single();
       if (error) throw error;
-      return { id: data.id, companyId: data.company_id, name: data.name, address: data.address || '', createdAt: new Date(data.created_at).getTime() };
+      return mapInvLocation(data);
     }
     const { data, error } = await supabase.from('inventory_locations').insert([payload]).select().single();
     if (error) throw error;
-    return { id: data.id, companyId: data.company_id, name: data.name, address: data.address || '', createdAt: new Date(data.created_at).getTime() };
+    return mapInvLocation(data);
   },
 
   async deleteInventoryLocation(id: string): Promise<void> {
