@@ -116,6 +116,14 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
   const locMap  = useMemo(() => new Map(locations.map(l => [l.id, l])), [locations]);
   const userMap = useMemo(() => new Map(users.map(u => [u.id, u])), [users]);
 
+  // The "default shop" is where otherwise-idle equipment is parked on the map.
+  // Prefer the first location that has an address (so it can be geocoded);
+  // fall back to the first location if none have an address yet.
+  const defaultShop = useMemo(
+    () => locations.find(l => l.address) ?? locations[0] ?? null,
+    [locations],
+  );
+
   // Look up a job's coordinates from any of its dig tickets that already carry
   // GPS/geocoded coords — saves a network round-trip whenever possible.
   const jobTicketCoords = useMemo(() => {
@@ -164,19 +172,25 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
   // nowhere with a known address) — surfaced in a list beneath the map.
   const unplaced = useMemo(() => {
     return visibleItems.filter(e => {
-      if (e.currentJobId && jobMap.has(e.currentJobId)) return false;
-      if (e.currentLocationId && locMap.get(e.currentLocationId)?.address) return false;
-      return true;
+      if (e.currentJobId && jobMap.has(e.currentJobId)) return false;          // out on a job
+      if (e.currentAssigneeId && !e.currentLocationId && userMap.has(e.currentAssigneeId)) {
+        return true;                                                            // checked out to a crew member — can't be mapped
+      }
+      // Everything else defaults to a shop: its own addressed location, or the
+      // default shop. It's only unmappable if no shop has an address at all.
+      const ownLoc = e.currentLocationId ? locMap.get(e.currentLocationId) : undefined;
+      const shop = ownLoc?.address ? ownLoc : defaultShop;
+      return !shop?.address;
     });
-  }, [visibleItems, jobMap, locMap]);
+  }, [visibleItems, jobMap, locMap, userMap, defaultShop]);
 
   // ── Build placement groups and resolve coordinates ─────────────────────────
   const placementKey = useMemo(() => {
     return visibleItems
-      .map(e => `${e.id}:${e.currentJobId ?? ''}:${e.currentLocationId ?? ''}:${e.updatedAt}`)
+      .map(e => `${e.id}:${e.currentJobId ?? ''}:${e.currentLocationId ?? ''}:${e.currentAssigneeId ?? ''}:${e.updatedAt}`)
       .sort()
-      .join('|') + `#${jobMap.size}#${locMap.size}#${jobTicketCoords.size}`;
-  }, [visibleItems, jobMap, locMap, jobTicketCoords]);
+      .join('|') + `#${jobMap.size}#${locMap.size}#${jobTicketCoords.size}#${userMap.size}#${defaultShop?.id ?? ''}#${defaultShop?.address ?? ''}`;
+  }, [visibleItems, jobMap, locMap, userMap, jobTicketCoords, defaultShop]);
 
   useEffect(() => {
     // Group inventory by destination (job site or shop).
@@ -203,15 +217,24 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
           const coords = jobTicketCoords.get(job.jobNumber) ?? (geoQuery ? cache.get(geoQuery) : undefined);
           if (coords) { placement.lat = coords.lat; placement.lng = coords.lng; }
         }
-      } else if (item.currentLocationId && locMap.get(item.currentLocationId)?.address) {
-        const loc = locMap.get(item.currentLocationId)!;
-        key = `shop:${loc.id}`;
+      } else if (item.currentAssigneeId && !item.currentLocationId && userMap.has(item.currentAssigneeId)) {
+        // Checked out to a crew member with no shop — can't be mapped; shown in
+        // the "Not on map" list instead.
+        continue;
+      } else {
+        // Default to a shop: the item's own addressed location when it has one,
+        // otherwise the company's default shop. This parks all otherwise-idle
+        // equipment at the shop address and keeps the shop pinned on the map.
+        const ownLoc = item.currentLocationId ? locMap.get(item.currentLocationId) : undefined;
+        const shop = ownLoc?.address ? ownLoc : defaultShop;
+        if (!shop?.address) continue; // no shop with an address defined yet
+        key = `shop:${shop.id}`;
         if (!groups.has(key)) {
-          const geoQuery = loc.address || loc.name;
+          const geoQuery = shop.address;
           placement = {
             key, kind: 'shop',
-            label: loc.name,
-            sublabel: loc.address || '',
+            label: shop.name,
+            sublabel: shop.address,
             items: [], geoQuery,
           };
           const coords = cache.get(geoQuery);

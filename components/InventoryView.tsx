@@ -533,7 +533,11 @@ const ItemFormModal: React.FC<ItemFormProps> = ({ item, locations, users, jobs, 
   const [hourlyRate, setHourlyRate] = useState(item?.hourlyRate?.toString() || '');
   const [quantity, setQuantity] = useState(item?.quantity?.toString() || '0');
   const [unit, setUnit] = useState(item?.unit || 'each');
-  const [currentLocationId, setCurrentLocationId] = useState(item?.currentLocationId || '');
+  // New equipment defaults to the shop (first location with an address, else the
+  // first location) so it lands on the equipment map right away. Existing items
+  // keep whatever location they already have.
+  const defaultLocationId = (locations.find(l => l.address) ?? locations[0])?.id ?? '';
+  const [currentLocationId, setCurrentLocationId] = useState(item?.currentLocationId ?? (item ? '' : defaultLocationId));
   const [notes, setNotes] = useState(item?.notes || '');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
