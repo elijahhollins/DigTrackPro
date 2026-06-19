@@ -8,9 +8,6 @@ import {
 } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
 
-// Respect Nominatim's 1 request/second usage policy
-const NOMINATIM_RATE_LIMIT_MS = 1100;
-
 // Fix Leaflet default icon path issue with bundlers
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -29,39 +26,19 @@ interface EquipmentMapViewProps {
 }
 
 // A grouping of inventory that shares a single map location — either a job
-// site or a shop (inventory location). Multiple items parked at the same place
-// collapse into one marker so pins never stack on top of each other.
-// Structured address used for geocoding. Nominatim resolves these far more
-// reliably than a single free-text line.
-interface GeoInput {
-  street?: string;
-  city?:   string;
-  state?:  string;
-  zip?:    string;
-}
-
-const geoToText = (g: GeoInput): string =>
-  [g.street, g.city, g.state, g.zip].map(s => s?.trim()).filter(Boolean).join(', ');
-
-const locGeo = (l: InventoryLocation): GeoInput =>
-  ({ street: l.address, city: l.city, state: l.state, zip: l.zip });
-
-const locHasAddress = (l?: InventoryLocation | null): boolean =>
-  !!l && geoToText(locGeo(l)).length > 0;
-
+// site or a shop. Multiple items at the same place collapse into one marker.
 interface Placement {
   key:      string;
   kind:     'job' | 'shop';
-  label:    string;        // job number or shop name
-  sublabel: string;        // address shown beneath the label
+  label:    string;
+  sublabel: string;
   items:    InventoryItem[];
   lat?:     number;
   lng?:     number;
-  geo?:     GeoInput;      // address to geocode when coords aren't known yet
 }
 
-const JOB_COLOR  = '#3b82f6'; // blue — out on a job
-const SHOP_COLOR = '#10b981'; // emerald — at the shop
+const JOB_COLOR  = '#3b82f6';
+const SHOP_COLOR = '#10b981';
 
 type TypeFilter = 'ALL' | InventoryItemType.EQUIPMENT | InventoryItemType.MATERIAL;
 
@@ -80,49 +57,6 @@ const createMarkerIcon = (kind: 'job' | 'shop', count: number) => {
     iconAnchor:  [13, 13],
     popupAnchor: [0, -15],
   });
-};
-
-const parseHit = (data: any): { lat: number; lng: number } | null =>
-  data?.length > 0 ? { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) } : null;
-
-// Geocode an address, preferring Nominatim's structured search (street / city /
-// state / postalcode) — the same high-accuracy path the dig-ticket map uses —
-// and falling back to a free-text query when structured search comes up empty.
-const geocodeAddress = async (geo: GeoInput): Promise<{ lat: number; lng: number } | null> => {
-  const text = geoToText(geo);
-  if (!text) return null;
-
-  // Strategy 1: structured search (most accurate).
-  if (geo.street || geo.city || geo.zip) {
-    const params = new URLSearchParams({ format: 'json', limit: '1', countrycodes: 'us' });
-    if (geo.street) params.set('street', geo.street.trim());
-    if (geo.city)   params.set('city', geo.city.trim());
-    if (geo.state)  params.set('state', geo.state.trim());
-    if (geo.zip)    params.set('postalcode', geo.zip.trim());
-    try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`,
-        { headers: { 'Accept-Language': 'en' } });
-      const hit = parseHit(await res.json());
-      if (hit) return hit;
-    } catch {
-      // fall through to free-text
-    }
-    // Honor the rate limit between the two requests.
-    await new Promise(r => setTimeout(r, NOMINATIM_RATE_LIMIT_MS));
-  }
-
-  // Strategy 2: free-text fallback.
-  try {
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=us&q=${encodeURIComponent(text)}`,
-      { headers: { 'Accept-Language': 'en' } },
-    );
-    const hit = parseHit(await res.json());
-    if (hit) return hit;
-  } catch {
-    // Geocoding failed — return null
-  }
-  return null;
 };
 
 const escapeHtml = (s: string): string =>
@@ -146,30 +80,19 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
   const [placements, setPlacements] = useState<Placement[]>([]);
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('ALL');
   const [relocating, setRelocating] = useState<InventoryItem | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState('');
-  const [isGeocoding, setIsGeocoding]   = useState(false);
-  const [geocodedCount, setGeocodedCount] = useState(0);
-  const [totalToGeocode, setTotalToGeocode] = useState(0);
-
-  // Cache resolved coordinates by geocode query so relocating one item doesn't
-  // force every other shop placement to be geocoded again.
-  const coordsCacheRef = useRef<Map<string, { lat: number; lng: number }>>(new Map());
+  const [isLoading, setIsLoading]   = useState(true);
+  const [loadError, setLoadError]   = useState('');
+  // When non-null, the user is clicking the map to set a shop's pin location.
+  const [pinMode, setPinMode] = useState<{ locationId: string; locationName: string } | null>(null);
 
   const jobMap  = useMemo(() => new Map(jobs.map(j => [j.id, j])), [jobs]);
   const locMap  = useMemo(() => new Map(locations.map(l => [l.id, l])), [locations]);
   const userMap = useMemo(() => new Map(users.map(u => [u.id, u])), [users]);
 
-  // The "default shop" is where otherwise-idle equipment is parked on the map.
-  // Prefer the first location that has a usable address (so it can be geocoded);
-  // fall back to the first location if none have an address yet.
-  const defaultShop = useMemo(
-    () => locations.find(l => geoToText(locGeo(l))) ?? locations[0] ?? null,
-    [locations],
-  );
+  // Fallback location for items with no explicit location assignment.
+  const defaultShop = useMemo(() => locations[0] ?? null, [locations]);
 
-  // Look up a job's coordinates from any of its dig tickets that already carry
-  // GPS/geocoded coords — saves a network round-trip whenever possible.
+  // GPS coords from any dig ticket that was geotagged — used for job markers.
   const jobTicketCoords = useMemo(() => {
     const map = new Map<string, { lat: number; lng: number }>();
     for (const t of tickets) {
@@ -180,8 +103,8 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
     return map;
   }, [tickets]);
 
-  // Keep a live lookup + setter ref so popup buttons (raw HTML) can open the
-  // relocate panel without re-binding every render.
+  // Keep live refs so popup buttons (raw HTML) can open the relocate panel
+  // without re-binding every render.
   const itemsByIdRef = useRef<Map<string, InventoryItem>>(new Map());
   itemsByIdRef.current = new Map(items.map(i => [i.id, i]));
   const setRelocatingRef = useRef(setRelocating);
@@ -212,138 +135,71 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
     [items, typeFilter],
   );
 
-  // Items that can't be put on the map (assigned to a person, or sitting
-  // nowhere with a known address) — surfaced in a list beneath the map.
+  // Items with no mappable destination: assigned to a crew member, or at no
+  // location when no shops exist at all.
   const unplaced = useMemo(() => {
     return visibleItems.filter(e => {
-      if (e.currentJobId && jobMap.has(e.currentJobId)) return false;          // out on a job
-      if (e.currentAssigneeId && !e.currentLocationId && userMap.has(e.currentAssigneeId)) {
-        return true;                                                            // checked out to a crew member — can't be mapped
-      }
-      // Everything else defaults to a shop: its own addressed location, or the
-      // default shop. It's only unmappable if no shop has an address at all.
+      if (e.currentJobId && jobMap.has(e.currentJobId)) return false;
+      if (e.currentAssigneeId && !e.currentLocationId && userMap.has(e.currentAssigneeId)) return true;
       const ownLoc = e.currentLocationId ? locMap.get(e.currentLocationId) : undefined;
-      const shop = locHasAddress(ownLoc) ? ownLoc : defaultShop;
-      return !locHasAddress(shop);
+      const shop = ownLoc ?? defaultShop;
+      return !shop;
     });
   }, [visibleItems, jobMap, locMap, userMap, defaultShop]);
 
-  // ── Build placement groups and resolve coordinates ─────────────────────────
+  // ── Build placement groups from stored coordinates ─────────────────────────
+  // No geocoding here — coordinates come from the DB (set when a location is
+  // saved in InventoryView, or via the "Set pin" button below).
   const placementKey = useMemo(() => {
-    const locFingerprint = locations.map(l => `${l.id}:${geoToText(locGeo(l))}`).join(',');
+    const locCoords = locations.map(l => `${l.id}:${l.lat ?? ''},${l.lng ?? ''}`).join(',');
     return visibleItems
       .map(e => `${e.id}:${e.currentJobId ?? ''}:${e.currentLocationId ?? ''}:${e.currentAssigneeId ?? ''}:${e.updatedAt}`)
       .sort()
-      .join('|') + `#${jobMap.size}#${locMap.size}#${jobTicketCoords.size}#${userMap.size}#${defaultShop?.id ?? ''}#${locFingerprint}`;
-  }, [visibleItems, jobMap, locMap, userMap, jobTicketCoords, defaultShop, locations]);
+      .join('|') + `#${jobMap.size}#${locMap.size}#${jobTicketCoords.size}#${userMap.size}#${defaultShop?.id ?? ''}#${locCoords}`;
+  }, [visibleItems, jobMap, locMap, jobTicketCoords, userMap, defaultShop, locations]);
 
   useEffect(() => {
-    // Group inventory by destination (job site or shop).
     const groups = new Map<string, Placement>();
-    const cache = coordsCacheRef.current;
 
     for (const item of visibleItems) {
-      let key: string | null = null;
-      let placement: Placement | null = null;
-
       if (item.currentJobId && jobMap.has(item.currentJobId)) {
         const job = jobMap.get(item.currentJobId)!;
-        key = `job:${job.id}`;
+        const key = `job:${job.id}`;
         if (!groups.has(key)) {
-          const geo: GeoInput = { street: job.address, city: job.city, state: job.state };
-          const geoQuery = geoToText(geo);
-          placement = {
+          const coords = jobTicketCoords.get(job.jobNumber);
+          groups.set(key, {
             key, kind: 'job',
             label: `Job #${job.jobNumber}`,
-            sublabel: geoQuery || job.customer || '',
-            items: [], geo,
-          };
-          // Prefer coords already resolved on one of the job's dig tickets.
-          const coords = jobTicketCoords.get(job.jobNumber) ?? (geoQuery ? cache.get(geoQuery) : undefined);
-          if (coords) { placement.lat = coords.lat; placement.lng = coords.lng; }
+            sublabel: [job.address, job.city, job.state].filter(Boolean).join(', ') || job.customer || '',
+            items: [],
+            lat: coords?.lat,
+            lng: coords?.lng,
+          });
         }
+        groups.get(key)!.items.push(item);
       } else if (item.currentAssigneeId && !item.currentLocationId && userMap.has(item.currentAssigneeId)) {
-        // Checked out to a crew member with no shop — can't be mapped; shown in
-        // the "Not on map" list instead.
-        continue;
+        continue; // crew assignment — surfaced in the "Not on map" list
       } else {
-        // Default to a shop: the item's own addressed location when it has one,
-        // otherwise the company's default shop. This parks all otherwise-idle
-        // equipment at the shop address and keeps the shop pinned on the map.
         const ownLoc = item.currentLocationId ? locMap.get(item.currentLocationId) : undefined;
-        const shop = locHasAddress(ownLoc) ? ownLoc! : defaultShop;
-        if (!locHasAddress(shop)) continue; // no shop with an address defined yet
-        key = `shop:${shop!.id}`;
+        const shop = ownLoc ?? defaultShop;
+        if (!shop) continue;
+        const key = `shop:${shop.id}`;
         if (!groups.has(key)) {
-          const geo = locGeo(shop!);
-          const geoQuery = geoToText(geo);
-          placement = {
+          const sublabel = [shop.address, shop.city, shop.state, shop.zip].filter(Boolean).join(', ');
+          groups.set(key, {
             key, kind: 'shop',
-            label: shop!.name,
-            sublabel: geoQuery,
-            items: [], geo,
-          };
-          // Prefer the shop's persisted coordinates, then the in-session cache —
-          // either lets us pin instantly without hitting Nominatim again.
-          const coords = (shop!.lat != null && shop!.lng != null)
-            ? { lat: shop!.lat, lng: shop!.lng }
-            : cache.get(geoQuery);
-          if (coords) { placement.lat = coords.lat; placement.lng = coords.lng; }
+            label: shop.name,
+            sublabel,
+            items: [],
+            lat: shop.lat ?? undefined,
+            lng: shop.lng ?? undefined,
+          });
         }
+        groups.get(key)!.items.push(item);
       }
-
-      if (!key) continue; // unplaced — handled separately
-      if (placement) groups.set(key, placement);
-      groups.get(key)!.items.push(item);
     }
 
-    const list = Array.from(groups.values());
-    setPlacements(list);
-
-    // Geocode any placements without known coordinates, honoring the rate limit.
-    const needGeocode = list.filter(p => (p.lat == null || p.lng == null) && p.geo && geoToText(p.geo));
-    setTotalToGeocode(needGeocode.length);
-    setGeocodedCount(0);
-
-    if (needGeocode.length === 0) {
-      setIsGeocoding(false);
-      return;
-    }
-
-    setIsGeocoding(true);
-    let cancelled = false;
-
-    (async () => {
-      for (const placement of needGeocode) {
-        if (cancelled) break;
-        const coords = await geocodeAddress(placement.geo!);
-        if (!cancelled) {
-          if (coords) {
-            cache.set(geoToText(placement.geo!), coords);
-            setPlacements(prev => prev.map(p =>
-              p.key === placement.key ? { ...p, lat: coords.lat, lng: coords.lng } : p,
-            ));
-            // Persist a shop's position so it pins instantly next session instead
-            // of re-geocoding — the root cause of the map getting stuck on
-            // "Locating…" when Nominatim throttles repeat requests.
-            if (placement.key.startsWith('shop:')) {
-              const locId = placement.key.slice('shop:'.length);
-              setLocations(prev => prev.map(l =>
-                l.id === locId ? { ...l, lat: coords.lat, lng: coords.lng } : l,
-              ));
-              apiService.updateLocationCoords(locId, coords.lat, coords.lng).catch(err =>
-                console.error('Failed to persist shop coordinates for location', locId, err),
-              );
-            }
-          }
-          setGeocodedCount(prev => prev + 1);
-        }
-        await new Promise(r => setTimeout(r, NOMINATIM_RATE_LIMIT_MS));
-      }
-      if (!cancelled) setIsGeocoding(false);
-    })();
-
-    return () => { cancelled = true; };
+    setPlacements(Array.from(groups.values()));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [placementKey]);
 
@@ -363,6 +219,35 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
       mapRef.current = null;
     };
   }, []);
+
+  // ── Pin mode: let the user click the map to set a shop's coordinates ───────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!pinMode) {
+      map.getContainer().style.cursor = '';
+      return;
+    }
+
+    map.getContainer().style.cursor = 'crosshair';
+
+    const onClick = (e: L.LeafletMouseEvent) => {
+      const { lat, lng } = e.latlng;
+      setLocations(prev => prev.map(l =>
+        l.id === pinMode.locationId ? { ...l, lat, lng } : l,
+      ));
+      apiService.updateLocationCoords(pinMode.locationId, lat, lng).catch(err =>
+        console.error('Failed to save pin location:', err),
+      );
+      setPinMode(null);
+    };
+
+    map.on('click', onClick);
+    return () => {
+      map.off('click', onClick);
+      map.getContainer().style.cursor = '';
+    };
+  }, [pinMode]);
 
   // ── Render markers whenever placements change ──────────────────────────────
   useEffect(() => {
@@ -414,7 +299,6 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
         .bindPopup(popupHtml)
         .addTo(map);
 
-      // Wire each "Move" button to open the relocate panel.
       marker.on('popupopen', () => {
         const el = marker.getPopup()?.getElement();
         el?.querySelectorAll<HTMLButtonElement>('button[data-equip-move]').forEach(btn => {
@@ -434,17 +318,15 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
     }
   }, [placements]);
 
-  // Apply a completed relocation to local state so the map updates instantly.
   const handleMoved = useCallback((updated: InventoryItem) => {
     setItems(prev => prev.map(i => i.id === updated.id ? updated : i));
     setRelocating(null);
   }, []);
 
   const subtitle = dm ? 'text-slate-500' : 'text-slate-400';
-  const positionedCount = placements.filter(p => p.lat != null && p.lng != null).length;
-  const mappedItems = placements
-    .filter(p => p.lat != null && p.lng != null)
-    .reduce((sum, p) => sum + p.items.length, 0);
+  const positioned = placements.filter(p => p.lat != null && p.lng != null);
+  const noCoords   = placements.filter(p => p.lat == null || p.lng == null);
+  const mappedItems = positioned.reduce((sum, p) => sum + p.items.length, 0);
 
   const filterChips: Array<{ id: TypeFilter; label: string }> = [
     { id: 'ALL', label: 'All' },
@@ -454,7 +336,7 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Type filter + geocoding progress */}
+      {/* Type filter */}
       <div className="flex flex-wrap items-center gap-3">
         <div className={`flex rounded-xl border p-0.5 gap-0.5 w-fit ${dm ? 'bg-[#0b1629] border-white/[0.08]' : 'bg-slate-100 border-slate-200'}`}>
           {filterChips.map(chip => (
@@ -471,13 +353,23 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
             </button>
           ))}
         </div>
-        {isGeocoding && (
-          <div className="flex items-center gap-2 px-4 py-2 bg-brand/10 border border-brand/20 rounded-xl text-[10px] font-black uppercase tracking-widest text-brand">
-            <div className="w-2 h-2 bg-brand rounded-full animate-ping" />
-            Locating {geocodedCount}/{totalToGeocode}
-          </div>
-        )}
       </div>
+
+      {/* Pin mode banner */}
+      {pinMode && (
+        <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${dm ? 'bg-amber-500/10 border-amber-500/25 text-amber-400' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
+          <div className="w-2 h-2 rounded-full bg-amber-500 animate-ping flex-none" />
+          <span className="text-[11px] font-black uppercase tracking-widest">
+            Click the map to pin <span className="normal-case font-bold">{pinMode.locationName}</span>
+          </span>
+          <button
+            onClick={() => setPinMode(null)}
+            className="ml-auto text-[10px] font-black uppercase tracking-widest opacity-70 hover:opacity-100 transition-opacity"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
 
       {/* Map container */}
       <div className={`relative rounded-2xl overflow-hidden border ${dm ? 'border-white/[0.06]' : 'border-slate-100'}`} style={{ height: '540px' }}>
@@ -516,17 +408,56 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
           </div>
         ))}
         <span className={`ml-auto text-[9px] font-bold ${subtitle}`}>
-          {mappedItems} of {visibleItems.length} mapped · {positionedCount} {positionedCount === 1 ? 'location' : 'locations'}
+          {mappedItems} of {visibleItems.length} mapped · {positioned.length} {positioned.length === 1 ? 'location' : 'locations'}
         </span>
       </div>
 
-      {/* Inventory that can't be placed on the map */}
-      {unplaced.length > 0 && (
+      {/* Items that couldn't be placed on the map */}
+      {(noCoords.length > 0 || unplaced.length > 0) && (
         <div className={`rounded-xl border px-5 py-4 ${dm ? 'bg-[#0b1629] border-white/[0.06]' : 'bg-white border-slate-100 shadow-sm'}`}>
           <p className={`text-[9px] font-black uppercase tracking-widest mb-3 ${subtitle}`}>
-            Not on map ({unplaced.length})
+            Not on map ({noCoords.reduce((s, p) => s + p.items.length, 0) + unplaced.length})
           </p>
           <div className="flex flex-col gap-1">
+            {/* Placements missing map coordinates */}
+            {noCoords.map(placement => (
+              <div key={placement.key}>
+                {/* Location header with "Set pin" action for shops */}
+                <div className={`flex items-center gap-2 -mx-2 px-2 py-1 mb-0.5`}>
+                  <span className={`text-[9px] font-black uppercase tracking-widest ${subtitle}`}>{placement.label}</span>
+                  {placement.sublabel && (
+                    <span className={`text-[9px] font-bold ${subtitle} opacity-60`}>{placement.sublabel}</span>
+                  )}
+                  {placement.kind === 'shop' && (
+                    <button
+                      onClick={() => setPinMode({
+                        locationId: placement.key.slice('shop:'.length),
+                        locationName: placement.label,
+                      })}
+                      className={`ml-auto px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${dm ? 'bg-amber-500/15 text-amber-400 hover:bg-amber-500/25' : 'bg-amber-100 text-amber-700 hover:bg-amber-200'}`}
+                    >
+                      Set pin
+                    </button>
+                  )}
+                </div>
+                {placement.items.map(item => {
+                  const isMat = item.itemType === InventoryItemType.MATERIAL;
+                  return (
+                    <div key={item.id} className={`group flex items-center gap-3 -mx-2 px-2 py-1.5 rounded-lg ml-2 ${dm ? 'hover:bg-white/5' : 'hover:bg-slate-50'}`}>
+                      <span className={`w-1.5 h-1.5 flex-none ${isMat ? 'rounded-full' : 'rounded-sm'} ${dm ? 'bg-slate-600' : 'bg-slate-300'}`} />
+                      <span className={`text-[12px] font-bold ${dm ? 'text-slate-200' : 'text-slate-700'}`}>{item.name}</span>
+                      <button
+                        onClick={() => setRelocating(item)}
+                        className="ml-auto px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest bg-brand/15 text-brand hover:bg-brand/25 transition-all"
+                      >
+                        Move
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+            {/* Crew assignments and truly unplaced items */}
             {unplaced.map(item => {
               const assignee = item.currentAssigneeId ? userMap.get(item.currentAssigneeId) : null;
               const where = assignee
@@ -606,7 +537,6 @@ const RelocateModal: React.FC<RelocateModalProps> = ({
 
   const activeJobs = useMemo(() => jobs.filter(j => !j.isComplete), [jobs]);
 
-  // Describe where the item is right now.
   const currentLabel = item.currentJobId
     ? `Job #${jobMap.get(item.currentJobId)?.jobNumber ?? '—'}`
     : item.currentAssigneeId
@@ -628,7 +558,6 @@ const RelocateModal: React.FC<RelocateModalProps> = ({
 
   const handleSave = async () => {
     setError('');
-    // Validate the chosen destination.
     if (dest === 'job' && !jobId)       { setError('Pick a job.'); return; }
     if (dest === 'shop' && !locationId) { setError('Pick a shop location.'); return; }
     if (dest === 'person' && !assigneeId) { setError('Pick a crew member.'); return; }
@@ -657,8 +586,6 @@ const RelocateModal: React.FC<RelocateModalProps> = ({
         notes,
       });
 
-      // Set the chosen destination and clear the other two so the item lives in
-      // exactly one place.
       const saved = await apiService.saveInventoryItem({
         ...item,
         currentJobId:      dest === 'job' ? jobId : undefined,
@@ -691,7 +618,6 @@ const RelocateModal: React.FC<RelocateModalProps> = ({
           </button>
         </div>
 
-        {/* Destination type */}
         <div className="space-y-1.5">
           <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Move To</p>
           <div className="grid grid-cols-3 gap-1.5">
@@ -712,7 +638,6 @@ const RelocateModal: React.FC<RelocateModalProps> = ({
           </div>
         </div>
 
-        {/* Destination target */}
         {dest === 'job' && (
           <div className="space-y-1.5">
             <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Job</p>

@@ -38,6 +38,46 @@ const mapInvLocation = (d: Record<string, unknown>): InventoryLocation => ({
   createdAt: new Date(d.created_at as string).getTime(),
 });
 
+// Geocodes an address at save-time so the equipment map can pin locations
+// instantly without making any network calls on page load. Returns null if the
+// address is empty or Nominatim can't find it.
+const geocodeLocationAddress = async (
+  address: string, city: string, state: string, zip: string,
+): Promise<{ lat: number; lng: number } | null> => {
+  const parts = [address, city, state, zip].map(s => s?.trim()).filter(Boolean);
+  if (parts.length === 0) return null;
+
+  const parseHit = (data: unknown): { lat: number; lng: number } | null => {
+    if (!Array.isArray(data) || data.length === 0) return null;
+    const { lat, lon } = data[0] as { lat: string; lon: string };
+    return { lat: parseFloat(lat), lng: parseFloat(lon) };
+  };
+
+  const headers = { 'Accept-Language': 'en', 'User-Agent': 'DigTrackPro/1.0' };
+
+  if (address || city || zip) {
+    const params = new URLSearchParams({ format: 'json', limit: '1', countrycodes: 'us' });
+    if (address) params.set('street', address.trim());
+    if (city)    params.set('city', city.trim());
+    if (state)   params.set('state', state.trim());
+    if (zip)     params.set('postalcode', zip.trim());
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, { headers });
+      const hit = parseHit(await res.json());
+      if (hit) return hit;
+    } catch { /* fall through to free-text */ }
+    await new Promise(r => setTimeout(r, 1100));
+  }
+
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=us&q=${encodeURIComponent(parts.join(', '))}`,
+      { headers },
+    );
+    return parseHit(await res.json());
+  } catch { return null; }
+};
+
 const mapRole = (role: string | undefined): UserRole => {
   const r = role?.toUpperCase();
   if (r === 'SUPER_ADMIN') return UserRole.SUPER_ADMIN;
@@ -877,6 +917,9 @@ export const apiService = {
   },
 
   async saveInventoryLocation(loc: { id?: string; companyId: string; name: string; address?: string; city?: string; state?: string; zip?: string }): Promise<InventoryLocation> {
+    const coords = await geocodeLocationAddress(
+      loc.address || '', loc.city || '', loc.state || '', loc.zip || '',
+    );
     const payload = {
       company_id: loc.companyId,
       name: loc.name,
@@ -884,10 +927,8 @@ export const apiService = {
       city: loc.city || '',
       state: loc.state || '',
       zip: loc.zip || '',
-      // Address fields may have changed — clear any saved coordinates so the
-      // equipment map re-geocodes the new address once and re-saves the result.
-      lat: null,
-      lng: null,
+      lat: coords?.lat ?? null,
+      lng: coords?.lng ?? null,
     };
     if (loc.id) {
       const { data, error } = await supabase.from('inventory_locations').update(payload).eq('id', loc.id).select().single();
