@@ -283,7 +283,11 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
             sublabel: geoQuery,
             items: [], geo,
           };
-          const coords = cache.get(geoQuery);
+          // Prefer the shop's persisted coordinates, then the in-session cache —
+          // either lets us pin instantly without hitting Nominatim again.
+          const coords = (shop!.lat != null && shop!.lng != null)
+            ? { lat: shop!.lat, lng: shop!.lng }
+            : cache.get(geoQuery);
           if (coords) { placement.lat = coords.lat; placement.lng = coords.lng; }
         }
       }
@@ -319,6 +323,18 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
             setPlacements(prev => prev.map(p =>
               p.key === placement.key ? { ...p, lat: coords.lat, lng: coords.lng } : p,
             ));
+            // Persist a shop's position so it pins instantly next session instead
+            // of re-geocoding — the root cause of the map getting stuck on
+            // "Locating…" when Nominatim throttles repeat requests.
+            if (placement.key.startsWith('shop:')) {
+              const locId = placement.key.slice('shop:'.length);
+              setLocations(prev => prev.map(l =>
+                l.id === locId ? { ...l, lat: coords.lat, lng: coords.lng } : l,
+              ));
+              apiService.updateLocationCoords(locId, coords.lat, coords.lng).catch(err =>
+                console.error('Failed to persist shop coordinates for location', locId, err),
+              );
+            }
           }
           setGeocodedCount(prev => prev + 1);
         }

@@ -59,6 +59,8 @@ export interface InventoryLocation {
   city?: string;
   state?: string;
   zip?: string;
+  lat?: number;      // persisted geocoded position (null until first geocode)
+  lng?: number;
   createdAt: number;
 }
 
