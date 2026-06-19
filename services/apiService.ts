@@ -33,6 +33,8 @@ const mapInvLocation = (d: Record<string, unknown>): InventoryLocation => ({
   city: (d.city as string) || '',
   state: (d.state as string) || '',
   zip: (d.zip as string) || '',
+  lat: d.lat == null ? undefined : Number(d.lat),
+  lng: d.lng == null ? undefined : Number(d.lng),
   createdAt: new Date(d.created_at as string).getTime(),
 });
 
@@ -882,6 +884,10 @@ export const apiService = {
       city: loc.city || '',
       state: loc.state || '',
       zip: loc.zip || '',
+      // Address fields may have changed — clear any saved coordinates so the
+      // equipment map re-geocodes the new address once and re-saves the result.
+      lat: null,
+      lng: null,
     };
     if (loc.id) {
       const { data, error } = await supabase.from('inventory_locations').update(payload).eq('id', loc.id).select().single();
@@ -891,6 +897,13 @@ export const apiService = {
     const { data, error } = await supabase.from('inventory_locations').insert([payload]).select().single();
     if (error) throw error;
     return mapInvLocation(data);
+  },
+
+  // Persist a location's geocoded position so the equipment map can pin it
+  // instantly on future visits instead of re-querying Nominatim every session.
+  async updateLocationCoords(id: string, lat: number, lng: number): Promise<void> {
+    const { error } = await supabase.from('inventory_locations').update({ lat, lng }).eq('id', id);
+    if (error) throw error;
   },
 
   async deleteInventoryLocation(id: string): Promise<void> {
