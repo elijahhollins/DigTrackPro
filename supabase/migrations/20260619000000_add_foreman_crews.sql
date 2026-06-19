@@ -75,34 +75,32 @@ CREATE POLICY "time_clock_crews_admin_manage" ON time_clock_crews
   );
 
 -- ---------------------------------------------------------------------------
--- 3. FOREMAN -> CREW TIME ENTRIES
+-- 3. FOREMAN TIME ENTRIES
 --    The existing "time_entries_self_manage" policy only lets a login manage
---    the entry for its OWN linked employee. To clock a crew in/out, a foreman
---    must be able to write entries for the OTHER employees on their crew.
+--    the entry for its OWN linked employee. A foreman runs the field, so they
+--    may clock IN/OUT any worker in their OWN company -- not just their saved
+--    crew. (Scoping to the crew would strand anyone removed from the roster
+--    mid-day, leaving them unable to be clocked out.)
 --    Scope: caller is a foreman (employees.is_foreman, linked to auth.uid())
---    and the target employee is currently a member of that foreman's crew.
+--    and the entry belongs to the foreman's company.
 -- ---------------------------------------------------------------------------
 DROP POLICY IF EXISTS "time_entries_foreman_crew_manage" ON time_entries;
 CREATE POLICY "time_entries_foreman_crew_manage" ON time_entries
   FOR ALL TO authenticated
   USING (
-    EXISTS (
-      SELECT 1
-      FROM employees fe
-      JOIN time_clock_crews c ON c.owner_profile_id = fe.profile_id
+    company_id = get_user_company_id()
+    AND EXISTS (
+      SELECT 1 FROM employees fe
       WHERE fe.profile_id = auth.uid()
         AND fe.is_foreman = true
-        AND time_entries.employee_id = ANY (c.member_ids)
     )
   )
   WITH CHECK (
-    EXISTS (
-      SELECT 1
-      FROM employees fe
-      JOIN time_clock_crews c ON c.owner_profile_id = fe.profile_id
+    company_id = get_user_company_id()
+    AND EXISTS (
+      SELECT 1 FROM employees fe
       WHERE fe.profile_id = auth.uid()
         AND fe.is_foreman = true
-        AND time_entries.employee_id = ANY (c.member_ids)
     )
   );
 
