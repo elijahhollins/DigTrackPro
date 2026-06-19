@@ -47,6 +47,17 @@ export interface TimeEntry {
   approvedAt: string | null;
 }
 
+// A foreman's saved crew: the same few workers they clock in day to day.
+// One row per foreman login (owner_profile_id). Members are employee ids;
+// the workers themselves have no login — only the foreman does.
+export interface TimeClockCrew {
+  id: number;
+  companyId: string;
+  ownerProfileId: string;
+  name: string;
+  memberIds: number[];
+}
+
 // View-model for the merged, searchable job picker (dig + service jobs).
 export interface ClockableJob {
   kind: JobKind;

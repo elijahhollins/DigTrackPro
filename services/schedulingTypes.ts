@@ -20,6 +20,9 @@ export interface Employee {
   // Optional link to an auth login (profiles.id). A linked employee can
   // self-clock in the Time Tracker module. Null = not linked to a login.
   profileId: string | null;
+  // Admin-set flag. A foreman (whose login is linked above) can save a personal
+  // crew and clock the whole crew in/out — see services/timeTrackingTypes.ts.
+  isForeman: boolean;
 }
 
 export interface Equipment {

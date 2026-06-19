@@ -9,11 +9,11 @@ import {
 const wait = <T>(v: T): Promise<T> => new Promise(r => setTimeout(() => r(v), 120));
 
 let employees: Employee[] = [
-  { id: 1, companyId: 'demo', name: 'Marcus Webb',    role: 'Foreman',         hourlyRate: 48, profileId: null },
-  { id: 2, companyId: 'demo', name: 'Diego Alvarez',  role: 'Operator',        hourlyRate: 41, profileId: null },
-  { id: 3, companyId: 'demo', name: 'Tyler Nguyen',   role: 'Laborer',         hourlyRate: 32, profileId: null },
-  { id: 4, companyId: 'demo', name: 'Priya Anand',    role: 'Pipe Layer',      hourlyRate: 38, profileId: null },
-  { id: 5, companyId: 'demo', name: 'Sam Carter',     role: 'Equipment Op.',   hourlyRate: 44, profileId: null },
+  { id: 1, companyId: 'demo', name: 'Marcus Webb',    role: 'Foreman',         hourlyRate: 48, profileId: null, isForeman: true },
+  { id: 2, companyId: 'demo', name: 'Diego Alvarez',  role: 'Operator',        hourlyRate: 41, profileId: null, isForeman: false },
+  { id: 3, companyId: 'demo', name: 'Tyler Nguyen',   role: 'Laborer',         hourlyRate: 32, profileId: null, isForeman: false },
+  { id: 4, companyId: 'demo', name: 'Priya Anand',    role: 'Pipe Layer',      hourlyRate: 38, profileId: null, isForeman: false },
+  { id: 5, companyId: 'demo', name: 'Sam Carter',     role: 'Equipment Op.',   hourlyRate: 44, profileId: null, isForeman: false },
 ];
 let equipment: Equipment[] = [
   { id: 'eq1', companyId: 'demo', name: '2020 Caterpillar 320 Excavator', hourlyRate: 145, unitNumber: '1001', equipmentType: 'Excavator', year: 2020, make: 'Caterpillar', model: '320' },
