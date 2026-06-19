@@ -211,7 +211,15 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
                     return (
                       <tr key={item.id} className={d('group transition-colors', 'hover:bg-white/[0.02]', 'hover:bg-slate-50/70')}>
                         <td className="px-5 py-4">
-                          <p className={d('text-[13px] font-bold', 'text-slate-100', 'text-slate-900')}>{item.name}</p>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {item.unitNumber && (
+                              <span className={d('inline-flex px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-widest', 'bg-amber-500/15 text-amber-400', 'bg-amber-50 text-amber-700 border border-amber-200')}>
+                                #{item.unitNumber}
+                              </span>
+                            )}
+                            <p className={d('text-[13px] font-bold', 'text-slate-100', 'text-slate-900')}>{item.name}</p>
+                          </div>
+                          {item.equipmentType && <p className={d('text-[10px] mt-0.5', 'text-slate-500', 'text-slate-500')}>{item.equipmentType}</p>}
                           {item.assetTag && <p className={d('text-[9px] font-black uppercase tracking-widest mt-0.5', 'text-slate-600', 'text-slate-400')}>Tag: {item.assetTag}</p>}
                         </td>
                         <td className="px-5 py-4">
@@ -525,6 +533,8 @@ type ItemLocKind = 'shop' | 'job' | 'crew';
 const ItemFormModal: React.FC<ItemFormProps> = ({ item, locations, users, jobs, companyId, isDarkMode, onSave, onClose }) => {
   const [name, setName] = useState(item?.name || '');
   const [itemType, setItemType] = useState<InventoryItemType>(item?.itemType || InventoryItemType.EQUIPMENT);
+  const [unitNumber, setUnitNumber] = useState(item?.unitNumber || '');
+  const [equipmentType, setEquipmentType] = useState(item?.equipmentType || '');
   const [serialNumber, setSerialNumber] = useState(item?.serialNumber || '');
   const [licensePlate, setLicensePlate] = useState(item?.licensePlate || '');
   const [vin, setVin] = useState(item?.vin || '');
@@ -564,6 +574,8 @@ const ItemFormModal: React.FC<ItemFormProps> = ({ item, locations, users, jobs, 
         companyId,
         name: name.trim(),
         itemType,
+        unitNumber: unitNumber || undefined,
+        equipmentType: equipmentType || undefined,
         serialNumber: serialNumber || undefined,
         licensePlate: licensePlate || undefined,
         vin: vin || undefined,
@@ -631,6 +643,14 @@ const ItemFormModal: React.FC<ItemFormProps> = ({ item, locations, users, jobs, 
 
           {itemType === InventoryItemType.EQUIPMENT ? (
             <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <p className={labelCls}>Unit #</p>
+                <input className={inputCls} value={unitNumber} onChange={e => setUnitNumber(e.target.value)} placeholder="1b, 22b…" />
+              </div>
+              <div className="space-y-1.5 col-span-1">
+                <p className={labelCls}>Equipment Type</p>
+                <input className={inputCls} value={equipmentType} onChange={e => setEquipmentType(e.target.value)} placeholder="Pickup Truck, Excavator…" />
+              </div>
               <div className="space-y-1.5">
                 <p className={labelCls}>Serial #</p>
                 <input className={inputCls} value={serialNumber} onChange={e => setSerialNumber(e.target.value)} placeholder="SN-123" />
