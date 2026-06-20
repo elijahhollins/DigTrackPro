@@ -140,6 +140,9 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
   const mapDivRef  = useRef<HTMLDivElement>(null);
   const mapRef     = useRef<L.Map | null>(null);
   const markersRef = useRef<L.Marker[]>([]);
+  // Set when a shop marker is dragged so the next marker re-render keeps the
+  // current viewport instead of snapping back via fitBounds.
+  const skipFitRef = useRef(false);
 
   const [items, setItems]         = useState<InventoryItem[]>([]);
   const [locations, setLocations] = useState<InventoryLocation[]>([]);
@@ -409,14 +412,35 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
           </div>
           <div style="font-size:13px;font-weight:800;color:#0f172a;margin-bottom:1px;">${escapeHtml(placement.label)}</div>
           ${placement.sublabel ? `<div style="font-size:10px;color:#64748b;margin-bottom:4px;">${escapeHtml(placement.sublabel)}</div>` : ''}
+          ${placement.kind === 'shop' ? `<div style="font-size:9px;font-weight:700;color:#10b981;margin-bottom:4px;">Drag this pin to set the shop's location manually.</div>` : ''}
           <div style="margin-top:4px;">${itemsHtml}</div>
         </div>`;
 
+      // Shops can be repositioned by hand — drag the pin and we persist the new
+      // coordinates. Job-site pins follow their dig tickets and stay fixed.
+      const isShop = placement.kind === 'shop' && placement.key.startsWith('shop:');
+
       const marker = L.marker([placement.lat!, placement.lng!], {
         icon: createMarkerIcon(placement.kind, placement.items.length),
+        draggable: isShop,
+        autoPan: true,
       })
         .bindPopup(popupHtml)
         .addTo(map);
+
+      if (isShop) {
+        const locId = placement.key.slice('shop:'.length);
+        marker.on('dragend', () => {
+          const { lat, lng } = marker.getLatLng();
+          // Keep the viewport put — the user just placed this pin deliberately.
+          skipFitRef.current = true;
+          setPlacements(prev => prev.map(p => p.key === placement.key ? { ...p, lat, lng } : p));
+          setLocations(prev => prev.map(l => l.id === locId ? { ...l, lat, lng } : l));
+          apiService.updateLocationCoords(locId, lat, lng).catch(err =>
+            console.error('Failed to persist shop coordinates for location', locId, err),
+          );
+        });
+      }
 
       // Wire each "Move" button to open the relocate panel.
       marker.on('popupopen', () => {
@@ -433,7 +457,10 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
       bounds.push([placement.lat!, placement.lng!]);
     });
 
-    if (bounds.length > 0) {
+    if (skipFitRef.current) {
+      // A drag just moved a pin — preserve the user's current view.
+      skipFitRef.current = false;
+    } else if (bounds.length > 0) {
       map.fitBounds(bounds as L.LatLngBoundsExpression, { padding: [40, 40], maxZoom: 14 });
     }
   }, [placements]);

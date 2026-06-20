@@ -881,7 +881,14 @@ export const apiService = {
     return (data || []).map((d: Record<string, unknown>) => mapInvLocation(d));
   },
 
-  async saveInventoryLocation(loc: { id?: string; companyId: string; name: string; address?: string; city?: string; state?: string; zip?: string }): Promise<InventoryLocation> {
+  async saveInventoryLocation(loc: { id?: string; companyId: string; name: string; address?: string; city?: string; state?: string; zip?: string; lat?: number | null; lng?: number | null }): Promise<InventoryLocation> {
+    // Manual coordinates win: when the caller supplies a finite lat/lng pair we
+    // persist it verbatim and the equipment map pins it without geocoding.
+    // Otherwise clear any saved coordinates so the map re-geocodes the (possibly
+    // changed) address once and re-saves the result.
+    const hasManualCoords =
+      typeof loc.lat === 'number' && Number.isFinite(loc.lat) &&
+      typeof loc.lng === 'number' && Number.isFinite(loc.lng);
     const payload = {
       company_id: loc.companyId,
       name: loc.name,
@@ -889,10 +896,8 @@ export const apiService = {
       city: loc.city || '',
       state: loc.state || '',
       zip: loc.zip || '',
-      // Address fields may have changed — clear any saved coordinates so the
-      // equipment map re-geocodes the new address once and re-saves the result.
-      lat: null,
-      lng: null,
+      lat: hasManualCoords ? loc.lat : null,
+      lng: hasManualCoords ? loc.lng : null,
     };
     if (loc.id) {
       const { data, error } = await supabase.from('inventory_locations').update(payload).eq('id', loc.id).select().single();

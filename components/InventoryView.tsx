@@ -776,6 +776,8 @@ const LocationFormModal: React.FC<LocationFormProps> = ({ location, companyId, i
   const [city, setCity] = useState(location?.city || '');
   const [state, setState] = useState(location?.state || '');
   const [zip, setZip] = useState(location?.zip || '');
+  const [lat, setLat] = useState(location?.lat != null ? String(location.lat) : '');
+  const [lng, setLng] = useState(location?.lng != null ? String(location.lng) : '');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -787,10 +789,25 @@ const LocationFormModal: React.FC<LocationFormProps> = ({ location, companyId, i
 
   const handleSave = async () => {
     if (!name.trim()) { setError('Name is required'); return; }
+
+    // Manual map position is optional, but if one coordinate is filled in both
+    // must be — and both must be in range — otherwise the pin can't be placed.
+    const latStr = lat.trim();
+    const lngStr = lng.trim();
+    let latNum: number | null = null;
+    let lngNum: number | null = null;
+    if (latStr || lngStr) {
+      if (!latStr || !lngStr) { setError('Enter both latitude and longitude, or leave both blank.'); return; }
+      latNum = Number(latStr);
+      lngNum = Number(lngStr);
+      if (!Number.isFinite(latNum) || latNum < -90 || latNum > 90) { setError('Latitude must be a number between -90 and 90.'); return; }
+      if (!Number.isFinite(lngNum) || lngNum < -180 || lngNum > 180) { setError('Longitude must be a number between -180 and 180.'); return; }
+    }
+
     setIsSaving(true);
     setError('');
     try {
-      const saved = await apiService.saveInventoryLocation({ ...(location ? { id: location.id } : {}), companyId, name: name.trim(), address: address.trim(), city: city.trim(), state: state.trim(), zip: zip.trim() });
+      const saved = await apiService.saveInventoryLocation({ ...(location ? { id: location.id } : {}), companyId, name: name.trim(), address: address.trim(), city: city.trim(), state: state.trim(), zip: zip.trim(), lat: latNum, lng: lngNum });
       onSave(saved);
     } catch (e: any) {
       setError(e.message || 'Save failed');
@@ -830,7 +847,17 @@ const LocationFormModal: React.FC<LocationFormProps> = ({ location, companyId, i
             <input className={inputCls} value={zip} onChange={e => setZip(e.target.value)} placeholder="62704" />
           </div>
         </div>
-        <p className={d('text-[10px] text-slate-500', 'text-[10px] text-slate-400')}>Add a full address so equipment parked here pins accurately on the map.</p>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Latitude</p>
+            <input className={inputCls} value={lat} onChange={e => setLat(e.target.value)} placeholder="39.7990" inputMode="decimal" />
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Longitude</p>
+            <input className={inputCls} value={lng} onChange={e => setLng(e.target.value)} placeholder="-89.6540" inputMode="decimal" />
+          </div>
+        </div>
+        <p className={d('text-[10px] text-slate-500', 'text-[10px] text-slate-400')}>Add a full address so equipment parked here pins accurately on the map. Set latitude &amp; longitude to drop the pin manually instead — leave them blank to auto-locate from the address.</p>
         {error && <p className="text-[11px] font-bold text-rose-400">{error}</p>}
         <div className="flex gap-3 pt-2">
           <button onClick={onClose} className={`flex-1 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${d('border-white/10 text-slate-500 hover:text-slate-200', 'border-slate-200 text-slate-500 hover:text-slate-700')}`}>Cancel</button>
