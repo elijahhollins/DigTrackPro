@@ -69,7 +69,13 @@ export interface InventoryItem {
   companyId: string;
   name: string;
   itemType: InventoryItemType;
-  // equipment fields
+  // equipment identification fields
+  unitNumber?: string;
+  equipmentType?: string;
+  year?: number;
+  make?: string;
+  model?: string;
+  // equipment detail fields
   serialNumber?: string;
   licensePlate?: string;
   vin?: string;

@@ -385,12 +385,16 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
         const isMat = it.itemType === InventoryItemType.MATERIAL;
         const detail = isMat
           ? `${it.quantity} ${escapeHtml(it.unit || 'each')}`
-          : (it.serialNumber || it.licensePlate || it.assetTag || '');
+          : (it.licensePlate || it.serialNumber || it.assetTag || '');
+        const unitBadge = it.unitNumber
+          ? `<span style="font-size:9px;font-weight:900;color:#d97706;background:#fef3c7;border:1px solid #fde68a;padding:1px 5px;border-radius:4px;flex:none;">#${escapeHtml(it.unitNumber)}</span>`
+          : '';
         return `
-          <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-top:1px solid #f1f5f9;">
+          <div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-top:1px solid #f1f5f9;">
             <span style="width:6px;height:6px;border-radius:${isMat ? '50%' : '2px'};background:${color};flex:none;"></span>
-            <span style="font-size:12px;font-weight:700;color:#1e293b;flex:1;min-width:0;">${escapeHtml(it.name)}</span>
-            ${detail ? `<span style="font-size:10px;color:#94a3b8;">${detail}</span>` : ''}
+            ${unitBadge}
+            <span style="font-size:12px;font-weight:700;color:#1e293b;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(it.name)}</span>
+            ${detail ? `<span style="font-size:10px;color:#94a3b8;flex:none;">${escapeHtml(detail)}</span>` : ''}
             <button data-equip-move="${it.id}" style="
               padding:3px 8px;background:#7c3aed;color:white;border:none;border-radius:6px;
               font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;flex:none;
