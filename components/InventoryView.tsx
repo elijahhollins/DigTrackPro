@@ -164,7 +164,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
           {/* Filters */}
           <div className="flex flex-wrap gap-2 items-center">
             <div className={d('flex rounded-xl border p-0.5 gap-0.5', 'bg-[#0b1629] border-white/[0.08]', 'bg-slate-100 border-slate-200')}>
-              {(['ALL', 'EQUIPMENT', 'MATERIAL'] as const).map(f => (
+              {(['ALL', InventoryItemType.EQUIPMENT, InventoryItemType.MATERIAL] as const).map(f => (
                 <button
                   key={f}
                   onClick={() => setTypeFilter(f)}
@@ -174,7 +174,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
                       : isDarkMode ? 'text-slate-600 hover:text-slate-300' : 'text-slate-400 hover:text-slate-700'
                   }`}
                 >
-                  {f === 'ALL' ? 'All' : f === 'EQUIPMENT' ? 'Equipment' : 'Materials'}
+                  {f === 'ALL' ? 'All' : f === InventoryItemType.EQUIPMENT ? 'Equipment' : 'Materials'}
                 </button>
               ))}
             </div>
@@ -894,7 +894,7 @@ const MovementModal: React.FC<MovementModalProps> = ({ item, locations, users, j
   const defaultType = isEquip ? InventoryMovementType.TRANSFER : InventoryMovementType.CONSUME;
   const [movementType, setMovementType] = useState<InventoryMovementType>(defaultType);
   const [toLocationId, setToLocationId] = useState('');
-  const [fromLocationId, setFromLocationId] = useState(item.currentLocationId || '');
+  const [fromLocationId] = useState(item.currentLocationId || '');
   const [assigneeId, setAssigneeId] = useState('');
   const [jobId, setJobId] = useState(item.currentJobId || '');
   const [quantityDelta, setQuantityDelta] = useState('');
