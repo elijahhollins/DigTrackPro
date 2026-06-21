@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { PdfAnnotation, JobPrint, User, UserRole } from '../types.ts';
@@ -708,9 +708,12 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   const [pageNumber, setPageNumber]     = useState(1);
   const [numPages, setNumPages]         = useState(0);
   const [zoomLevel, setZoomLevel]       = useState(1.0);
-  // Rendered pixel dimensions of each page's canvas, keyed by 1-based page number.
-  // Used to size the per-page SVG overlay and denormalize annotation coordinates.
-  const [pageSizes, setPageSizes]       = useState<Map<number, { width: number; height: number }>>(new Map());
+  // Intrinsic (scale-1) dimensions of each page, indexed by (page number − 1).
+  // The on-screen size is derived from these + the column width + zoom, so every
+  // page reserves correct scroll height even before its canvas is lazily rendered.
+  const [pageDims, setPageDims]         = useState<Array<{ width: number; height: number }>>([]);
+  // Width available for the page column (container width minus padding/scrollbar).
+  const [availWidth, setAvailWidth]     = useState(0);
   const [isDrawing, setIsDrawing]       = useState(false);
   const [drawStart, setDrawStart]       = useState<{ x: number; y: number } | null>(null);
   const [penPoints, setPenPoints]       = useState<Array<{ x: number; y: number; pressure?: number }>>([]);
@@ -752,8 +755,12 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   const pdfDocRef     = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
   // Active pdf.js render tasks keyed by page number, so re-renders can cancel cleanly.
   const renderTasksRef = useRef<Map<number, pdfjsLib.RenderTask>>(new Map());
-  // Monotonic token to discard results from superseded render passes (e.g. fast zooming).
-  const renderTokenRef = useRef(0);
+  // Zoom level at which each page's canvas was last painted (to skip redundant renders).
+  const renderedZoomRef = useRef<Map<number, number>>(new Map());
+  // Pages currently intersecting the viewport (plus the observer's prerender buffer).
+  const visiblePagesRef = useRef<Set<number>>(new Set());
+  // Scroll position as a fraction of scrollable height, kept current so zoom can restore it.
+  const scrollRatioRef = useRef(0);
   const drawingPtrRef = useRef<number | null>(null);
   const touchPtsRef   = useRef<Map<number, { x: number; y: number }>>(new Map());
   const isPinchRef    = useRef(false);
@@ -778,6 +785,13 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   // Stable ref to currentTool for use in non-reactive callbacks (e.g., touch listeners)
   const currentToolRef = useRef<ToolType>(currentTool);
   currentToolRef.current = currentTool;
+  // Stable refs to zoom / column width / page dims for use in non-reactive render callbacks.
+  const zoomRef = useRef(zoomLevel);
+  zoomRef.current = zoomLevel;
+  const availWidthRef = useRef(availWidth);
+  availWidthRef.current = availWidth;
+  const pageDimsRef = useRef(pageDims);
+  pageDimsRef.current = pageDims;
 
   // Load annotations
   useEffect(() => {
@@ -828,7 +842,18 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       }
       try {
         const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
-        if (!cancelled) { pdfDocRef.current = pdf; setNumPages(pdf.numPages); setPageNumber(1); }
+        if (!cancelled) {
+          pdfDocRef.current = pdf;
+          setNumPages(pdf.numPages);
+          setPageNumber(1);
+          // Seed every page's size from page 1 so placeholders reserve height
+          // immediately; each page's real size is refined when it first renders.
+          try {
+            const first = await pdf.getPage(1);
+            const vp = first.getViewport({ scale: 1 });
+            if (!cancelled) setPageDims(Array.from({ length: pdf.numPages }, () => ({ width: vp.width, height: vp.height })));
+          } catch { /* dims refined lazily */ }
+        }
       } catch (e: unknown) {
         if (!cancelled) setPdfError(e instanceof Error ? e.message : 'Failed to parse PDF');
       } finally {
@@ -840,70 +865,102 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     return () => { cancelled = true; };
   }, [print.storagePath, print.url]);
 
-  // Render every page at the current zoom into its own stacked canvas.
-  // Pages share a single column width so the document scrolls continuously.
-  const renderAllPages = useCallback(async (zoom: number) => {
+  // Paint a single page's canvas at the current zoom. Only on-screen pages (plus a
+  // prerender buffer) are ever rendered, so very large documents stay light: off-screen
+  // pages keep their reserved height but hold no canvas bitmap.
+  const renderPage = useCallback(async (pageNum: number, force = false) => {
     const pdf = pdfDocRef.current;
-    if (!pdf) return;
-    const token = ++renderTokenRef.current;
-    const main  = mainRef.current;
-
-    // Preserve the scroll anchor across a zoom-driven re-render so the page the
-    // user is looking at stays roughly in view after every canvas resizes.
-    let ratioX = 0, ratioY = 0;
-    if (main) {
-      const scrollW = main.scrollWidth  - main.clientWidth;
-      const scrollH = main.scrollHeight - main.clientHeight;
-      ratioX = scrollW > 0 ? main.scrollLeft / scrollW : 0;
-      ratioY = scrollH > 0 ? main.scrollTop  / scrollH : 0;
-    }
-
-    const avail = (main?.clientWidth ?? window.innerWidth) - 48;
-    const sizes = new Map(pageSizes);
-    for (let p = 1; p <= pdf.numPages; p++) {
-      const canvas = pageCanvasRefs.current.get(p);
-      if (!canvas) continue;
-      const prev = renderTasksRef.current.get(p);
-      if (prev) { prev.cancel(); renderTasksRef.current.delete(p); }
-      try {
-        const page  = await pdf.getPage(p);
-        if (token !== renderTokenRef.current) return;
-        const base  = page.getViewport({ scale: 1 });
-        const scale = (Math.min(avail, 1400) / base.width) * zoom;
-        const vp    = page.getViewport({ scale });
-        canvas.width = vp.width; canvas.height = vp.height;
-        sizes.set(p, { width: vp.width, height: vp.height });
-        const ctx = canvas.getContext('2d');
-        if (!ctx) continue;
-        const task = page.render({ canvasContext: ctx, viewport: vp });
-        renderTasksRef.current.set(p, task);
-        await task.promise;
-        renderTasksRef.current.delete(p);
-      } catch { /* cancelled */ }
-    }
-    if (token !== renderTokenRef.current) return;
-    setPageSizes(sizes);
-
-    if (main) {
-      requestAnimationFrame(() => {
-        main.scrollLeft = ratioX * Math.max(0, main.scrollWidth  - main.clientWidth);
-        main.scrollTop  = ratioY * Math.max(0, main.scrollHeight - main.clientHeight);
+    const canvas = pageCanvasRefs.current.get(pageNum);
+    if (!pdf || !canvas) return;
+    const zoom = zoomRef.current;
+    if (!force && renderedZoomRef.current.get(pageNum) === zoom) return;
+    const prev = renderTasksRef.current.get(pageNum);
+    if (prev) { prev.cancel(); renderTasksRef.current.delete(pageNum); }
+    try {
+      const page = await pdf.getPage(pageNum);
+      const base = page.getViewport({ scale: 1 });
+      // Refine the seeded dimensions if this page differs in size from page 1.
+      setPageDims(prevDims => {
+        const cur = prevDims[pageNum - 1];
+        if (cur && Math.abs(cur.width - base.width) < 0.5 && Math.abs(cur.height - base.height) < 0.5) return prevDims;
+        const next = [...prevDims];
+        next[pageNum - 1] = { width: base.width, height: base.height };
+        return next;
       });
-    }
-  // pageSizes intentionally omitted: it is seeded fresh each pass and including it
-  // would re-create the callback on every render it performs.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+      const avail = (availWidthRef.current || (mainRef.current?.clientWidth ?? window.innerWidth) - 48);
+      const scale = (Math.min(avail, 1400) / base.width) * zoom;
+      const vp = page.getViewport({ scale });
+      canvas.width = vp.width; canvas.height = vp.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      const task = page.render({ canvasContext: ctx, viewport: vp });
+      renderTasksRef.current.set(pageNum, task);
+      await task.promise;
+      renderTasksRef.current.delete(pageNum);
+      renderedZoomRef.current.set(pageNum, zoom);
+    } catch { /* cancelled */ }
   }, []);
 
+  // Release a page's canvas bitmap when it scrolls far out of view (frees memory).
+  const clearPage = useCallback((pageNum: number) => {
+    const prev = renderTasksRef.current.get(pageNum);
+    if (prev) { prev.cancel(); renderTasksRef.current.delete(pageNum); }
+    const canvas = pageCanvasRefs.current.get(pageNum);
+    if (canvas) { canvas.width = 0; canvas.height = 0; }
+    renderedZoomRef.current.delete(pageNum);
+  }, []);
+
+  // Track the column width available for pages and react to container resizes.
   useEffect(() => {
-    if (!isLoadingPdf && pdfDocRef.current) renderAllPages(zoomLevel);
-  }, [zoomLevel, isLoadingPdf, numPages, renderAllPages]);
+    const main = mainRef.current;
+    if (!main) return;
+    const update = () => setAvailWidth(Math.max(0, main.clientWidth - 48));
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(main);
+    return () => ro.disconnect();
+  }, []);
+
+  // Lazily render pages as they enter the viewport (with a generous prerender buffer)
+  // and clear them as they leave, so memory use is bounded regardless of page count.
+  useEffect(() => {
+    if (isLoadingPdf || !numPages) return;
+    const main = mainRef.current;
+    if (!main) return;
+    const io = new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        const p = Number((entry.target as HTMLElement).dataset.page);
+        if (!p) continue;
+        if (entry.isIntersecting) { visiblePagesRef.current.add(p); renderPage(p); }
+        else { visiblePagesRef.current.delete(p); clearPage(p); }
+      }
+    }, { root: main, rootMargin: '1200px 0px 1200px 0px', threshold: 0 });
+    pageContainerRefs.current.forEach(el => io.observe(el));
+    return () => io.disconnect();
+  }, [isLoadingPdf, numPages, renderPage, clearPage]);
+
+  // Re-render the currently visible pages when zoom or column width changes.
+  useEffect(() => {
+    if (isLoadingPdf) return;
+    visiblePagesRef.current.forEach(p => renderPage(p, true));
+  }, [zoomLevel, availWidth, isLoadingPdf, renderPage]);
+
+  // Keep the same scroll anchor when page sizes change (zoom / resize) so the user
+  // stays on the page they were viewing rather than jumping to the top.
+  useLayoutEffect(() => {
+    const main = mainRef.current;
+    if (!main) return;
+    const sh = main.scrollHeight - main.clientHeight;
+    if (sh > 0) main.scrollTop = scrollRatioRef.current * sh;
+  }, [zoomLevel, availWidth]);
 
   // Track the page most centered in the viewport so the header indicator stays accurate
   // as the user scrolls through the document.
   const handleScroll = useCallback(() => {
     const main = mainRef.current;
     if (!main) return;
+    const sh = main.scrollHeight - main.clientHeight;
+    scrollRatioRef.current = sh > 0 ? main.scrollTop / sh : 0;
     const viewportCenter = main.scrollTop + main.clientHeight / 2;
     let best = 1, bestDist = Infinity;
     pageContainerRefs.current.forEach((el, p) => {
@@ -1601,15 +1658,15 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     if (!scaleInput || !scaleValue) { setScaleInput(null); return; }
     const inputVal = parseFloat(scaleValue);
     if (isNaN(inputVal) || inputVal <= 0) { setScaleInput(null); return; }
-    const activeSize = pageSizes.get(activePageRef.current) ?? { width: 0, height: 0 };
-    const ar = activeSize.width / (activeSize.height || 1);
+    const dim = pageDimsRef.current[activePageRef.current - 1];
+    const ar = dim ? dim.width / (dim.height || 1) : 1;
     const dx = scaleInput.lineEnd.x - scaleInput.lineStart.x;
     const dy = scaleInput.lineEnd.y - scaleInput.lineStart.y;
     const normDist = Math.sqrt((dx * ar) ** 2 + dy ** 2);
     if (normDist < 0.001) { setScaleInput(null); return; }
     setScaleInfo({ unitsPerNormDist: inputVal / normDist, aspectRatio: ar, unit: scaleUnit });
     setScaleInput(null); setScaleValue(''); setCurrentTool('select');
-  }, [scaleInput, scaleValue, scaleUnit, pageSizes]);
+  }, [scaleInput, scaleValue, scaleUnit]);
 
   const flipAnnotationH = useCallback(() => {
     const selId = selectedAnnIdRef.current;
@@ -1696,6 +1753,17 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     }
     return map;
   }, [allDisplayAnnotations]);
+  // Group annotations by page once per render so each stacked page is an O(1) lookup
+  // instead of scanning every annotation — keeps re-renders cheap on large documents.
+  const annotationsByPage = useMemo(() => {
+    const map = new Map<number, PdfAnnotation[]>();
+    for (const ann of allDisplayAnnotations) {
+      if (filterAuthorId !== null && ann.authorId !== filterAuthorId) continue;
+      const list = map.get(ann.pageNumber);
+      if (list) list.push(ann); else map.set(ann.pageNumber, [ann]);
+    }
+    return map;
+  }, [allDisplayAnnotations, filterAuthorId]);
   // Selected annotation may live on any page; resolve it globally for the toolbar.
   const selectedAnn     = allDisplayAnnotations.find(a => a.id === selectedAnnId) ?? null;
   const canDeleteAnn = (ann: PdfAnnotation) =>
@@ -1716,17 +1784,23 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     }
   };
 
+  // On-screen size of a page: a shared column width (fit-to-width × zoom) and a
+  // height from the page's own aspect ratio. Derived, so it is known for every page
+  // up front and stays correct without the page having been rendered yet.
+  const columnWidth = Math.min(availWidth || 0, 1400) * zoomLevel;
+  const getDisplaySize = (pageNum: number) => {
+    const dim = pageDims[pageNum - 1];
+    if (!dim || columnWidth <= 0) return { width: 0, height: 0 };
+    return { width: columnWidth, height: columnWidth * (dim.height / dim.width) };
+  };
+
   // Renders a single stacked page: its canvas + the SVG annotation overlay.
   // Live drawing previews and the text/scale inputs render only on the page the
   // current gesture is acting on (activePageRef); annotations render on every page.
   const renderPageLayer = (pageNum: number) => {
-    const size = pageSizes.get(pageNum);
-    const w = size?.width ?? 0;
-    const h = size?.height ?? 0;
+    const { width: w, height: h } = getDisplaySize(pageNum);
     const isActive = activePageRef.current === pageNum;
-    const pageAnns = allDisplayAnnotations.filter(
-      a => a.pageNumber === pageNum && (filterAuthorId === null || a.authorId === filterAuthorId)
-    );
+    const pageAnns = annotationsByPage.get(pageNum) ?? [];
     const sel = selectedAnn && selectedAnn.pageNumber === pageNum ? selectedAnn : null;
     const penPreviewPath = isActive && (currentTool === 'pen' || currentTool === 'highlighter') && penPoints.length > 1 && isDrawing
       ? penPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x * w} ${p.y * h}`).join(' ')
@@ -1737,17 +1811,19 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
         key={pageNum}
         data-page={pageNum}
         ref={el => { if (el) pageContainerRefs.current.set(pageNum, el); else pageContainerRefs.current.delete(pageNum); }}
-        className={`relative shadow-2xl rounded-lg overflow-hidden shrink-0 ${toolCursor}`}
-        style={{ width: w || '100%', touchAction: 'none' }}
+        className={`relative shadow-2xl rounded-lg overflow-hidden shrink-0 bg-slate-800/40 ${toolCursor}`}
+        style={{ width: w || '100%', height: h || undefined, touchAction: 'none' }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
         onDoubleClick={handleDoubleClick}
       >
+        {/* Canvas is absolutely positioned and stretched to the container so the
+            reserved page height is independent of whether the bitmap is painted. */}
         <canvas
           ref={el => { if (el) pageCanvasRefs.current.set(pageNum, el); else pageCanvasRefs.current.delete(pageNum); }}
-          className="block"
+          className="absolute inset-0 w-full h-full block"
         />
 
         <svg className="absolute inset-0 pointer-events-none"
