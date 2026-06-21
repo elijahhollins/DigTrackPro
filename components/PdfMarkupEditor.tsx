@@ -128,7 +128,6 @@ const TOOL_GROUPS: ToolGroup[] = [
     { id: 'dashed_line',  icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><line x1="4" y1="20" x2="20" y2="4" strokeWidth="2" strokeLinecap="round" strokeDasharray="3 2" /></svg>, title: 'Dashed Line' },
     { id: 'arrow',        icon: SvgIcon('M14 5l7 7m0 0l-7 7m7-7H3'),                     title: 'Arrow' },
     { id: 'double_arrow', icon: SvgIcon('M7 16l-4-4m0 0l4-4m-4 4h18m0 0l-4 4m4-4l-4-4'), title: 'Double Arrow' },
-    { id: 'dimension',    icon: SvgIcon('M8 9l4-4 4 4m0 6l-4 4-4-4'),                    title: 'Dimension / Measurement' },
   ]},
   { label: 'Shapes', tools: [
     { id: 'rectangle',
@@ -151,6 +150,9 @@ const TOOL_GROUPS: ToolGroup[] = [
     { id: 'scale',
       icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7h18M3 17h18M8 7v2m0 6v2M12 5v4m0 6v4M16 7v2m0 6v2"/></svg>,
       title: 'Calibrate Scale (draw a reference line → enter its real-world distance)' },
+    { id: 'dimension',
+      icon: SvgIcon('M8 9l4-4 4 4m0 6l-4 4-4-4'),
+      title: 'Measure Distance (draw a line — shows real-world length once scale is calibrated)' },
   ]},
 ];
 
@@ -792,11 +794,26 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   availWidthRef.current = availWidth;
   const pageDimsRef = useRef(pageDims);
   pageDimsRef.current = pageDims;
+  // Id of the persisted scale-calibration row (tool_type 'scale') so it can be replaced/cleared
+  const scaleAnnIdRef = useRef<string | null>(null);
 
-  // Load annotations
+  // Load annotations. The scale calibration is persisted as a special row
+  // (tool_type 'scale') — pull it out so it restores the scale instead of
+  // rendering as a visible markup.
   useEffect(() => {
     apiService.getAnnotations(print.id)
-      .then(setAnnotations)
+      .then((all) => {
+        const scaleRows = all.filter(a => a.toolType === 'scale');
+        setAnnotations(all.filter(a => a.toolType !== 'scale'));
+        const latest = scaleRows[scaleRows.length - 1];
+        if (latest) {
+          const d = latest.data as Record<string, unknown>;
+          if (typeof d.unitsPerNormDist === 'number' && typeof d.aspectRatio === 'number' && typeof d.unit === 'string') {
+            setScaleInfo({ unitsPerNormDist: d.unitsPerNormDist, aspectRatio: d.aspectRatio, unit: d.unit });
+            scaleAnnIdRef.current = latest.id;
+          }
+        }
+      })
       .catch((e: Error) => setAnnLoadErr(e.message || 'Failed to load annotations'));
   }, [print.id]);
 
@@ -1654,6 +1671,24 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     if (textInput.calloutData) setCurrentTool('select');
   }, [textInput, textValue, fontSize, commitAnnotation, editingAnnId, updateAnnotation]);
 
+  // Persist (or replace) the scale calibration so it survives reopening the PDF.
+  // Saved immediately rather than staged — calibration is a setting, not a markup.
+  const persistScale = useCallback(async (info: ScaleInfo) => {
+    try {
+      const prevId = scaleAnnIdRef.current;
+      const saved = await apiService.saveAnnotation({
+        printId: print.id, companyId: sessionUser.companyId,
+        authorId: sessionUser.id, authorName: sessionUser.name,
+        pageNumber, toolType: 'scale', color: currentColor, strokeWidth,
+        data: { unitsPerNormDist: info.unitsPerNormDist, aspectRatio: info.aspectRatio, unit: info.unit },
+      });
+      scaleAnnIdRef.current = saved.id;
+      if (prevId) { try { await apiService.deleteAnnotation(prevId); } catch { /* stale row cleanup is best-effort */ } }
+    } catch (e: unknown) {
+      setActionErr('Scale set for this session but could not be saved: ' + (e instanceof Error ? e.message : 'unknown'));
+    }
+  }, [print.id, sessionUser, pageNumber, currentColor, strokeWidth]);
+
   const handleScaleConfirm = useCallback(() => {
     if (!scaleInput || !scaleValue) { setScaleInput(null); return; }
     const inputVal = parseFloat(scaleValue);
@@ -1664,9 +1699,13 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     const dy = scaleInput.lineEnd.y - scaleInput.lineStart.y;
     const normDist = Math.sqrt((dx * ar) ** 2 + dy ** 2);
     if (normDist < 0.001) { setScaleInput(null); return; }
-    setScaleInfo({ unitsPerNormDist: inputVal / normDist, aspectRatio: ar, unit: scaleUnit });
-    setScaleInput(null); setScaleValue(''); setCurrentTool('select');
-  }, [scaleInput, scaleValue, scaleUnit]);
+    const info: ScaleInfo = { unitsPerNormDist: inputVal / normDist, aspectRatio: ar, unit: scaleUnit };
+    setScaleInfo(info);
+    void persistScale(info);
+    // Switch straight to the Measure (dimension) tool so the calibrated scale is
+    // immediately usable to measure other things on the print.
+    setScaleInput(null); setScaleValue(''); setCurrentTool('dimension');
+  }, [scaleInput, scaleValue, scaleUnit, persistScale]);
 
   const flipAnnotationH = useCallback(() => {
     const selId = selectedAnnIdRef.current;
@@ -2210,10 +2249,22 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
 
         {scaleInfo && (
           <div className="flex items-center gap-1 shrink-0">
-            <span className="text-[9px] text-emerald-400 font-black uppercase tracking-widest bg-emerald-500/10 px-2 py-1 rounded-lg">
-              Scale: {scaleInfo.unit}
-            </span>
-            <button onClick={() => setScaleInfo(null)}
+            <button
+              onClick={() => selectTool('dimension')}
+              className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg transition-colors ${
+                currentTool === 'dimension'
+                  ? 'text-slate-900 bg-emerald-400'
+                  : 'text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20'
+              }`}
+              title="Scale calibrated — tap to use the Measure tool and measure distances on the print">
+              Scale: {scaleInfo.unit} · Measure
+            </button>
+            <button onClick={() => {
+                setScaleInfo(null);
+                const prevId = scaleAnnIdRef.current;
+                scaleAnnIdRef.current = null;
+                if (prevId) apiService.deleteAnnotation(prevId).catch(() => { /* best-effort */ });
+              }}
               className="text-[9px] text-slate-500 hover:text-rose-400 font-black uppercase tracking-widest transition-colors px-1"
               title="Clear scale calibration">×</button>
           </div>

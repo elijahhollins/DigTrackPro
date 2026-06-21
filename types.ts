@@ -173,7 +173,8 @@ export interface PdfAnnotation {
     | 'pen' | 'highlighter'
     | 'text' | 'callout' | 'stamp'
     | 'arrow' | 'double_arrow' | 'line' | 'dashed_line' | 'dimension'
-    | 'rectangle' | 'filled_rectangle' | 'circle' | 'filled_circle' | 'cloud';
+    | 'rectangle' | 'filled_rectangle' | 'circle' | 'filled_circle' | 'cloud'
+    | 'scale';
   color: string;
   strokeWidth: number;
   data: Record<string, unknown>;
