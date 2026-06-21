@@ -695,6 +695,393 @@ const nudgeAnnotationData = (data: AnyAnnotationData, toolType: ToolType, dx: nu
 };
 
 // ─────────────────────────────────────────────────────────────
+// Page layer (memoized)
+// ─────────────────────────────────────────────────────────────
+
+type PenPoint = { x: number; y: number; pressure?: number };
+type TextInputState = { px: number; py: number; rx: number; ry: number; calloutData?: AnyAnnotationData };
+type ScaleInputState = { lineStart: { x: number; y: number }; lineEnd: { x: number; y: number } };
+
+// Shared stable references so memoized pages with no annotations / no active drawing
+// receive referentially-equal props and skip re-rendering.
+const EMPTY_ANNS: PdfAnnotation[] = [];
+const EMPTY_POINTS: PenPoint[] = [];
+
+interface PageLayerProps {
+  pageNum: number;
+  w: number;
+  h: number;
+  toolCursor: string;
+  pageAnns: PdfAnnotation[];
+  selectedAnnId: string | null;
+  liveEditData: AnyAnnotationData | null;
+  sel: PdfAnnotation | null;
+  scaleInfo: ScaleInfo | null;
+  currentTool: ToolType;
+  currentColor: string;
+  strokeWidth: number;
+  opacity: number;
+  isActive: boolean;
+  previewData: AnyAnnotationData | null;
+  penPoints: PenPoint[];
+  drawStart: { x: number; y: number } | null;
+  isDrawing: boolean;
+  textInput: TextInputState | null;
+  textValue: string;
+  fontSize: number;
+  scaleInput: ScaleInputState | null;
+  scaleValue: string;
+  scaleUnit: string;
+  onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onPointerMove: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onPointerUp: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onPointerCancel: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onDoubleClick: (e: React.MouseEvent<HTMLDivElement>) => void;
+  registerContainer: (p: number, el: HTMLDivElement | null) => void;
+  registerCanvas: (p: number, el: HTMLCanvasElement | null) => void;
+  textFieldRef: React.RefObject<HTMLInputElement | null>;
+  scaleInputRef: React.RefObject<HTMLInputElement | null>;
+  setTextValue: (v: string) => void;
+  setTextInput: (v: TextInputState | null) => void;
+  handleTextSubmit: () => void;
+  setScaleValue: (v: string) => void;
+  setScaleUnit: (v: string) => void;
+  setScaleInput: (v: ScaleInputState | null) => void;
+  handleScaleConfirm: () => void;
+}
+
+// A single stacked page: canvas + SVG annotation overlay. Wrapped in React.memo so
+// that high-frequency updates (drawing previews, scroll) only re-render the one page
+// being interacted with, keeping large documents responsive.
+const PageLayer = React.memo(function PageLayer(props: PageLayerProps) {
+  const {
+    pageNum, w, h, toolCursor, pageAnns, selectedAnnId, liveEditData, sel, scaleInfo,
+    currentTool, currentColor, strokeWidth, opacity, isActive,
+    previewData, penPoints, drawStart, isDrawing, textInput, textValue, fontSize,
+    scaleInput, scaleValue, scaleUnit,
+    onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onDoubleClick,
+    registerContainer, registerCanvas, textFieldRef, scaleInputRef,
+    setTextValue, setTextInput, handleTextSubmit, setScaleValue, setScaleUnit, setScaleInput, handleScaleConfirm,
+  } = props;
+
+  const containerCb = useCallback((el: HTMLDivElement | null) => registerContainer(pageNum, el), [registerContainer, pageNum]);
+  const canvasCb = useCallback((el: HTMLCanvasElement | null) => registerCanvas(pageNum, el), [registerCanvas, pageNum]);
+
+  const penPreviewPath = isActive && (currentTool === 'pen' || currentTool === 'highlighter') && penPoints.length > 1 && isDrawing
+    ? penPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x * w} ${p.y * h}`).join(' ')
+    : null;
+
+  return (
+    <div
+      data-page={pageNum}
+      ref={containerCb}
+      className={`relative shadow-2xl rounded-lg overflow-hidden shrink-0 bg-slate-800/40 ${toolCursor}`}
+      style={{ width: w || '100%', height: h || undefined, touchAction: 'none' }}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+      onDoubleClick={onDoubleClick}
+    >
+      {/* Canvas is absolutely positioned and stretched to the container so the
+          reserved page height is independent of whether the bitmap is painted. */}
+      <canvas
+        ref={canvasCb}
+        className="absolute inset-0 w-full h-full block"
+      />
+
+      <svg className="absolute inset-0 pointer-events-none"
+        width={w} height={h}
+        viewBox={`0 0 ${w} ${h}`}>
+
+        {pageAnns.map(ann => {
+          const data = (ann.id === selectedAnnId && liveEditData !== null)
+            ? liveEditData
+            : ann.data as AnyAnnotationData;
+          return renderAnnotationSvg({ ...ann, data }, w, h, ann.id, scaleInfo);
+        })}
+
+        {sel && currentTool === 'select' && (() => {
+          const displayData = liveEditData ?? sel.data as AnyAnnotationData;
+          const rotation    = (displayData.rotation as number | undefined) ?? 0;
+          const handles     = getHandlesNorm({ ...sel, data: displayData });
+          const bbox        = getAnnotationBBox(sel, displayData);
+          const SELECTION_BOX_PADDING = 8;
+          // Pixel coordinates of the bbox centre (used for the rotation transform)
+          const bboxCxPx = bbox ? (bbox.x + bbox.w / 2) * w : 0;
+          const bboxCyPx = bbox ? (bbox.y + bbox.h / 2) * h : 0;
+          const rotateHandle = handles.find(hh => hh.isRotateHandle);
+          return (
+            <g>
+              {/* Dashed bounding box — rotated with the annotation */}
+              {bbox && bbox.w > 0.005 && (
+                <g transform={rotation ? `rotate(${rotation}, ${bboxCxPx}, ${bboxCyPx})` : undefined}>
+                  <rect
+                    x={bbox.x * w - SELECTION_BOX_PADDING}
+                    y={bbox.y * h - SELECTION_BOX_PADDING}
+                    width={bbox.w * w + SELECTION_BOX_PADDING * 2}
+                    height={bbox.h * h + SELECTION_BOX_PADDING * 2}
+                    fill="none" stroke="white" strokeWidth="1.5"
+                    strokeDasharray="5 3" opacity="0.5" rx="3" />
+                </g>
+              )}
+              {/* Stem line from bbox top-centre to the rotate handle */}
+              {bbox && bbox.w > 0.005 && rotateHandle && (() => {
+                // Compute the rotated top-centre of the bounding box
+                const stemBaseX = bbox.x * w + (bbox.w * w) / 2;
+                const stemBaseY = bbox.y * h - SELECTION_BOX_PADDING;
+                if (rotation) {
+                  const rad = (rotation * Math.PI) / 180;
+                  const cos = Math.cos(rad), sin = Math.sin(rad);
+                  const dx = stemBaseX - bboxCxPx, dy = stemBaseY - bboxCyPx;
+                  const rx = bboxCxPx + dx * cos - dy * sin;
+                  const ry = bboxCyPx + dx * sin + dy * cos;
+                  return <line x1={rx} y1={ry} x2={rotateHandle.nx * w} y2={rotateHandle.ny * h}
+                    stroke="white" strokeWidth="1" strokeDasharray="3 2" opacity="0.35" />;
+                }
+                return <line x1={stemBaseX} y1={stemBaseY} x2={rotateHandle.nx * w} y2={rotateHandle.ny * h}
+                  stroke="white" strokeWidth="1" strokeDasharray="3 2" opacity="0.35" />;
+              })()}
+              {handles.map(hh => {
+                const cx = hh.nx * w;
+                const cy = hh.ny * h;
+                const isCalloutArrowTip = sel.toolType === 'callout' && !hh.isMoveHandle && !hh.isRotateHandle && hh.index === 1;
+                const handleFill = hh.isRotateHandle ? '#22c55e'
+                  : hh.isMoveHandle ? '#6366f1'
+                  : hh.isEdgeHandle ? '#0ea5e9'
+                  : isCalloutArrowTip ? '#f59e0b'
+                  : '#3b82f6';
+                const edgeLabel = hh.index === EDGE_HANDLE_TOP ? 'top' : hh.index === EDGE_HANDLE_RIGHT ? 'right' : hh.index === EDGE_HANDLE_BOTTOM ? 'bottom' : 'left';
+                const handleTitle = hh.isRotateHandle
+                  ? `Rotate — drag to rotate (${Math.round(rotation)}°), hold Shift for 15° snapping`
+                  : hh.isMoveHandle
+                    ? 'Move annotation'
+                    : hh.isEdgeHandle
+                      ? `Resize ${edgeLabel} edge — drag to resize on one axis`
+                      : sel.toolType === 'callout'
+                        ? hh.index === 0 ? 'Text box — drag to reposition' : 'Arrow tip — drag to repoint'
+                        : sel.toolType === 'arrow' || sel.toolType === 'double_arrow'
+                          ? hh.index === 0 ? 'Line start — drag to adjust' : 'Arrow head — drag to adjust'
+                          : `Endpoint ${hh.index + 1} — drag to reshape`;
+                const r = hh.isRotateHandle || hh.isMoveHandle ? 9 : 8;
+                return (
+                  <g key={`handle-${hh.index}`}>
+                    {/* Hit-area circle (invisible, larger) */}
+                    <circle cx={cx} cy={cy} r="18" fill="transparent">
+                      <title>{handleTitle}</title>
+                    </circle>
+                    {/* Edge handles: diamond (rotated square) shape */}
+                    {hh.isEdgeHandle ? (
+                      <rect
+                        x={cx - 6} y={cy - 6} width={12} height={12}
+                        fill={handleFill} stroke="white" strokeWidth="2"
+                        transform={`rotate(45, ${cx}, ${cy})`}
+                      />
+                    ) : (
+                      /* Visible handle circle */
+                      <circle cx={cx} cy={cy} r={r} fill={handleFill} stroke="white" strokeWidth="2.5" />
+                    )}
+                    {/* Rotate handle: circular-arrow icon */}
+                    {hh.isRotateHandle && (
+                      <g transform={`translate(${cx}, ${cy})`} stroke="white" strokeWidth="1.5" strokeLinecap="round" fill="none">
+                        <path d="M -4 -3 A 5 5 0 1 1 3.5 -3.5" />
+                        <polyline points="3.5,-3.5 5.5,-1.5 5.5,-5" />
+                      </g>
+                    )}
+                    {/* Move handle: cross icon */}
+                    {hh.isMoveHandle && (
+                      <g stroke="white" strokeWidth="1.5" strokeLinecap="round">
+                        <line x1={cx - 4} y1={cy} x2={cx + 4} y2={cy} />
+                        <line x1={cx} y1={cy - 4} x2={cx} y2={cy + 4} />
+                      </g>
+                    )}
+                  </g>
+                );
+              })}
+            </g>
+          );
+        })()}
+
+        {pageAnns.map(ann => {
+          const anchor = getAnnotationAnchor(ann);
+          if (!anchor) return null;
+          const initials  = getInitials(ann.authorName);
+          const bw        = initials.length * 7 + 10;
+          const bx        = anchor.x * w;
+          const by        = anchor.y * h;
+          const isPending = ann.id.startsWith('tmp-');
+          return (
+            <g key={`badge-${ann.id}`}>
+              <rect x={bx} y={by - 17} width={bw} height={17} rx="3"
+                fill={ann.color} opacity={isPending ? 0.5 : 0.88}
+                stroke={isPending ? 'white' : 'none'} strokeWidth={isPending ? 1 : 0}
+                strokeDasharray={isPending ? '3 2' : undefined} />
+              <text x={bx + 5} y={by - 3} fontSize="11" fontFamily="monospace" fontWeight="bold" fill="white">
+                {initials}
+              </text>
+            </g>
+          );
+        })}
+
+        {penPreviewPath && (
+          <path d={penPreviewPath} stroke={currentColor}
+            strokeWidth={currentTool === 'highlighter' ? strokeWidth * 5 : strokeWidth}
+            fill="none" strokeLinecap="round" strokeLinejoin="round"
+            opacity={currentTool === 'highlighter' ? opacity * 0.35 : opacity * 0.75} />
+        )}
+
+        {isActive && previewData && currentTool !== 'pen' && currentTool !== 'highlighter' && currentTool !== 'scale' &&
+          renderAnnotationSvg({ toolType: currentTool, color: currentColor, strokeWidth, data: previewData },
+            w, h, 'preview', scaleInfo)
+        }
+
+        {isActive && isDrawing && currentTool === 'scale' && previewData && (
+          <line
+            x1={(previewData.x1 ?? 0) * w} y1={(previewData.y1 ?? 0) * h}
+            x2={(previewData.x2 ?? 0) * w} y2={(previewData.y2 ?? 0) * h}
+            stroke="#fbbf24" strokeWidth="2" strokeDasharray="6 3" strokeLinecap="round" opacity="0.9"
+          />
+        )}
+
+        {isActive && scaleInput && (
+          <line
+            x1={scaleInput.lineStart.x * w} y1={scaleInput.lineStart.y * h}
+            x2={scaleInput.lineEnd.x * w} y2={scaleInput.lineEnd.y * h}
+            stroke="#fbbf24" strokeWidth="2.5" strokeDasharray="6 3" strokeLinecap="round"
+          />
+        )}
+
+        {/* Start-point crosshair while drawing lines / callout / shapes */}
+        {isActive && isDrawing && drawStart && !['pen', 'highlighter', 'text', 'stamp', 'select', 'pan'].includes(currentTool) && (
+          <g>
+            <circle cx={drawStart.x * w} cy={drawStart.y * h}
+              r="5" fill={currentColor} stroke="white" strokeWidth="2" opacity="0.9" />
+            <line x1={drawStart.x * w - 10} y1={drawStart.y * h}
+              x2={drawStart.x * w + 10} y2={drawStart.y * h}
+              stroke="white" strokeWidth="1.5" strokeLinecap="round" opacity="0.6" />
+            <line x1={drawStart.x * w} y1={drawStart.y * h - 10}
+              x2={drawStart.x * w} y2={drawStart.y * h + 10}
+              stroke="white" strokeWidth="1.5" strokeLinecap="round" opacity="0.6" />
+          </g>
+        )}
+
+        {/* Angle badge for line-type tools while drawing */}
+        {isActive && isDrawing && previewData && (
+          currentTool === 'line' || currentTool === 'dashed_line' ||
+          currentTool === 'arrow' || currentTool === 'double_arrow' ||
+          currentTool === 'dimension' || currentTool === 'callout'
+        ) && (() => {
+          const x2px = (previewData.x2 ?? 0) * w;
+          const y2px = (previewData.y2 ?? 0) * h;
+          const dx = ((previewData.x2 ?? 0) - (previewData.x1 ?? 0)) * w;
+          const dy = ((previewData.y2 ?? 0) - (previewData.y1 ?? 0)) * h;
+          const angleDeg = ((Math.round(Math.atan2(dy, dx) * 180 / Math.PI) % 360) + 360) % 360;
+          const bx = Math.min(x2px + 12, w - 52);
+          const by = y2px > 20 ? y2px - 8 : y2px + 26;
+          return (
+            <g opacity="0.92">
+              <rect x={bx} y={by - 13} width={44} height={16} rx="4" fill="rgba(0,0,0,0.72)" />
+              <text x={bx + 5} y={by - 1} fontSize="11" fill="white" fontFamily="monospace" fontWeight="bold">
+                {angleDeg}°
+              </text>
+            </g>
+          );
+        })()}
+
+        {/* Ghost callout preview while the text input is open */}
+        {isActive && textInput && textInput.calloutData && (
+          renderAnnotationSvg({
+            toolType: 'callout', color: currentColor, strokeWidth,
+            data: { ...textInput.calloutData, text: textValue.trim() || ' ', fontSize },
+          }, w, h, 'callout-ghost')
+        )}
+
+        {/* Scale bar */}
+        {scaleInfo && w > 0 && (() => {
+          const targetPx = w * 0.15;
+          const rawUnits = (targetPx / h) * scaleInfo.unitsPerNormDist;
+          const nices = [0.25,0.5,1,2,5,10,20,25,50,100,200,500,1000];
+          const nice = nices.reduce((a, b) => Math.abs(b - rawUnits) < Math.abs(a - rawUnits) ? b : a);
+          const barPx = (nice / scaleInfo.unitsPerNormDist) * h;
+          const barX = 16, barY = h - 16;
+          const label = `${nice} ${scaleInfo.unit}`;
+          const lblW = label.length * 6 + 12;
+          return (
+            <g opacity="0.9">
+              <rect x={barX - 4} y={barY - 24} width={Math.max(barPx + 8, lblW + 8)} height={28} rx="4" fill="rgba(0,0,0,0.72)" />
+              <line x1={barX} y1={barY - 10} x2={barX + barPx} y2={barY - 10} stroke="white" strokeWidth="2" />
+              <line x1={barX} y1={barY - 16} x2={barX} y2={barY - 4} stroke="white" strokeWidth="2" />
+              <line x1={barX + barPx} y1={barY - 16} x2={barX + barPx} y2={barY - 4} stroke="white" strokeWidth="2" />
+              <text x={barX + barPx / 2} y={barY} textAnchor="middle" fill="white" fontSize="9" fontFamily="monospace" fontWeight="bold">{label}</text>
+            </g>
+          );
+        })()}
+      </svg>
+
+      {isActive && scaleInput && (
+        <div className="absolute bg-slate-900 border border-white/20 rounded-xl p-4 shadow-2xl z-20 w-60"
+          style={{ left: Math.min(w - 248, Math.max(0, scaleInput.lineEnd.x * w - 120)),
+                   top: Math.min(h - 120, Math.max(0, scaleInput.lineEnd.y * h + 16)) }}>
+          <p className="text-[10px] text-brand font-black uppercase tracking-widest mb-3">Set Scale Reference</p>
+          <p className="text-[9px] text-slate-400 mb-2">What length does this line represent?</p>
+          <div className="flex gap-2 mb-3">
+            <input ref={scaleInputRef} type="number" min="0.001" step="any" value={scaleValue}
+              onChange={e => setScaleValue(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleScaleConfirm(); if (e.key === 'Escape') setScaleInput(null); }}
+              placeholder="Distance"
+              className="flex-1 bg-slate-800 text-white rounded-lg px-2 py-1.5 text-sm border border-white/10 outline-none focus:border-brand min-w-0" />
+            <select value={scaleUnit} onChange={e => setScaleUnit(e.target.value)}
+              className="bg-slate-800 text-white rounded-lg px-2 text-sm border border-white/10 outline-none focus:border-brand shrink-0">
+              <option value="ft">ft</option>
+              <option value="in">in</option>
+              <option value="yd">yd</option>
+              <option value="m">m</option>
+              <option value="cm">cm</option>
+              <option value="mm">mm</option>
+            </select>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={handleScaleConfirm}
+              className="flex-1 bg-brand text-slate-900 rounded-lg py-1.5 text-[11px] font-black hover:brightness-110 transition-all">
+              Set Scale
+            </button>
+            <button onClick={() => { setScaleInput(null); setScaleValue(''); }}
+              className="px-3 bg-slate-800 text-slate-300 hover:bg-slate-700 rounded-lg py-1.5 text-[11px] font-black transition-all">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {isActive && textInput && (
+        <input
+          ref={textFieldRef}
+          type="text"
+          value={textValue}
+          onChange={e => setTextValue(e.target.value)}
+          onBlur={handleTextSubmit}
+          onKeyDown={e => {
+            if (e.key === 'Enter') handleTextSubmit();
+            if (e.key === 'Escape') { setTextInput(null); setTextValue(''); }
+          }}
+          className="absolute bg-black/50 backdrop-blur rounded px-2 py-1 border border-dashed outline-none z-10 font-bold"
+          style={{
+            left: textInput.calloutData
+              ? Math.min(w - 172, Math.max(4, textInput.rx * w - 80))
+              : textInput.px,
+            top: textInput.calloutData
+              ? Math.min(h - 40, Math.max(4, textInput.ry * h - fontSize - 14))
+              : textInput.py - 16,
+            color: currentColor, borderColor: currentColor, fontSize: fontSize + 'px', minWidth: '160px',
+          }}
+          placeholder={textInput.calloutData ? 'Callout text, then Enter…' : 'Type, then Enter…'}
+        />
+      )}
+    </div>
+  );
+});
+
+// ─────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────
 
@@ -708,6 +1095,9 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   const [fontSize, setFontSize]         = useState(DEFAULT_FONT_SIZE);
   const [stampType, setStampType]       = useState<StampType>('APPROVED');
   const [pageNumber, setPageNumber]     = useState(1);
+  // Page the current gesture is acting on (drives which page renders drawing previews
+  // and inputs). Separate from pageNumber so scrolling doesn't re-render page layers.
+  const [activePage, setActivePage]     = useState(1);
   const [numPages, setNumPages]         = useState(0);
   const [zoomLevel, setZoomLevel]       = useState(1.0);
   // Intrinsic (scale-1) dimensions of each page, indexed by (page number − 1).
@@ -763,6 +1153,8 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   const visiblePagesRef = useRef<Set<number>>(new Set());
   // Scroll position as a fraction of scrollable height, kept current so zoom can restore it.
   const scrollRatioRef = useRef(0);
+  // Pending requestAnimationFrame id for throttling scroll-driven work.
+  const scrollRafRef = useRef(0);
   const drawingPtrRef = useRef<number | null>(null);
   const touchPtsRef   = useRef<Map<number, { x: number; y: number }>>(new Map());
   const isPinchRef    = useRef(false);
@@ -972,20 +1364,34 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   }, [zoomLevel, availWidth]);
 
   // Track the page most centered in the viewport so the header indicator stays accurate
-  // as the user scrolls through the document.
+  // as the user scrolls through the document. Throttled to once per frame and computed
+  // analytically from page sizes (no per-page DOM reads) so scrolling stays smooth even
+  // for documents with hundreds of pages.
   const handleScroll = useCallback(() => {
-    const main = mainRef.current;
-    if (!main) return;
-    const sh = main.scrollHeight - main.clientHeight;
-    scrollRatioRef.current = sh > 0 ? main.scrollTop / sh : 0;
-    const viewportCenter = main.scrollTop + main.clientHeight / 2;
-    let best = 1, bestDist = Infinity;
-    pageContainerRefs.current.forEach((el, p) => {
-      const center = el.offsetTop + el.offsetHeight / 2;
-      const dist = Math.abs(center - viewportCenter);
-      if (dist < bestDist) { bestDist = dist; best = p; }
+    if (scrollRafRef.current) return;
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = 0;
+      const main = mainRef.current;
+      if (!main) return;
+      const sh = main.scrollHeight - main.clientHeight;
+      scrollRatioRef.current = sh > 0 ? main.scrollTop / sh : 0;
+
+      // Walk cumulative page heights (container p-4 = 16px padding, gap-4 = 16px gap)
+      // to find the page under the viewport centre without forcing layout per page.
+      const PAD = 16, GAP = 16;
+      const colW = Math.min(availWidthRef.current || 0, 1400) * zoomRef.current;
+      const dims = pageDimsRef.current;
+      const center = main.scrollTop + main.clientHeight / 2;
+      let top = PAD, best = 1;
+      for (let i = 0; i < dims.length; i++) {
+        const dim = dims[i];
+        const hgt = dim && colW > 0 ? colW * (dim.height / dim.width) : 0;
+        best = i + 1;
+        if (center <= top + hgt) break;
+        top += hgt + GAP;
+      }
+      setPageNumber(prev => (prev === best ? prev : best));
     });
-    setPageNumber(prev => (prev === best ? prev : best));
   }, []);
 
   // Undo
@@ -1023,6 +1429,15 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     const canvas = pageCanvasRefs.current.get(pageNum ?? activePageRef.current);
     if (!canvas) return { x: 0, y: 0 };
     return getRelativeCoords(clientX, clientY, canvas);
+  }, []);
+
+  // Stable ref-registration callbacks so memoized PageLayers never re-render from
+  // receiving a fresh ref function each render.
+  const registerContainer = useCallback((p: number, el: HTMLDivElement | null) => {
+    if (el) pageContainerRefs.current.set(p, el); else pageContainerRefs.current.delete(p);
+  }, []);
+  const registerCanvas = useCallback((p: number, el: HTMLCanvasElement | null) => {
+    if (el) pageCanvasRefs.current.set(p, el); else pageCanvasRefs.current.delete(p);
   }, []);
 
   // Stage annotation locally; persisted to DB only when the user clicks Save.
@@ -1326,7 +1741,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     // previews, and new annotations all bind to the correct page.
     const pageNum = Number(e.currentTarget.dataset.page) || 1;
     activePageRef.current = pageNum;
-    setPageNumber(pageNum);
+    setActivePage(pageNum);
 
     // Palm rejection: if pen is active, ignore new touch contacts
     if (drawingPtrRef.current !== null && e.pointerType === 'touch') return;
@@ -1750,6 +2165,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     if (currentTool !== 'select') return;
     const pageNum = Number(e.currentTarget.dataset.page) || activePageRef.current;
     activePageRef.current = pageNum;
+    setActivePage(pageNum);
     const coords = getCoords(e.clientX, e.clientY, pageNum);
     const pageAnns = [...annotations, ...pendingAnnotations].filter(a => a.pageNumber === pageNum);
     let nearest: PdfAnnotation | null = null;
@@ -1833,328 +2249,6 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     return { width: columnWidth, height: columnWidth * (dim.height / dim.width) };
   };
 
-  // Renders a single stacked page: its canvas + the SVG annotation overlay.
-  // Live drawing previews and the text/scale inputs render only on the page the
-  // current gesture is acting on (activePageRef); annotations render on every page.
-  const renderPageLayer = (pageNum: number) => {
-    const { width: w, height: h } = getDisplaySize(pageNum);
-    const isActive = activePageRef.current === pageNum;
-    const pageAnns = annotationsByPage.get(pageNum) ?? [];
-    const sel = selectedAnn && selectedAnn.pageNumber === pageNum ? selectedAnn : null;
-    const penPreviewPath = isActive && (currentTool === 'pen' || currentTool === 'highlighter') && penPoints.length > 1 && isDrawing
-      ? penPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x * w} ${p.y * h}`).join(' ')
-      : null;
-
-    return (
-      <div
-        key={pageNum}
-        data-page={pageNum}
-        ref={el => { if (el) pageContainerRefs.current.set(pageNum, el); else pageContainerRefs.current.delete(pageNum); }}
-        className={`relative shadow-2xl rounded-lg overflow-hidden shrink-0 bg-slate-800/40 ${toolCursor}`}
-        style={{ width: w || '100%', height: h || undefined, touchAction: 'none' }}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerCancel}
-        onDoubleClick={handleDoubleClick}
-      >
-        {/* Canvas is absolutely positioned and stretched to the container so the
-            reserved page height is independent of whether the bitmap is painted. */}
-        <canvas
-          ref={el => { if (el) pageCanvasRefs.current.set(pageNum, el); else pageCanvasRefs.current.delete(pageNum); }}
-          className="absolute inset-0 w-full h-full block"
-        />
-
-        <svg className="absolute inset-0 pointer-events-none"
-          width={w} height={h}
-          viewBox={`0 0 ${w} ${h}`}>
-
-          {pageAnns.map(ann => {
-            const data = (ann.id === selectedAnnId && liveEditData !== null)
-              ? liveEditData
-              : ann.data as AnyAnnotationData;
-            return renderAnnotationSvg({ ...ann, data }, w, h, ann.id, scaleInfo);
-          })}
-
-          {sel && currentTool === 'select' && (() => {
-            const displayData = liveEditData ?? sel.data as AnyAnnotationData;
-            const rotation    = (displayData.rotation as number | undefined) ?? 0;
-            const handles     = getHandlesNorm({ ...sel, data: displayData });
-            const bbox        = getAnnotationBBox(sel, displayData);
-            const SELECTION_BOX_PADDING = 8;
-            // Pixel coordinates of the bbox centre (used for the rotation transform)
-            const bboxCxPx = bbox ? (bbox.x + bbox.w / 2) * w : 0;
-            const bboxCyPx = bbox ? (bbox.y + bbox.h / 2) * h : 0;
-            const rotateHandle = handles.find(hh => hh.isRotateHandle);
-            return (
-              <g>
-                {/* Dashed bounding box — rotated with the annotation */}
-                {bbox && bbox.w > 0.005 && (
-                  <g transform={rotation ? `rotate(${rotation}, ${bboxCxPx}, ${bboxCyPx})` : undefined}>
-                    <rect
-                      x={bbox.x * w - SELECTION_BOX_PADDING}
-                      y={bbox.y * h - SELECTION_BOX_PADDING}
-                      width={bbox.w * w + SELECTION_BOX_PADDING * 2}
-                      height={bbox.h * h + SELECTION_BOX_PADDING * 2}
-                      fill="none" stroke="white" strokeWidth="1.5"
-                      strokeDasharray="5 3" opacity="0.5" rx="3" />
-                  </g>
-                )}
-                {/* Stem line from bbox top-centre to the rotate handle */}
-                {bbox && bbox.w > 0.005 && rotateHandle && (() => {
-                  // Compute the rotated top-centre of the bounding box
-                  const stemBaseX = bbox.x * w + (bbox.w * w) / 2;
-                  const stemBaseY = bbox.y * h - SELECTION_BOX_PADDING;
-                  if (rotation) {
-                    const rad = (rotation * Math.PI) / 180;
-                    const cos = Math.cos(rad), sin = Math.sin(rad);
-                    const dx = stemBaseX - bboxCxPx, dy = stemBaseY - bboxCyPx;
-                    const rx = bboxCxPx + dx * cos - dy * sin;
-                    const ry = bboxCyPx + dx * sin + dy * cos;
-                    return <line x1={rx} y1={ry} x2={rotateHandle.nx * w} y2={rotateHandle.ny * h}
-                      stroke="white" strokeWidth="1" strokeDasharray="3 2" opacity="0.35" />;
-                  }
-                  return <line x1={stemBaseX} y1={stemBaseY} x2={rotateHandle.nx * w} y2={rotateHandle.ny * h}
-                    stroke="white" strokeWidth="1" strokeDasharray="3 2" opacity="0.35" />;
-                })()}
-                {handles.map(hh => {
-                  const cx = hh.nx * w;
-                  const cy = hh.ny * h;
-                  const isCalloutArrowTip = sel.toolType === 'callout' && !hh.isMoveHandle && !hh.isRotateHandle && hh.index === 1;
-                  const handleFill = hh.isRotateHandle ? '#22c55e'
-                    : hh.isMoveHandle ? '#6366f1'
-                    : hh.isEdgeHandle ? '#0ea5e9'
-                    : isCalloutArrowTip ? '#f59e0b'
-                    : '#3b82f6';
-                  const edgeLabel = hh.index === EDGE_HANDLE_TOP ? 'top' : hh.index === EDGE_HANDLE_RIGHT ? 'right' : hh.index === EDGE_HANDLE_BOTTOM ? 'bottom' : 'left';
-                  const handleTitle = hh.isRotateHandle
-                    ? `Rotate — drag to rotate (${Math.round(rotation)}°), hold Shift for 15° snapping`
-                    : hh.isMoveHandle
-                      ? 'Move annotation'
-                      : hh.isEdgeHandle
-                        ? `Resize ${edgeLabel} edge — drag to resize on one axis`
-                        : sel.toolType === 'callout'
-                          ? hh.index === 0 ? 'Text box — drag to reposition' : 'Arrow tip — drag to repoint'
-                          : sel.toolType === 'arrow' || sel.toolType === 'double_arrow'
-                            ? hh.index === 0 ? 'Line start — drag to adjust' : 'Arrow head — drag to adjust'
-                            : `Endpoint ${hh.index + 1} — drag to reshape`;
-                  const r = hh.isRotateHandle || hh.isMoveHandle ? 9 : 8;
-                  return (
-                    <g key={`handle-${hh.index}`}>
-                      {/* Hit-area circle (invisible, larger) */}
-                      <circle cx={cx} cy={cy} r="18" fill="transparent">
-                        <title>{handleTitle}</title>
-                      </circle>
-                      {/* Edge handles: diamond (rotated square) shape */}
-                      {hh.isEdgeHandle ? (
-                        <rect
-                          x={cx - 6} y={cy - 6} width={12} height={12}
-                          fill={handleFill} stroke="white" strokeWidth="2"
-                          transform={`rotate(45, ${cx}, ${cy})`}
-                        />
-                      ) : (
-                        /* Visible handle circle */
-                        <circle cx={cx} cy={cy} r={r} fill={handleFill} stroke="white" strokeWidth="2.5" />
-                      )}
-                      {/* Rotate handle: circular-arrow icon */}
-                      {hh.isRotateHandle && (
-                        <g transform={`translate(${cx}, ${cy})`} stroke="white" strokeWidth="1.5" strokeLinecap="round" fill="none">
-                          <path d="M -4 -3 A 5 5 0 1 1 3.5 -3.5" />
-                          <polyline points="3.5,-3.5 5.5,-1.5 5.5,-5" />
-                        </g>
-                      )}
-                      {/* Move handle: cross icon */}
-                      {hh.isMoveHandle && (
-                        <g stroke="white" strokeWidth="1.5" strokeLinecap="round">
-                          <line x1={cx - 4} y1={cy} x2={cx + 4} y2={cy} />
-                          <line x1={cx} y1={cy - 4} x2={cx} y2={cy + 4} />
-                        </g>
-                      )}
-                    </g>
-                  );
-                })}
-              </g>
-            );
-          })()}
-
-          {pageAnns.map(ann => {
-            const anchor = getAnnotationAnchor(ann);
-            if (!anchor) return null;
-            const initials  = getInitials(ann.authorName);
-            const bw        = initials.length * 7 + 10;
-            const bx        = anchor.x * w;
-            const by        = anchor.y * h;
-            const isPending = ann.id.startsWith('tmp-');
-            return (
-              <g key={`badge-${ann.id}`}>
-                <rect x={bx} y={by - 17} width={bw} height={17} rx="3"
-                  fill={ann.color} opacity={isPending ? 0.5 : 0.88}
-                  stroke={isPending ? 'white' : 'none'} strokeWidth={isPending ? 1 : 0}
-                  strokeDasharray={isPending ? '3 2' : undefined} />
-                <text x={bx + 5} y={by - 3} fontSize="11" fontFamily="monospace" fontWeight="bold" fill="white">
-                  {initials}
-                </text>
-              </g>
-            );
-          })}
-
-          {penPreviewPath && (
-            <path d={penPreviewPath} stroke={currentColor}
-              strokeWidth={currentTool === 'highlighter' ? strokeWidth * 5 : strokeWidth}
-              fill="none" strokeLinecap="round" strokeLinejoin="round"
-              opacity={currentTool === 'highlighter' ? opacity * 0.35 : opacity * 0.75} />
-          )}
-
-          {isActive && previewData && currentTool !== 'pen' && currentTool !== 'highlighter' && currentTool !== 'scale' &&
-            renderAnnotationSvg({ toolType: currentTool, color: currentColor, strokeWidth, data: previewData },
-              w, h, 'preview', scaleInfo)
-          }
-
-          {isActive && isDrawing && currentTool === 'scale' && previewData && (
-            <line
-              x1={(previewData.x1 ?? 0) * w} y1={(previewData.y1 ?? 0) * h}
-              x2={(previewData.x2 ?? 0) * w} y2={(previewData.y2 ?? 0) * h}
-              stroke="#fbbf24" strokeWidth="2" strokeDasharray="6 3" strokeLinecap="round" opacity="0.9"
-            />
-          )}
-
-          {isActive && scaleInput && (
-            <line
-              x1={scaleInput.lineStart.x * w} y1={scaleInput.lineStart.y * h}
-              x2={scaleInput.lineEnd.x * w} y2={scaleInput.lineEnd.y * h}
-              stroke="#fbbf24" strokeWidth="2.5" strokeDasharray="6 3" strokeLinecap="round"
-            />
-          )}
-
-          {/* Start-point crosshair while drawing lines / callout / shapes */}
-          {isActive && isDrawing && drawStart && !['pen', 'highlighter', 'text', 'stamp', 'select', 'pan'].includes(currentTool) && (
-            <g>
-              <circle cx={drawStart.x * w} cy={drawStart.y * h}
-                r="5" fill={currentColor} stroke="white" strokeWidth="2" opacity="0.9" />
-              <line x1={drawStart.x * w - 10} y1={drawStart.y * h}
-                x2={drawStart.x * w + 10} y2={drawStart.y * h}
-                stroke="white" strokeWidth="1.5" strokeLinecap="round" opacity="0.6" />
-              <line x1={drawStart.x * w} y1={drawStart.y * h - 10}
-                x2={drawStart.x * w} y2={drawStart.y * h + 10}
-                stroke="white" strokeWidth="1.5" strokeLinecap="round" opacity="0.6" />
-            </g>
-          )}
-
-          {/* Angle badge for line-type tools while drawing */}
-          {isActive && isDrawing && previewData && (
-            currentTool === 'line' || currentTool === 'dashed_line' ||
-            currentTool === 'arrow' || currentTool === 'double_arrow' ||
-            currentTool === 'dimension' || currentTool === 'callout'
-          ) && (() => {
-            const x2px = (previewData.x2 ?? 0) * w;
-            const y2px = (previewData.y2 ?? 0) * h;
-            const dx = ((previewData.x2 ?? 0) - (previewData.x1 ?? 0)) * w;
-            const dy = ((previewData.y2 ?? 0) - (previewData.y1 ?? 0)) * h;
-            const angleDeg = ((Math.round(Math.atan2(dy, dx) * 180 / Math.PI) % 360) + 360) % 360;
-            const bx = Math.min(x2px + 12, w - 52);
-            const by = y2px > 20 ? y2px - 8 : y2px + 26;
-            return (
-              <g opacity="0.92">
-                <rect x={bx} y={by - 13} width={44} height={16} rx="4" fill="rgba(0,0,0,0.72)" />
-                <text x={bx + 5} y={by - 1} fontSize="11" fill="white" fontFamily="monospace" fontWeight="bold">
-                  {angleDeg}°
-                </text>
-              </g>
-            );
-          })()}
-
-          {/* Ghost callout preview while the text input is open */}
-          {isActive && textInput && textInput.calloutData && (
-            renderAnnotationSvg({
-              toolType: 'callout', color: currentColor, strokeWidth,
-              data: { ...textInput.calloutData, text: textValue.trim() || ' ', fontSize },
-            }, w, h, 'callout-ghost')
-          )}
-
-          {/* Scale bar */}
-          {scaleInfo && w > 0 && (() => {
-            const targetPx = w * 0.15;
-            const rawUnits = (targetPx / h) * scaleInfo.unitsPerNormDist;
-            const nices = [0.25,0.5,1,2,5,10,20,25,50,100,200,500,1000];
-            const nice = nices.reduce((a, b) => Math.abs(b - rawUnits) < Math.abs(a - rawUnits) ? b : a);
-            const barPx = (nice / scaleInfo.unitsPerNormDist) * h;
-            const barX = 16, barY = h - 16;
-            const label = `${nice} ${scaleInfo.unit}`;
-            const lblW = label.length * 6 + 12;
-            return (
-              <g opacity="0.9">
-                <rect x={barX - 4} y={barY - 24} width={Math.max(barPx + 8, lblW + 8)} height={28} rx="4" fill="rgba(0,0,0,0.72)" />
-                <line x1={barX} y1={barY - 10} x2={barX + barPx} y2={barY - 10} stroke="white" strokeWidth="2" />
-                <line x1={barX} y1={barY - 16} x2={barX} y2={barY - 4} stroke="white" strokeWidth="2" />
-                <line x1={barX + barPx} y1={barY - 16} x2={barX + barPx} y2={barY - 4} stroke="white" strokeWidth="2" />
-                <text x={barX + barPx / 2} y={barY} textAnchor="middle" fill="white" fontSize="9" fontFamily="monospace" fontWeight="bold">{label}</text>
-              </g>
-            );
-          })()}
-        </svg>
-
-        {isActive && scaleInput && (
-          <div className="absolute bg-slate-900 border border-white/20 rounded-xl p-4 shadow-2xl z-20 w-60"
-            style={{ left: Math.min(w - 248, Math.max(0, scaleInput.lineEnd.x * w - 120)),
-                     top: Math.min(h - 120, Math.max(0, scaleInput.lineEnd.y * h + 16)) }}>
-            <p className="text-[10px] text-brand font-black uppercase tracking-widest mb-3">Set Scale Reference</p>
-            <p className="text-[9px] text-slate-400 mb-2">What length does this line represent?</p>
-            <div className="flex gap-2 mb-3">
-              <input ref={scaleInputRef} type="number" min="0.001" step="any" value={scaleValue}
-                onChange={e => setScaleValue(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') handleScaleConfirm(); if (e.key === 'Escape') setScaleInput(null); }}
-                placeholder="Distance"
-                className="flex-1 bg-slate-800 text-white rounded-lg px-2 py-1.5 text-sm border border-white/10 outline-none focus:border-brand min-w-0" />
-              <select value={scaleUnit} onChange={e => setScaleUnit(e.target.value)}
-                className="bg-slate-800 text-white rounded-lg px-2 text-sm border border-white/10 outline-none focus:border-brand shrink-0">
-                <option value="ft">ft</option>
-                <option value="in">in</option>
-                <option value="yd">yd</option>
-                <option value="m">m</option>
-                <option value="cm">cm</option>
-                <option value="mm">mm</option>
-              </select>
-            </div>
-            <div className="flex gap-2">
-              <button onClick={handleScaleConfirm}
-                className="flex-1 bg-brand text-slate-900 rounded-lg py-1.5 text-[11px] font-black hover:brightness-110 transition-all">
-                Set Scale
-              </button>
-              <button onClick={() => { setScaleInput(null); setScaleValue(''); }}
-                className="px-3 bg-slate-800 text-slate-300 hover:bg-slate-700 rounded-lg py-1.5 text-[11px] font-black transition-all">
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
-
-        {isActive && textInput && (
-          <input
-            ref={textFieldRef}
-            type="text"
-            value={textValue}
-            onChange={e => setTextValue(e.target.value)}
-            onBlur={handleTextSubmit}
-            onKeyDown={e => {
-              if (e.key === 'Enter') handleTextSubmit();
-              if (e.key === 'Escape') { setTextInput(null); setTextValue(''); }
-            }}
-            className="absolute bg-black/50 backdrop-blur rounded px-2 py-1 border border-dashed outline-none z-10 font-bold"
-            style={{
-              left: textInput.calloutData
-                ? Math.min(w - 172, Math.max(4, textInput.rx * w - 80))
-                : textInput.px,
-              top: textInput.calloutData
-                ? Math.min(h - 40, Math.max(4, textInput.ry * h - fontSize - 14))
-                : textInput.py - 16,
-              color: currentColor, borderColor: currentColor, fontSize: fontSize + 'px', minWidth: '160px',
-            }}
-            placeholder={textInput.calloutData ? 'Callout text, then Enter…' : 'Type, then Enter…'}
-          />
-        )}
-      </div>
-    );
-  };
 
   return (
     <div className="fixed inset-0 z-[300] bg-slate-950 flex flex-col select-none" onWheel={handleWheel}>
@@ -2654,7 +2748,43 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
         )}
 
         {!isLoadingPdf && !pdfError &&
-          Array.from({ length: numPages }, (_, i) => renderPageLayer(i + 1))}
+          Array.from({ length: numPages }, (_, i) => {
+            const p = i + 1;
+            const { width: w, height: h } = getDisplaySize(p);
+            const active = activePage === p;
+            // Only the page holding the selection needs the live-edit data; gating it
+            // keeps every other page from re-rendering during a handle drag.
+            const isSelectedPage = selectedAnn !== null && selectedAnn.pageNumber === p;
+            return (
+              <PageLayer
+                key={p}
+                pageNum={p} w={w} h={h} toolCursor={toolCursor}
+                pageAnns={annotationsByPage.get(p) ?? EMPTY_ANNS}
+                selectedAnnId={isSelectedPage ? selectedAnnId : null} liveEditData={isSelectedPage ? liveEditData : null}
+                sel={isSelectedPage ? selectedAnn : null}
+                scaleInfo={scaleInfo}
+                currentTool={currentTool} currentColor={currentColor} strokeWidth={strokeWidth} opacity={opacity}
+                isActive={active}
+                previewData={active ? previewData : null}
+                penPoints={active ? penPoints : EMPTY_POINTS}
+                drawStart={active ? drawStart : null}
+                isDrawing={active ? isDrawing : false}
+                textInput={active ? textInput : null}
+                textValue={active ? textValue : ''}
+                fontSize={fontSize}
+                scaleInput={active ? scaleInput : null}
+                scaleValue={scaleValue} scaleUnit={scaleUnit}
+                onPointerDown={handlePointerDown} onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp} onPointerCancel={handlePointerCancel}
+                onDoubleClick={handleDoubleClick}
+                registerContainer={registerContainer} registerCanvas={registerCanvas}
+                textFieldRef={textFieldRef} scaleInputRef={scaleInputRef}
+                setTextValue={setTextValue} setTextInput={setTextInput} handleTextSubmit={handleTextSubmit}
+                setScaleValue={setScaleValue} setScaleUnit={setScaleUnit} setScaleInput={setScaleInput}
+                handleScaleConfirm={handleScaleConfirm}
+              />
+            );
+          })}
 
         {showLog && (
           <div className="w-full max-w-3xl bg-slate-900/80 border border-white/10 rounded-2xl p-4 shrink-0">
