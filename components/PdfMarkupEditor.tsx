@@ -1159,7 +1159,17 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   const touchPtsRef   = useRef<Map<number, { x: number; y: number }>>(new Map());
   const isPinchRef    = useRef(false);
   const pinchDistRef  = useRef(0);
-  const pinchZoomRef  = useRef(1.0);
+  // Wrapper around the page column that receives a transient CSS transform during a
+  // pinch (smooth, GPU-composited) so we don't re-rasterize pages on every frame.
+  const zoomLayerRef  = useRef<HTMLDivElement>(null);
+  const pinchStartFocalRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const pinchCurrentFocalRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const pinchOriginRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const pinchScaleRef = useRef(1);
+  // The page + normalized point under the pinch focus, used to re-anchor scroll once
+  // the new zoom is committed and the pages are re-rasterized.
+  const pinchAnchorRef = useRef<{ pageNum: number; nx: number; ny: number } | null>(null);
+  const pendingZoomAnchorRef = useRef<{ pageNum: number; nx: number; ny: number; fx: number; fy: number } | null>(null);
   const panStartRef   = useRef<{ x: number; y: number; sl: number; st: number } | null>(null);
   const undoStackRef  = useRef<PdfAnnotation[]>([]);
   const redoStackRef  = useRef<Omit<PdfAnnotation, 'id' | 'createdAt'>[]>([]);
@@ -1354,11 +1364,31 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     visiblePagesRef.current.forEach(p => renderPage(p, true));
   }, [zoomLevel, availWidth, isLoadingPdf, renderPage]);
 
-  // Keep the same scroll anchor when page sizes change (zoom / resize) so the user
-  // stays on the page they were viewing rather than jumping to the top.
+  // Keep the same scroll anchor when page sizes change (zoom / resize). After a pinch
+  // we re-anchor on the focal point so the spot under the fingers stays fixed; for
+  // button/keyboard zoom and resizes we preserve the vertical scroll fraction.
   useLayoutEffect(() => {
     const main = mainRef.current;
     if (!main) return;
+    const anchor = pendingZoomAnchorRef.current;
+    if (anchor) {
+      pendingZoomAnchorRef.current = null;
+      const el = pageContainerRefs.current.get(anchor.pageNum);
+      if (el) {
+        const cr = main.getBoundingClientRect();
+        const r  = el.getBoundingClientRect();
+        // Focal point in scroll-content coordinates (invariant under the current scroll).
+        const focalContentX = (r.left - cr.left) + main.scrollLeft + anchor.nx * r.width;
+        const focalContentY = (r.top  - cr.top)  + main.scrollTop  + anchor.ny * r.height;
+        const maxL = Math.max(0, main.scrollWidth  - main.clientWidth);
+        const maxT = Math.max(0, main.scrollHeight - main.clientHeight);
+        main.scrollLeft = Math.max(0, Math.min(maxL, focalContentX - (anchor.fx - cr.left)));
+        main.scrollTop  = Math.max(0, Math.min(maxT, focalContentY - (anchor.fy - cr.top)));
+        const sh = main.scrollHeight - main.clientHeight;
+        scrollRatioRef.current = sh > 0 ? main.scrollTop / sh : 0;
+        return;
+      }
+    }
     const sh = main.scrollHeight - main.clientHeight;
     if (sh > 0) main.scrollTop = scrollRatioRef.current * sh;
   }, [zoomLevel, availWidth]);
@@ -1879,18 +1909,63 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     touchPtsRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     shiftPressedRef.current = e.shiftKey;
 
-    // Pinch-to-zoom: two touch points
+    // Pinch-to-zoom: two touch points. Apply a transient GPU transform to the page
+    // column during the gesture (smooth, no re-render); the real zoom + re-rasterize
+    // happens once, on release, anchored at the pinch focus.
     if (touchPtsRef.current.size >= 2) {
       const [a, b] = [...touchPtsRef.current.values()];
       const dist = Math.hypot(a.x - b.x, a.y - b.y);
+      const fx = (a.x + b.x) / 2, fy = (a.y + b.y) / 2;
+      const layer = zoomLayerRef.current;
       if (!isPinchRef.current) {
-        isPinchRef.current = true; pinchDistRef.current = dist; pinchZoomRef.current = zoomLevel;
+        // Cancel any single-finger draw that was in progress when the pinch began.
+        if (drawingPtrRef.current !== null) {
+          drawingPtrRef.current = null;
+          setIsDrawing(false); setPenPoints([]); setPreviewData(null); setDrawStart(null);
+        }
+        isPinchRef.current = true;
+        pinchDistRef.current = dist;
+        pinchScaleRef.current = 1;
+        pinchStartFocalRef.current = { x: fx, y: fy };
+        pinchCurrentFocalRef.current = { x: fx, y: fy };
+        // Resolve the page + normalized point under the focus for post-zoom re-anchoring.
+        let anchorEl = (document.elementFromPoint(fx, fy) as HTMLElement | null)?.closest('[data-page]') as HTMLElement | null;
+        if (!anchorEl) {
+          pageContainerRefs.current.forEach(c => {
+            const cr = c.getBoundingClientRect();
+            if (fx >= cr.left && fx <= cr.right && fy >= cr.top && fy <= cr.bottom) anchorEl = c;
+          });
+        }
+        if (anchorEl) {
+          const r = anchorEl.getBoundingClientRect();
+          pinchAnchorRef.current = {
+            pageNum: Number(anchorEl.dataset.page) || 1,
+            nx: r.width ? Math.max(0, Math.min(1, (fx - r.left) / r.width)) : 0.5,
+            ny: r.height ? Math.max(0, Math.min(1, (fy - r.top) / r.height)) : 0.5,
+          };
+        } else {
+          pinchAnchorRef.current = null;
+        }
+        if (layer) {
+          const zr = layer.getBoundingClientRect();
+          pinchOriginRef.current = { x: fx - zr.left, y: fy - zr.top };
+          layer.style.transformOrigin = `${pinchOriginRef.current.x}px ${pinchOriginRef.current.y}px`;
+          layer.style.willChange = 'transform';
+        }
       } else {
-        setZoomLevel(Math.max(0.25, Math.min(4.0, pinchZoomRef.current * (dist / (pinchDistRef.current || 1)))));
+        pinchCurrentFocalRef.current = { x: fx, y: fy };
+        const rawS = dist / (pinchDistRef.current || 1);
+        const targetZoom = Math.max(0.25, Math.min(4.0, zoomRef.current * rawS));
+        const s = targetZoom / (zoomRef.current || 1);
+        pinchScaleRef.current = s;
+        if (layer) {
+          const dx = fx - pinchStartFocalRef.current.x;
+          const dy = fy - pinchStartFocalRef.current.y;
+          layer.style.transform = `translate(${dx}px, ${dy}px) scale(${s})`;
+        }
       }
       return;
     }
-    isPinchRef.current = false;
 
     // Handle drag: update annotation geometry live while dragging a control point
     if (dragHandleRef.current && drawingPtrRef.current === e.pointerId) {
@@ -1954,9 +2029,35 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     }
   }, [currentTool, isDrawing, drawStart, getCoords, zoomLevel, annotations, pendingAnnotations]);
 
-  const handlePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    touchPtsRef.current.delete(e.pointerId);
+  // Commit a pinch gesture: turn the transient transform into a real zoom level and
+  // queue a focal re-anchor so the point under the fingers stays put after re-layout.
+  const finalizePinch = useCallback(() => {
+    if (!isPinchRef.current) return;
     isPinchRef.current = false;
+    const layer = zoomLayerRef.current;
+    if (layer) { layer.style.transform = ''; layer.style.transformOrigin = ''; layer.style.willChange = ''; }
+    const s = pinchScaleRef.current;
+    pinchScaleRef.current = 1;
+    const anchor = pinchAnchorRef.current;
+    pinchAnchorRef.current = null;
+    if (Math.abs(s - 1) < 0.002) return; // negligible change
+    const newZoom = Math.max(0.25, Math.min(4.0, (zoomRef.current || 1) * s));
+    if (Math.abs(newZoom - zoomRef.current) < 0.0005) return;
+    if (anchor) {
+      const f = pinchCurrentFocalRef.current;
+      pendingZoomAnchorRef.current = { pageNum: anchor.pageNum, nx: anchor.nx, ny: anchor.ny, fx: f.x, fy: f.y };
+    }
+    setZoomLevel(newZoom);
+  }, []);
+
+  const handlePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    // A finger lifting ends a pinch — commit the zoom now.
+    if (isPinchRef.current) {
+      touchPtsRef.current.delete(e.pointerId);
+      finalizePinch();
+      return;
+    }
+    touchPtsRef.current.delete(e.pointerId);
     if (drawingPtrRef.current !== e.pointerId) return;
     drawingPtrRef.current = null; panStartRef.current = null;
 
@@ -2039,17 +2140,19 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     // Keep the current drawing tool active so the user can draw another annotation.
     // Only select the just-placed item so its bounding box is visible.
     setSelectedAnnId(placed.id);
-  }, [isDrawing, drawStart, currentTool, penPoints, getCoords, commitAnnotation, stampType, liveEditData, updateAnnotation]);
+  }, [isDrawing, drawStart, currentTool, penPoints, getCoords, commitAnnotation, stampType, liveEditData, updateAnnotation, finalizePinch]);
 
   const handlePointerCancel = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     touchPtsRef.current.delete(e.pointerId);
+    // Pinch interrupted — commit whatever zoom was reached so the view doesn't snap back.
+    if (isPinchRef.current) { finalizePinch(); return; }
     if (drawingPtrRef.current === e.pointerId) {
       drawingPtrRef.current = null;
       setIsDrawing(false); setPenPoints([]); setPreviewData(null); setDrawStart(null);
       isPinchRef.current = false; panStartRef.current = null;
       dragHandleRef.current = null; setLiveEditData(null);
     }
-  }, []);
+  }, [finalizePinch]);
 
   // Ctrl+scroll to zoom
   const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
@@ -2747,8 +2850,9 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
           </div>
         )}
 
-        {!isLoadingPdf && !pdfError &&
-          Array.from({ length: numPages }, (_, i) => {
+        {!isLoadingPdf && !pdfError && (
+          <div ref={zoomLayerRef} className="flex flex-col items-center gap-4 origin-top">
+          {Array.from({ length: numPages }, (_, i) => {
             const p = i + 1;
             const { width: w, height: h } = getDisplaySize(p);
             const active = activePage === p;
@@ -2785,6 +2889,8 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
               />
             );
           })}
+          </div>
+        )}
 
         {showLog && (
           <div className="w-full max-w-3xl bg-slate-900/80 border border-white/10 rounded-2xl p-4 shrink-0">
