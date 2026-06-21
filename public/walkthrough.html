@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Feature Walkthrough — DigTrack Pro</title>
+  <meta name="description" content="A complete walkthrough of every feature in DigTrack Pro and the steps to use it." />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --navy: #0d1b2a;
+      --navy-mid: #132237;
+      --navy-light: #1a2f4a;
+      --blue: #2563eb;
+      --blue-bright: #3b82f6;
+      --blue-glow: rgba(59,130,246,0.15);
+      --text: #e2e8f0;
+      --text-muted: #94a3b8;
+      --border: rgba(59,130,246,0.2);
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--navy);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      font-weight: 400;
+      line-height: 1.75;
+      min-height: 100vh;
+    }
+
+    header {
+      border-bottom: 1px solid var(--border);
+      background: var(--navy-mid);
+      padding: 1.25rem 2rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .logo-mark {
+      width: 32px; height: 32px;
+      background: var(--blue);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'Syne', sans-serif;
+      font-weight: 800;
+      font-size: 0.85rem;
+      color: #fff;
+      letter-spacing: -0.5px;
+    }
+    .logo-text {
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      font-size: 1.1rem;
+      color: #fff;
+      letter-spacing: -0.3px;
+    }
+    .logo-text span { color: var(--blue-bright); }
+    .header-spacer { flex: 1; }
+    .back-link {
+      font-size: 0.85rem;
+      color: var(--blue-bright);
+      border: 1px solid var(--border);
+      padding: 0.4rem 0.9rem;
+      border-radius: 99px;
+      white-space: nowrap;
+    }
+    .back-link:hover { background: var(--blue-glow); text-decoration: none; }
+
+    .hero {
+      background: linear-gradient(135deg, var(--navy-mid) 0%, var(--navy-light) 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 3rem 2rem 2.5rem;
+      text-align: center;
+    }
+    .hero-badge {
+      display: inline-block;
+      background: var(--blue-glow);
+      border: 1px solid var(--border);
+      color: var(--blue-bright);
+      font-size: 0.75rem;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 0.3rem 0.85rem;
+      border-radius: 99px;
+      margin-bottom: 1rem;
+    }
+    .hero h1 {
+      font-family: 'Syne', sans-serif;
+      font-weight: 800;
+      font-size: clamp(1.75rem, 4vw, 2.5rem);
+      letter-spacing: -0.03em;
+      color: #fff;
+      margin-bottom: 0.5rem;
+    }
+    .hero p { color: var(--text-muted); font-size: 0.95rem; max-width: 620px; margin: 0 auto; }
+
+    .container {
+      max-width: 820px;
+      margin: 0 auto;
+      padding: 3rem 2rem 5rem;
+    }
+
+    /* Table of contents */
+    .toc {
+      background: var(--navy-mid);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem 1.75rem;
+      margin-bottom: 3rem;
+    }
+    .toc h2 {
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      font-size: 0.8rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 1rem;
+    }
+    .toc ol {
+      list-style: none;
+      counter-reset: toc;
+      columns: 2;
+      column-gap: 2rem;
+      padding: 0;
+    }
+    .toc li {
+      counter-increment: toc;
+      padding: 0.3rem 0;
+      font-size: 0.9rem;
+      break-inside: avoid;
+    }
+    .toc li::before {
+      content: counter(toc) '.';
+      color: var(--blue-bright);
+      font-weight: 600;
+      margin-right: 0.5rem;
+    }
+    @media (max-width: 600px) { .toc ol { columns: 1; } }
+
+    .section {
+      margin-bottom: 2.75rem;
+      padding-bottom: 2.75rem;
+      border-bottom: 1px solid var(--border);
+      scroll-margin-top: 80px;
+    }
+    .section:last-child { border-bottom: none; margin-bottom: 0; }
+
+    .section h2 {
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      font-size: 1.3rem;
+      color: #fff;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    .section h2::before {
+      content: '';
+      display: inline-block;
+      width: 4px; height: 1.3rem;
+      background: var(--blue);
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+    .section h3 {
+      font-family: 'Syne', sans-serif;
+      font-weight: 600;
+      font-size: 1rem;
+      color: #fff;
+      margin: 1.5rem 0 0.6rem;
+    }
+
+    p { color: var(--text-muted); margin-bottom: 0.85rem; font-size: 0.95rem; }
+    p:last-child { margin-bottom: 0; }
+    strong { color: var(--text); font-weight: 600; }
+
+    ul, ol.steps {
+      list-style: none;
+      padding: 0;
+      margin: 0.5rem 0 1rem;
+    }
+    ul li {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      padding: 0.35rem 0 0.35rem 1.4rem;
+      position: relative;
+    }
+    ul li::before {
+      content: '→';
+      position: absolute;
+      left: 0;
+      color: var(--blue-bright);
+      font-size: 0.8rem;
+    }
+
+    ol.steps { counter-reset: step; }
+    ol.steps li {
+      counter-increment: step;
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      padding: 0.35rem 0 0.35rem 2rem;
+      position: relative;
+    }
+    ol.steps li::before {
+      content: counter(step);
+      position: absolute;
+      left: 0;
+      top: 0.35rem;
+      width: 1.3rem; height: 1.3rem;
+      background: var(--blue-glow);
+      border: 1px solid var(--border);
+      color: var(--blue-bright);
+      border-radius: 50%;
+      font-size: 0.72rem;
+      font-weight: 600;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    a { color: var(--blue-bright); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .module-tag {
+      display: inline-block;
+      background: rgba(245,158,11,0.12);
+      border: 1px solid rgba(245,158,11,0.3);
+      color: #fbbf24;
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      padding: 0.15rem 0.6rem;
+      border-radius: 99px;
+      vertical-align: middle;
+      margin-left: 0.5rem;
+    }
+
+    .highlight-box {
+      background: var(--blue-glow);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--blue);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin: 1rem 0;
+    }
+    .highlight-box p { color: var(--text); font-size: 0.9rem; margin: 0; }
+
+    code {
+      background: rgba(59,130,246,0.12);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 0.1rem 0.4rem;
+      font-size: 0.85rem;
+      color: #bfdbfe;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+      font-size: 0.9rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.65rem 0.85rem;
+      border-bottom: 1px solid var(--border);
+    }
+    th {
+      color: #fff;
+      font-family: 'Syne', sans-serif;
+      font-weight: 600;
+      font-size: 0.8rem;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      background: var(--navy-mid);
+    }
+    td { color: var(--text-muted); }
+    td strong { color: var(--text); }
+    tr:last-child td { border-bottom: none; }
+
+    footer {
+      text-align: center;
+      padding: 1.5rem;
+      border-top: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 0.8rem;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo-mark">DT</div>
+  <div class="logo-text">DigTrack <span>Pro</span></div>
+  <div class="header-spacer"></div>
+  <a class="back-link" href="/">← Back to app</a>
+</header>
+
+<div class="hero">
+  <div class="hero-badge">Guide</div>
+  <h1>Feature Walkthrough</h1>
+  <p>A complete tour of every feature in DigTrack Pro and the exact steps to use it — from scanning your first locate ticket to dispatching crews, tracking time, and managing inventory.</p>
+</div>
+
+<div class="container">
+
+  <!-- TABLE OF CONTENTS -->
+  <nav class="toc">
+    <h2>On this page</h2>
+    <ol>
+      <li><a href="#getting-started">Getting Started</a></li>
+      <li><a href="#interface">The Interface &amp; Navigation</a></li>
+      <li><a href="#tickets">Tickets Dashboard</a></li>
+      <li><a href="#ai-scanning">AI Ticket Scanning</a></li>
+      <li><a href="#status">Status, Refresh &amp; No-Show</a></li>
+      <li><a href="#schedule">Schedule (Calendar)</a></li>
+      <li><a href="#map">Map</a></li>
+      <li><a href="#field-docs">Field Docs</a></li>
+      <li><a href="#jobs">Jobs</a></li>
+      <li><a href="#as-built">As Built (PDF Markup)</a></li>
+      <li><a href="#crew">Crew / Team Management</a></li>
+      <li><a href="#inbound">Inbound Tickets</a></li>
+      <li><a href="#field-ops">Field Ops (Scheduling)</a></li>
+      <li><a href="#time">Time Tracker</a></li>
+      <li><a href="#inventory">Inventory</a></li>
+      <li><a href="#settings">Settings &amp; Branding</a></li>
+      <li><a href="#mobile">Mobile &amp; Offline</a></li>
+    </ol>
+  </nav>
+
+  <!-- 1. GETTING STARTED -->
+  <div class="section" id="getting-started">
+    <h2>1. Getting Started</h2>
+
+    <h3>Roles</h3>
+    <p>DigTrack Pro is <strong>multi-tenant</strong>: every user belongs to one company and only sees that company's data. There are three roles:</p>
+    <table>
+      <thead><tr><th>Role</th><th>What they can do</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Crew</strong></td><td>View tickets, jobs, map, and docs; clock in/out; upload field photos; request a refresh or log a no-show. Read-only on most admin data.</td></tr>
+        <tr><td><strong>Admin</strong></td><td>Everything Crew can do <strong>plus</strong> create/edit/delete tickets and jobs, manage the team, send invites, configure notifications, and turn optional modules on/off.</td></tr>
+        <tr><td><strong>Super Admin</strong></td><td>Everything Admin can do <strong>plus</strong> manage <em>all</em> companies on the platform (create, activate/deactivate, toggle each company's modules).</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Create an account &amp; company</h3>
+    <ol class="steps">
+      <li>Open the app — you land on the <strong>Login</strong> screen.</li>
+      <li>To start a new company, click <strong>Sign Up</strong> and enter your name, email, and password.</li>
+      <li>After verifying your email, complete <strong>Company Registration</strong>: enter your company name, pick a <strong>brand color</strong> (themes the whole app), and optionally add city, state, and phone.</li>
+      <li>Click <strong>Create</strong>. You become the first <strong>Admin</strong> of that company.</li>
+    </ol>
+
+    <h3>Join an existing company (invite link)</h3>
+    <ol class="steps">
+      <li>An admin sends you an <strong>invite link</strong> (it contains an <code>?invite=</code> token).</li>
+      <li>Open the link — the sign-up form pre-fills the company name and validates the invite.</li>
+      <li>Enter your name, email, and password and submit. You join that company (default role <strong>Crew</strong>).</li>
+      <li>Verify your email, then log in.</li>
+    </ol>
+    <div class="highlight-box"><p>If your email isn't verified yet, the login screen offers a <strong>Resend verification</strong> option.</p></div>
+  </div>
+
+  <!-- 2. INTERFACE -->
+  <div class="section" id="interface">
+    <h2>2. The Interface &amp; Navigation</h2>
+    <ul>
+      <li>The <strong>top-left header</strong> shows your <strong>company name</strong> (falls back to "DigTrack Pro" if none).</li>
+      <li><strong>Navigation tabs</strong> switch between views. Core tabs are always present; optional-module tabs appear only when an admin enables them: <strong>Tickets · Schedule · Map · Field Docs · Crew · As Built</strong>, plus <strong>Field Ops · Time · Inventory</strong> when on.</li>
+      <li><strong>Dark / Light mode</strong> — toggle in the header; your choice is remembered per device.</li>
+      <li><strong>Document viewer</strong> — clicking a ticket's document number opens the scanned PDF/image in an in-app viewer.</li>
+      <li>The current view is stored in the URL hash (e.g. <code>#map</code>), so you can bookmark or share a deep link, and browser back/forward work.</li>
+    </ul>
+  </div>
+
+  <!-- 3. TICKETS -->
+  <div class="section" id="tickets">
+    <h2>3. Tickets Dashboard (Locate Tickets)</h2>
+    <p>The <strong>Tickets</strong> tab is your home screen — a live list of 811/locate tickets, grouped by job.</p>
+
+    <h3>Stat cards (one-click filters)</h3>
+    <p>Five summary cards at the top double as filters. Click one to filter the list; click again to clear:</p>
+    <ul>
+      <li><strong>Active &amp; Clear</strong> — valid tickets safe to dig</li>
+      <li><strong>Expiring Soon</strong> — within the 3-day refresh window</li>
+      <li><strong>Refresh Needed</strong> — a refresh has been requested</li>
+      <li><strong>No Shows</strong> — tickets with a logged no-show</li>
+      <li><strong>Expired</strong> — past their expiration / dig-by date</li>
+    </ul>
+
+    <h3>The ticket list</h3>
+    <ul>
+      <li>Tickets are grouped under their <strong>job number</strong> with an aggregate status dot (green = clear, amber = needs attention, red = expired).</li>
+      <li>Each row shows ticket number, street/cross-street, dates, status badge, and a <strong>work-begun</strong> indicator.</li>
+      <li><strong>Admins:</strong> click any row to open it for editing.</li>
+      <li>Use <strong>search</strong> and <strong>sort</strong> to find tickets by number, street, job, dates, or status.</li>
+      <li><strong>Show Archived</strong> reveals superseded/old tickets (dimmed).</li>
+    </ul>
+
+    <h3>Add or edit a ticket (Admin)</h3>
+    <ol class="steps">
+      <li>Click <strong>Add Ticket</strong> (or click a row to edit).</li>
+      <li>Fill in the fields, or use <strong>AI scanning</strong> to auto-fill (see next section).</li>
+      <li>Save. When you re-scan a ticket that already exists, you can choose to <strong>archive the old one</strong> and replace it with the refreshed version.</li>
+    </ol>
+  </div>
+
+  <!-- 4. AI SCANNING -->
+  <div class="section" id="ai-scanning">
+    <h2>4. AI Ticket Scanning</h2>
+    <p>DigTrack Pro reads your locate-ticket PDFs and photos and fills in the form for you.</p>
+    <ol class="steps">
+      <li>From <strong>Add Ticket</strong>, <strong>drag-and-drop</strong> (or browse to) one or more files — PDFs or photos. On mobile you can use the <strong>camera</strong>.</li>
+      <li>Each file enters an <strong>ingestion queue</strong> and moves through states: <code>pending → analyzing → uploading → ready</code> (or <code>error</code> / <code>duplicate</code>).</li>
+      <li>During <strong>analyzing</strong>, the file is parsed by an AI model that extracts: ticket number, job number, street, cross street, place/extent, county, city, state, call-in / work / dig-by / expiration dates, site contact, and even <strong>latitude/longitude and a dig bounding box</strong> when present.</li>
+      <li><strong>Duplicate detection:</strong> a scan that matches an existing ticket is flagged as <code>duplicate</code> and linked to that record so you refresh instead of double-entering.</li>
+      <li>Review the auto-filled fields, correct anything, and <strong>Save</strong>. The original document is stored and viewable from the ticket.</li>
+    </ol>
+    <div class="highlight-box"><p>If scanning fails you'll get a clear message — e.g. <strong>Rate limited</strong> (try again shortly) or <strong>Access denied</strong> (the server's AI credentials/billing need attention). You can always enter the ticket manually.</p></div>
+  </div>
+
+  <!-- 5. STATUS -->
+  <div class="section" id="status">
+    <h2>5. Ticket Status, Refresh &amp; No-Show Workflow</h2>
+
+    <h3>How status is calculated</h3>
+    <p>Status is automatic, based on dates plus manual flags:</p>
+    <ul>
+      <li><strong>Pending</strong> — the work date hasn't arrived (tickets clear at 11:59 PM on the work date; first dig day is the day after).</li>
+      <li><strong>Valid</strong> — active and safe to dig.</li>
+      <li><strong>Extendable</strong> — within <strong>3 days</strong> of expiration (the refresh window).</li>
+      <li><strong>Refresh Needed</strong> — someone requested a refresh (manual flag).</li>
+      <li><strong>Expired</strong> — past the expiration date, or — if work hasn't begun — past the <strong>dig-by date</strong> (call-in date + 10 days by default).</li>
+    </ul>
+
+    <h3>Work-begun confirmation</h3>
+    <p>The app prompts crews to confirm whether <strong>work has begun</strong> on a ticket. The answer changes how expiration is computed (a started dig follows the <code>expires</code> date; an un-started one is bound by the dig-by date). You can <strong>snooze</strong> a single prompt or <strong>snooze all</strong>.</p>
+
+    <h3>Request a refresh</h3>
+    <ol class="steps">
+      <li>On a ticket row, click the <strong>Refresh</strong> (amber) button.</li>
+      <li>The ticket is flagged <strong>Refresh Needed</strong> and an <strong>email alert</strong> is automatically sent to everyone with a configured notification email.</li>
+      <li>Click again to <strong>clear</strong> the request (confirmation required).</li>
+    </ol>
+
+    <h3>Log a No-Show</h3>
+    <ol class="steps">
+      <li>Open the <strong>No-Show</strong> form for the ticket.</li>
+      <li>Select the <strong>utilities</strong> that didn't show (All / Power / Gas / Telecom / City-Village / Private) and note the responsible company.</li>
+      <li>Save. The ticket is tagged as a <strong>No Show</strong> (counted in the stat card) and the record is timestamped with your name. Delete it later if the utility shows up.</li>
+    </ol>
+
+    <h3>Ticket notes</h3>
+    <p>Open a ticket's <strong>Notes</strong> to add timestamped, attributed comments visible to the team — useful for field updates and coordination.</p>
+  </div>
+
+  <!-- 6. SCHEDULE -->
+  <div class="section" id="schedule">
+    <h2>6. Schedule (Calendar)</h2>
+    <p>The <strong>Schedule</strong> tab is a calendar view of your tickets by date.</p>
+    <ul>
+      <li>See tickets laid out on their <strong>work dates</strong>, color-coded by status.</li>
+      <li>Click a ticket to <strong>edit</strong> it, <strong>view its document</strong>, <strong>jump to it in the dashboard</strong>, or <strong>manage a no-show</strong>.</li>
+      <li>Ideal for planning the week and spotting clustered or expiring work.</li>
+    </ul>
+  </div>
+
+  <!-- 7. MAP -->
+  <div class="section" id="map">
+    <h2>7. Map</h2>
+    <p>The <strong>Map</strong> tab plots tickets geographically (Leaflet / OpenStreetMap).</p>
+    <ul>
+      <li>Tickets with coordinates (captured during AI scanning or geocoding) appear as <strong>pins</strong>; dig <strong>bounding boxes</strong> are drawn when available.</li>
+      <li>Click a pin to see ticket details and open its document.</li>
+      <li>Use it to see how jobs cluster and route crews efficiently.</li>
+    </ul>
+    <div class="highlight-box"><p>Inventory/equipment has its own dedicated map inside the Inventory module (see §15).</p></div>
+  </div>
+
+  <!-- 8. FIELD DOCS -->
+  <div class="section" id="field-docs">
+    <h2>8. Field Docs (Photos &amp; Documents)</h2>
+    <p>The <strong>Field Docs</strong> tab is your photo and document hub, organized by job.</p>
+    <ol class="steps">
+      <li>Pick (or search for) a <strong>job</strong>.</li>
+      <li><strong>Upload</strong> photos/documents — drag-and-drop or use the device camera. Files queue and upload with progress.</li>
+      <li>Add a <strong>caption</strong> to each item; everything is timestamped.</li>
+      <li>Browse a job's gallery, view full-size, and (admins) delete items or whole jobs' doc sets.</li>
+    </ol>
+    <p>Use this for site conditions, damage documentation, completed work, and any field paperwork.</p>
+  </div>
+
+  <!-- 9. JOBS -->
+  <div class="section" id="jobs">
+    <h2>9. Jobs</h2>
+    <p>The <strong>Jobs</strong> tab reviews work organized by job rather than by ticket.</p>
+    <ul>
+      <li>See each job's customer, address, and roll-up of its tickets/status.</li>
+      <li>Open a <strong>job summary</strong>, jump to its tickets, or view associated documents.</li>
+      <li>Admins can mark jobs complete (completed jobs drop off the active ticket dashboard).</li>
+    </ul>
+  </div>
+
+  <!-- 10. AS BUILT -->
+  <div class="section" id="as-built">
+    <h2>10. As Built (PDF Markup)</h2>
+    <p>The <strong>As Built</strong> tab manages job <strong>prints</strong> (plan PDFs) and lets you mark them up — turning plans into red-lined as-builts.</p>
+
+    <h3>Manage prints</h3>
+    <ol class="steps">
+      <li>Find a job (search by job number, customer, or address). By default jobs <strong>without</strong> PDFs are hidden — toggle that off to see all.</li>
+      <li><strong>Upload</strong> a plan PDF to a job. <strong>Pin</strong> important prints to keep them at the top.</li>
+    </ol>
+
+    <h3>Mark up a print</h3>
+    <p>Open a print to launch the full annotation editor. Tools include:</p>
+    <ul>
+      <li><strong>Navigation:</strong> Select, Pan</li>
+      <li><strong>Freehand:</strong> Pen, Highlighter</li>
+      <li><strong>Text:</strong> Text, Callout, and <strong>Stamps</strong> (<code>APPROVED</code>, <code>REVISED</code>, <code>FIELD CHANGE</code>, <code>AS BUILT</code>, <code>NOT APPROVED</code>, <code>VOID</code> — each color-coded)</li>
+      <li><strong>Lines &amp; arrows:</strong> Arrow, Double-arrow, Line, Dashed line, Dimension</li>
+      <li><strong>Shapes:</strong> Rectangle / filled, Circle / filled, Cloud (revision cloud)</li>
+      <li><strong>Scale:</strong> set a drawing scale so dimension annotations read in real-world units</li>
+      <li>Per-annotation <strong>color</strong> and <strong>stroke width</strong></li>
+    </ul>
+    <p>Annotations save per page with your name and timestamp, so the whole team sees the same marked-up set. You can also drop <strong>ticket markers</strong> onto a print to tie a locate ticket to a spot on the plan.</p>
+  </div>
+
+  <!-- 11. CREW -->
+  <div class="section" id="crew">
+    <h2>11. Crew / Team Management</h2>
+    <p>The <strong>Crew</strong> tab is where admins manage people and company settings. (Crew members see a read-only version.)</p>
+
+    <h3>Manage users (Admin)</h3>
+    <ul>
+      <li><strong>Add a user</strong> directly, or <strong>generate an invite link</strong> to send.</li>
+      <li><strong>Change roles</strong> (promote/demote between Crew and Admin).</li>
+      <li><strong>Edit a user's display name.</strong></li>
+      <li><strong>Send a password reset</strong> email to a user; update <strong>your own</strong> password.</li>
+      <li><strong>Remove</strong> a user from the company.</li>
+    </ul>
+
+    <h3>Notification recipients</h3>
+    <ul>
+      <li>Set <strong>per-user notification emails</strong> so the right people receive refresh/no-show alerts.</li>
+      <li>Use <strong>Test Email</strong> to confirm alerts are being delivered.</li>
+    </ul>
+
+    <h3>Company &amp; module settings (Admin)</h3>
+    <p>From here admins toggle the <strong>optional modules</strong> for the company: <strong>Inbound Tickets</strong>, <strong>Field Ops (Scheduling)</strong>, <strong>Time Tracker</strong>, and <strong>Inventory</strong>.</p>
+
+    <h3>Super Admin</h3>
+    <p>A <strong>Super Admin</strong> additionally sees a company-management panel to <strong>create companies</strong>, <strong>activate/deactivate</strong> them, and toggle <strong>each company's</strong> modules — useful for running DigTrack Pro across multiple organizations.</p>
+  </div>
+
+  <!-- 12. INBOUND -->
+  <div class="section" id="inbound">
+    <h2>12. Inbound Tickets <span class="module-tag">Optional module</span></h2>
+    <p>Enable via <strong>Crew → company settings</strong> (admin). Adds an inbound dispatch workflow for tickets that come <strong>in</strong> to your shop (e.g. you are the locating company).</p>
+
+    <h3>Dispatcher view</h3>
+    <ul>
+      <li>See all inbound tickets with <strong>urgency filters</strong> (All / Overdue / Today / This week) and sorting by due date, dig start, address, or assignee.</li>
+      <li>A <strong>Live Activity</strong> panel shows who is currently <strong>clocked in</strong> on which ticket, in real time.</li>
+      <li><strong>Create</strong> an inbound ticket: ticket number, site address, dig start &amp; due dates, caller name/phone, utility types, and notes.</li>
+      <li><strong>Assign</strong> a ticket to a technician — status moves <code>unassigned → assigned</code>.</li>
+    </ul>
+
+    <h3>Technician view (Tech Queue)</h3>
+    <ul>
+      <li>Each tech sees <strong>their queue</strong> of assigned inbound tickets.</li>
+      <li>Open a ticket to <strong>clock in / clock out</strong> against it (status moves to <code>in_progress</code>, then <code>completed</code>) and add <strong>photos</strong> and <strong>notes</strong> from the field.</li>
+    </ul>
+
+    <h3>Inbound calendar &amp; map</h3>
+    <ul>
+      <li><strong>Inbound Calendar</strong> lays inbound tickets out by date.</li>
+      <li><strong>Inbound Map</strong> plots inbound site addresses geographically.</li>
+    </ul>
+  </div>
+
+  <!-- 13. FIELD OPS -->
+  <div class="section" id="field-ops">
+    <h2>13. Field Ops (Scheduling) <span class="module-tag">Optional module</span></h2>
+    <p>Enable via company settings. A dispatch board for crews, equipment, and materials, with work logs and invoicing. The <strong>Field Ops</strong> tab has four sub-tabs:</p>
+
+    <h3>Board</h3>
+    <ul>
+      <li>A <strong>Gantt-style dispatch board</strong>: schedule blocks for crews against jobs across a timeline.</li>
+      <li>Your existing DigTrack jobs are auto-offered as schedulable jobs (you can also add ad-hoc ones).</li>
+    </ul>
+
+    <h3>Resources</h3>
+    <ul>
+      <li>Manage <strong>Employees</strong> (name, role, hourly rate; optionally linked to a login and flagged as <strong>foreman</strong>).</li>
+      <li>Manage <strong>Equipment</strong> (unit number, type, make/model, VIN, hourly rate) and <strong>Materials</strong> (unit price).</li>
+    </ul>
+
+    <h3>Logs (Work Logs)</h3>
+    <ul>
+      <li>Record daily <strong>work logs</strong> per job: hours by employee, hours by equipment, and materials consumed — each with rates for accurate costing.</li>
+      <li>Import logs in bulk via the <strong>CSV import</strong> tool.</li>
+    </ul>
+
+    <h3>Invoices</h3>
+    <ul>
+      <li>Roll work logs into an <strong>invoice</strong> for a job and <strong>export it to PDF</strong> to send to the customer.</li>
+    </ul>
+  </div>
+
+  <!-- 14. TIME -->
+  <div class="section" id="time">
+    <h2>14. Time Tracker <span class="module-tag">Optional module</span></h2>
+    <p>Enable via company settings. Job-costed clock in/out for the field, with admin approval. The <strong>Time</strong> tab has three sub-tabs:</p>
+
+    <h3>Clock</h3>
+    <ol class="steps">
+      <li>A worker selects a <strong>job</strong> (dig jobs <strong>and</strong> Field Ops service jobs are merged into one searchable list) and a <strong>cost code</strong>.</li>
+      <li><strong>Clock in</strong> — optionally captures <strong>GPS</strong> location; <strong>clock out</strong> when done. Add a note.</li>
+      <li><strong>Foreman crews:</strong> a foreman (a flagged employee with a login) can save a <strong>personal crew</strong> and <strong>clock the whole crew in/out at once</strong> — handy when crew members don't have their own logins.</li>
+    </ol>
+
+    <h3>Codes (Cost Codes) — Admin</h3>
+    <p>Create and manage <strong>cost codes</strong> (code + description, active/inactive) used to categorize labor hours.</p>
+
+    <h3>Timesheets — Admin</h3>
+    <p>Review all time entries, see totals by job/code/employee, and <strong>approve</strong> entries (approval is tracked with approver and timestamp). Approved time feeds your job costing.</p>
+  </div>
+
+  <!-- 15. INVENTORY -->
+  <div class="section" id="inventory">
+    <h2>15. Inventory <span class="module-tag">Optional module</span></h2>
+    <p>Enable via company settings. Track equipment and materials, where they are, and who has them. The <strong>Inventory</strong> tab has three sub-tabs plus an equipment map:</p>
+
+    <h3>Items</h3>
+    <ul>
+      <li>Add <strong>Equipment</strong> (unit number, type, year/make/model, serial, VIN, license plate, asset tag, odometer, service dates, hourly rate) or <strong>Materials</strong> (quantity + unit).</li>
+      <li>Move items with tracked <strong>movements</strong>: <strong>Check Out / Check In</strong> (to/from a location), <strong>Transfer</strong> (location → location), <strong>Assign / Return</strong> (to/from a person), and <strong>Consume</strong> (draw down material quantity).</li>
+      <li>Each item shows its <strong>current location, job, or assignee</strong> at a glance.</li>
+    </ul>
+
+    <h3>Locations</h3>
+    <p>Define <strong>shop/yard locations</strong> with full street/city/state/zip; the app <strong>geocodes</strong> them so they appear on the map.</p>
+
+    <h3>History</h3>
+    <p>A full, timestamped <strong>audit trail</strong> of every movement — type, item, who performed it, from/to, job, quantity change, and notes — color-coded by movement type.</p>
+
+    <h3>Equipment Map</h3>
+    <p>A geographic view plotting equipment and materials at their <strong>current location</strong> — shop or job site — collapsing multiple items at one place into a single marker so pins never stack. Great for "where is everything right now?"</p>
+  </div>
+
+  <!-- 16. SETTINGS -->
+  <div class="section" id="settings">
+    <h2>16. Settings, Notifications &amp; Branding</h2>
+    <ul>
+      <li><strong>Branding:</strong> the company <strong>brand color</strong> chosen at registration themes the entire UI; the company name shows in the header. Admins can update company details (name, city, state, phone).</li>
+      <li><strong>Email alerts:</strong> refresh requests (and other key events) email everyone with a configured <strong>notification email</strong>. Set these per user in <strong>Crew</strong>, and verify delivery with <strong>Test Email</strong>.</li>
+      <li><strong>Module toggles:</strong> admins switch Inbound, Field Ops, Time, and Inventory on/off per company; super admins do this across all companies.</li>
+      <li><strong>Dark/Light mode:</strong> per-device preference, remembered between sessions.</li>
+    </ul>
+  </div>
+
+  <!-- 17. MOBILE -->
+  <div class="section" id="mobile">
+    <h2>17. Mobile &amp; Offline</h2>
+    <ul>
+      <li>DigTrack Pro is a <strong>Progressive Web App (PWA)</strong> — install it to your phone's home screen for an app-like experience, with a service worker for offline resilience.</li>
+      <li><strong>Camera access</strong> is supported for scanning tickets and capturing field photos directly.</li>
+      <li><strong>Customizable mobile tabs:</strong> on phones you can choose which views appear as your <strong>primary bottom tabs</strong> (defaults to Tickets, Map, Field Ops) so your most-used tools are one tap away.</li>
+    </ul>
+  </div>
+
+</div>
+
+<footer>
+  &copy; 2026 DigTrack Pro · Operated by Elijah · <a href="/">Open the app</a> · <a href="/terms">Terms &amp; Conditions</a> · <a href="/privacy">Privacy Policy</a>
+</footer>
+
+</body>
+</html>
