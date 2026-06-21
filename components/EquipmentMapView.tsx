@@ -190,6 +190,12 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
   const setRelocatingRef = useRef(setRelocating);
   setRelocatingRef.current = setRelocating;
 
+  // Shop awaiting a tap-to-place repositioning. Mobile-friendly alternative to
+  // dragging the pin: pick a shop, then tap anywhere on the map to drop it.
+  const [repositioning, setRepositioning] = useState<{ key: string; locId: string; name: string } | null>(null);
+  const setRepositioningRef = useRef(setRepositioning);
+  setRepositioningRef.current = setRepositioning;
+
   // ── Load inventory + shop locations ────────────────────────────────────────
   const loadData = useCallback(async () => {
     setIsLoading(true);
@@ -412,7 +418,13 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
           </div>
           <div style="font-size:13px;font-weight:800;color:#0f172a;margin-bottom:1px;">${escapeHtml(placement.label)}</div>
           ${placement.sublabel ? `<div style="font-size:10px;color:#64748b;margin-bottom:4px;">${escapeHtml(placement.sublabel)}</div>` : ''}
-          ${placement.kind === 'shop' ? `<div style="font-size:9px;font-weight:700;color:#10b981;margin-bottom:4px;">Drag this pin to set the shop's location manually.</div>` : ''}
+          ${placement.kind === 'shop' ? `
+            <button data-shop-place style="
+              margin:4px 0 2px;padding:6px 10px;width:100%;background:#10b981;color:white;border:none;border-radius:8px;
+              font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;
+            ">Set location on map</button>
+            <div style="font-size:9px;color:#64748b;margin-bottom:4px;">Tap the button, then tap the map — or drag this pin.</div>
+          ` : ''}
           <div style="margin-top:4px;">${itemsHtml}</div>
         </div>`;
 
@@ -428,21 +440,16 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
         .bindPopup(popupHtml)
         .addTo(map);
 
+      const locId = isShop ? placement.key.slice('shop:'.length) : '';
       if (isShop) {
-        const locId = placement.key.slice('shop:'.length);
         marker.on('dragend', () => {
           const { lat, lng } = marker.getLatLng();
-          // Keep the viewport put — the user just placed this pin deliberately.
-          skipFitRef.current = true;
-          setPlacements(prev => prev.map(p => p.key === placement.key ? { ...p, lat, lng } : p));
-          setLocations(prev => prev.map(l => l.id === locId ? { ...l, lat, lng } : l));
-          apiService.updateLocationCoords(locId, lat, lng).catch(err =>
-            console.error('Failed to persist shop coordinates for location', locId, err),
-          );
+          commitShopCoords(placement.key, locId, lat, lng);
         });
       }
 
-      // Wire each "Move" button to open the relocate panel.
+      // Wire the popup buttons (raw HTML): "Move" opens the relocate panel,
+      // "Set location on map" starts tap-to-place repositioning for the shop.
       marker.on('popupopen', () => {
         const el = marker.getPopup()?.getElement();
         el?.querySelectorAll<HTMLButtonElement>('button[data-equip-move]').forEach(btn => {
@@ -451,6 +458,13 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
             if (item) { marker.closePopup(); setRelocatingRef.current(item); }
           };
         });
+        if (isShop) {
+          const placeBtn = el?.querySelector<HTMLButtonElement>('button[data-shop-place]');
+          if (placeBtn) placeBtn.onclick = () => {
+            marker.closePopup();
+            setRepositioningRef.current({ key: placement.key, locId, name: placement.label });
+          };
+        }
       });
 
       markersRef.current.push(marker);
@@ -464,6 +478,35 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
       map.fitBounds(bounds as L.LatLngBoundsExpression, { padding: [40, 40], maxZoom: 14 });
     }
   }, [placements]);
+
+  // Persist a manually chosen shop position (from a drag or a tap-to-place) and
+  // reflect it in local state immediately, keeping the current viewport.
+  const commitShopCoords = useCallback((key: string, locId: string, lat: number, lng: number) => {
+    skipFitRef.current = true;
+    setPlacements(prev => prev.map(p => p.key === key ? { ...p, lat, lng } : p));
+    setLocations(prev => prev.map(l => l.id === locId ? { ...l, lat, lng } : l));
+    apiService.updateLocationCoords(locId, lat, lng).catch(err =>
+      console.error('Failed to persist shop coordinates for location', locId, err),
+    );
+  }, []);
+
+  // While a shop is awaiting placement, the next tap on the map drops it there.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !repositioning) return;
+    const onClick = (e: L.LeafletMouseEvent) => {
+      commitShopCoords(repositioning.key, repositioning.locId, e.latlng.lat, e.latlng.lng);
+      setRepositioning(null);
+    };
+    map.on('click', onClick);
+    const container = map.getContainer();
+    const prevCursor = container.style.cursor;
+    container.style.cursor = 'crosshair';
+    return () => {
+      map.off('click', onClick);
+      container.style.cursor = prevCursor;
+    };
+  }, [repositioning, commitShopCoords]);
 
   // Apply a completed relocation to local state so the map updates instantly.
   const handleMoved = useCallback((updated: InventoryItem) => {
@@ -529,6 +572,17 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 pointer-events-none">
             <p className={`text-[11px] font-black uppercase tracking-widest ${subtitle}`}>Nothing to map</p>
             <p className={`text-[10px] font-bold ${subtitle}`}>Add inventory in the Inventory tab and assign it to a job or shop.</p>
+          </div>
+        )}
+        {repositioning && (
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[20] flex items-center gap-3 px-4 py-2 rounded-xl shadow-lg bg-emerald-500 text-white">
+            <span className="text-[10px] font-black uppercase tracking-widest">Tap the map to place “{repositioning.name}”</span>
+            <button
+              onClick={() => setRepositioning(null)}
+              className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg bg-white/20 hover:bg-white/30"
+            >
+              Cancel
+            </button>
           </div>
         )}
         <div ref={mapDivRef} className="w-full h-full" />
