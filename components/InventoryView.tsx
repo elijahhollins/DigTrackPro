@@ -824,8 +824,10 @@ const LocationFormModal: React.FC<LocationFormProps> = ({ location, companyId, i
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[200] flex items-center justify-center p-4">
-      <div className={`w-full max-w-sm rounded-[2rem] shadow-2xl border p-8 space-y-5 max-h-[90vh] overflow-y-auto ${d('bg-[#1e293b] border-white/10', 'bg-white border-slate-200')}`}>
+    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[200] overflow-y-auto">
+      <div className="flex min-h-full items-center justify-center p-4">
+      <div className={`w-full max-w-sm rounded-[2rem] shadow-2xl border my-auto ${d('bg-[#1e293b] border-white/10', 'bg-white border-slate-200')}`}>
+        <div className="p-8 space-y-5">
         <div className="flex items-center justify-between">
           <h3 className={`text-[15px] font-black uppercase tracking-tight ${d('text-white', 'text-slate-900')}`}>{location ? 'Edit Location' : 'New Location'}</h3>
           <button onClick={onClose} className={`p-2 rounded-xl ${d('text-slate-500 hover:text-white hover:bg-white/10', 'text-slate-400 hover:text-slate-700 hover:bg-slate-100')}`}>
@@ -872,6 +874,8 @@ const LocationFormModal: React.FC<LocationFormProps> = ({ location, companyId, i
             {isSaving ? 'Saving…' : 'Save'}
           </button>
         </div>
+        </div>
+      </div>
       </div>
     </div>
   );
