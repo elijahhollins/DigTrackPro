@@ -238,7 +238,7 @@ export default function ResourcesManager({ companyId, isAdmin, isDarkMode }: Res
                         <Pencil size={15} />
                       </button>
                       <button
-                        onClick={() => scheduleService.deleteEmployee(e.id).then(reload)}
+                        onClick={() => window.confirm(`Delete ${e.name}? This cannot be undone.`) && scheduleService.deleteEmployee(e.id).then(reload)}
                         className="w-6 flex justify-center text-slate-400 hover:text-rose-600 transition-colors"
                         aria-label={`Delete ${e.name}`}
                       >
@@ -300,7 +300,7 @@ export default function ResourcesManager({ companyId, isAdmin, isDarkMode }: Res
                         <Pencil size={15} />
                       </button>
                       <button
-                        onClick={() => scheduleService.deleteEquipment(e.id).then(reload)}
+                        onClick={() => window.confirm(`Delete ${e.name}? This cannot be undone.`) && scheduleService.deleteEquipment(e.id).then(reload)}
                         className="w-6 flex justify-center text-slate-400 hover:text-rose-600 transition-colors"
                         aria-label={`Delete ${e.name}`}
                       >
@@ -350,7 +350,7 @@ export default function ResourcesManager({ companyId, isAdmin, isDarkMode }: Res
                   <span className={`flex-1 font-medium ${text}`}>{m.name}</span>
                   <span className={`w-24 text-right font-mono tabular-nums text-sm ${text}`}>{m.unitPrice != null ? `$${m.unitPrice.toFixed(2)}` : '—'}</span>
                   {isAdmin && (
-                    <button onClick={() => scheduleService.deleteMaterial(m.id).then(reload)} className="w-6 shrink-0 flex justify-center text-slate-400 hover:text-rose-600 transition-colors" aria-label={`Delete ${m.name}`}>
+                    <button onClick={() => window.confirm(`Delete ${m.name}? This cannot be undone.`) && scheduleService.deleteMaterial(m.id).then(reload)} className="w-6 shrink-0 flex justify-center text-slate-400 hover:text-rose-600 transition-colors" aria-label={`Delete ${m.name}`}>
                       <Trash2 size={16} />
                     </button>
                   )}
