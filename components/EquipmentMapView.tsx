@@ -425,7 +425,7 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
             ">Set location on map</button>
             <div style="font-size:9px;color:#64748b;margin-bottom:4px;">Tap the button, then tap the map — or drag this pin.</div>
           ` : ''}
-          <div style="margin-top:4px;">${itemsHtml}</div>
+          <div style="margin-top:4px;max-height:200px;overflow-y:auto;">${itemsHtml}</div>
         </div>`;
 
       // Shops can be repositioned by hand — drag the pin and we persist the new
