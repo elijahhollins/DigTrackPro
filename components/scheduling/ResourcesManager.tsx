@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Trash2, Users, Wrench, Package, Upload, Pencil, X, Check, DollarSign } from 'lucide-react';
+import { Plus, Trash2, Users, Wrench, Package, Upload, Pencil, X, Check, DollarSign, Link, LinkOff, Search } from 'lucide-react';
 import { scheduleService } from '../../services/scheduleService.ts';
 import { Employee, Equipment, Material } from '../../services/schedulingTypes.ts';
 import CsvImportModal from './CsvImportModal.tsx';
@@ -43,8 +43,14 @@ export default function ResourcesManager({ companyId, isAdmin, isDarkMode }: Res
 
   // Employee edit modal
   const [editingEmp, setEditingEmp]     = useState<Employee | null>(null);
-  const [editEmpDraft, setEditEmpDraft] = useState({ name: '', role: '', hourlyRate: '', isForeman: false });
+  const [editEmpDraft, setEditEmpDraft] = useState({ name: '', role: '', hourlyRate: '', isForeman: false, profileId: null as string | null, linkedEmail: '' });
   const [savingEmp, setSavingEmp]       = useState(false);
+
+  // Account linking state (inside the employee edit modal)
+  const [acctSearch, setAcctSearch]     = useState('');
+  const [acctResult, setAcctResult]     = useState<{ id: string; name: string; username: string } | null>(null);
+  const [acctNotFound, setAcctNotFound] = useState(false);
+  const [acctSearching, setAcctSearching] = useState(false);
 
   const reload = async () => {
     setLoading(true);
@@ -143,9 +149,23 @@ export default function ResourcesManager({ companyId, isAdmin, isDarkMode }: Res
 
   const openEditEmp = (emp: Employee) => {
     setEditingEmp(emp);
-    setEditEmpDraft({ name: emp.name, role: emp.role, hourlyRate: emp.hourlyRate > 0 ? String(emp.hourlyRate) : '', isForeman: emp.isForeman });
+    setEditEmpDraft({ name: emp.name, role: emp.role, hourlyRate: emp.hourlyRate > 0 ? String(emp.hourlyRate) : '', isForeman: emp.isForeman, profileId: emp.profileId, linkedEmail: '' });
+    setAcctSearch('');
+    setAcctResult(null);
+    setAcctNotFound(false);
+    if (emp.profileId) {
+      scheduleService.getProfileById(emp.profileId).then(p => {
+        if (p) setEditEmpDraft(d => ({ ...d, linkedEmail: p.username }));
+      }).catch(() => {});
+    }
   };
-  const closeEditEmp = () => { setEditingEmp(null); setEditEmpDraft({ name: '', role: '', hourlyRate: '', isForeman: false }); };
+  const closeEditEmp = () => {
+    setEditingEmp(null);
+    setEditEmpDraft({ name: '', role: '', hourlyRate: '', isForeman: false, profileId: null, linkedEmail: '' });
+    setAcctSearch('');
+    setAcctResult(null);
+    setAcctNotFound(false);
+  };
   const saveEditEmp = async () => {
     if (!editingEmp || !editEmpDraft.name.trim()) return;
     setSavingEmp(true);
@@ -155,6 +175,7 @@ export default function ResourcesManager({ companyId, isAdmin, isDarkMode }: Res
         role:       editEmpDraft.role.trim(),
         hourlyRate: editEmpDraft.hourlyRate !== '' ? Number(editEmpDraft.hourlyRate) : 0,
         isForeman:  editEmpDraft.isForeman,
+        profileId:  editEmpDraft.profileId,
       });
       closeEditEmp();
       reload();
@@ -162,6 +183,22 @@ export default function ResourcesManager({ companyId, isAdmin, isDarkMode }: Res
       console.error('[ResourcesManager] save employee failed', err);
     } finally {
       setSavingEmp(false);
+    }
+  };
+
+  const searchAcctByEmail = async () => {
+    if (!acctSearch.trim()) return;
+    setAcctSearching(true);
+    setAcctResult(null);
+    setAcctNotFound(false);
+    try {
+      const found = await scheduleService.findProfileByEmail(acctSearch.trim());
+      if (found) { setAcctResult(found); }
+      else { setAcctNotFound(true); }
+    } catch (err) {
+      console.error('[ResourcesManager] profile search failed', err);
+    } finally {
+      setAcctSearching(false);
     }
   };
 
@@ -223,7 +260,15 @@ export default function ResourcesManager({ companyId, isAdmin, isDarkMode }: Res
               </div>
               {employees.map(e => (
                 <div key={e.id} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border-b last:border-b-0 transition-colors ${rowCls}`}>
-                  <span className={`flex-1 font-medium ${text}`}>{e.name}</span>
+                  <span className="flex-1 flex items-center gap-2 min-w-0">
+                    <span className={`font-medium truncate ${text}`}>{e.name}</span>
+                    {e.isForeman && (
+                      <span className={`inline-flex items-center gap-0.5 text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full shrink-0 ${e.profileId ? 'bg-emerald-500/15 text-emerald-600' : 'bg-amber-500/15 text-amber-600'}`}>
+                        {e.profileId ? <Link size={8} /> : null}
+                        Foreman
+                      </span>
+                    )}
+                  </span>
                   <span className={`flex-1 ${subtext}`}>{e.role || '—'}</span>
                   <span className={`w-24 text-right font-mono tabular-nums text-sm ${e.hourlyRate > 0 ? text : subtext}`}>
                     {e.hourlyRate > 0 ? `$${e.hourlyRate.toFixed(2)}` : '—'}
@@ -450,6 +495,80 @@ export default function ResourcesManager({ companyId, isAdmin, isDarkMode }: Res
                   <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${editEmpDraft.isForeman ? 'translate-x-5' : 'translate-x-0.5'}`} />
                 </span>
               </button>
+
+              {/* Account linking — only visible when foreman is on */}
+              {editEmpDraft.isForeman && (
+                <div className={`rounded-lg border p-3 space-y-2 ${isDarkMode ? 'border-slate-600 bg-slate-900/40' : 'border-slate-200 bg-slate-50'}`}>
+                  <p className={label}>Linked Login Account</p>
+
+                  {editEmpDraft.profileId ? (
+                    /* Linked — show email + unlink button */
+                    <div className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${isDarkMode ? 'border-emerald-700/60 bg-emerald-900/20' : 'border-emerald-200 bg-emerald-50'}`}>
+                      <Link size={14} className="text-emerald-500 shrink-0" />
+                      <span className={`flex-1 text-xs font-medium truncate ${isDarkMode ? 'text-emerald-300' : 'text-emerald-700'}`}>
+                        {editEmpDraft.linkedEmail || editEmpDraft.profileId}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setEditEmpDraft(d => ({ ...d, profileId: null, linkedEmail: '' }))}
+                        className={`flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded transition ${isDarkMode ? 'text-rose-400 hover:bg-rose-900/30' : 'text-rose-600 hover:bg-rose-100'}`}
+                      >
+                        <LinkOff size={12} />Unlink
+                      </button>
+                    </div>
+                  ) : (
+                    /* Not linked — email search */
+                    <div className="space-y-2">
+                      <p className={`text-xs ${subtext}`}>Enter the login email of the account this foreman will use.</p>
+                      <div className="flex gap-2">
+                        <input
+                          className={`${input} flex-1`}
+                          type="email"
+                          placeholder="foreman@company.com"
+                          value={acctSearch}
+                          onChange={e => { setAcctSearch(e.target.value); setAcctResult(null); setAcctNotFound(false); }}
+                          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); searchAcctByEmail(); } }}
+                        />
+                        <button
+                          type="button"
+                          onClick={searchAcctByEmail}
+                          disabled={acctSearching || !acctSearch.trim()}
+                          className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand text-white text-xs font-semibold transition hover:opacity-90 disabled:opacity-40 shrink-0"
+                        >
+                          {acctSearching
+                            ? <span className="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                            : <Search size={13} />}
+                          Find
+                        </button>
+                      </div>
+                      {acctResult && (
+                        <div className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${isDarkMode ? 'border-slate-600 bg-slate-800' : 'border-slate-200 bg-white'}`}>
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-xs font-semibold truncate ${text}`}>{acctResult.name}</p>
+                            <p className={`text-[11px] truncate ${subtext}`}>{acctResult.username}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditEmpDraft(d => ({ ...d, profileId: acctResult.id, linkedEmail: acctResult.username }));
+                              setAcctResult(null);
+                              setAcctSearch('');
+                            }}
+                            className="flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded bg-brand text-white transition hover:opacity-90 shrink-0"
+                          >
+                            <Link size={12} />Link
+                          </button>
+                        </div>
+                      )}
+                      {acctNotFound && (
+                        <p className={`text-xs ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>
+                          No account found with that email. Make sure they have signed up first.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <div className={`flex items-center justify-end gap-2 px-5 py-4 border-t ${isDarkMode ? 'border-slate-700' : 'border-slate-100'}`}>
               <button

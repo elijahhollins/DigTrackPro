@@ -217,6 +217,26 @@ export const scheduleService = {
     if (error) throw error;
   },
 
+  async findProfileByEmail(email: string): Promise<{ id: string; name: string; username: string } | null> {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, name, username')
+      .ilike('username', email.trim())
+      .maybeSingle();
+    if (error) throw error;
+    return data ? { id: String(data.id), name: String(data.name), username: String(data.username) } : null;
+  },
+
+  async getProfileById(profileId: string): Promise<{ id: string; name: string; username: string } | null> {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, name, username')
+      .eq('id', profileId)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? { id: String(data.id), name: String(data.name), username: String(data.username) } : null;
+  },
+
   async bulkCreateEmployee(companyId: string, items: Pick<Employee, 'name' | 'role' | 'hourlyRate'>[]): Promise<Employee[]> {
     const rows = items.map(e => ({
       company_id:  companyId,
