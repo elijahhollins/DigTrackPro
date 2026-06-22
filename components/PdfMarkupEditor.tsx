@@ -1157,6 +1157,10 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   const scrollRafRef = useRef(0);
   const drawingPtrRef = useRef<number | null>(null);
   const touchPtsRef   = useRef<Map<number, { x: number; y: number }>>(new Map());
+  // Authoritative count of fingers on screen, maintained from native touch events
+  // (e.touches). Pinch is driven from this, never inferred from pointer-event tracking,
+  // so a single-finger scroll can never be mistaken for a two-finger pinch.
+  const activeTouchCountRef = useRef(0);
   const isPinchRef    = useRef(false);
   const pinchDistRef  = useRef(0);
   // Wrapper around the page column that receives a transient CSS transform during a
@@ -1714,12 +1718,89 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     return () => window.removeEventListener('wheel', onWheel);
   }, []);
 
-  // Touch-based pan for mobile: attach direct touch listeners on the canvas container.
-  // iOS Safari can fire pointercancel instead of pointermove when setPointerCapture is
-  // combined with touchAction:'none', making the pointer-event pan unreliable.
-  // Single-finger touch ALWAYS scrolls regardless of the active tool — drawing only
-  // happens via pen/stylus (pointerType==='pen') or mouse events.  Scroll is suppressed
-  // only while a pen/mouse draw gesture is actively in progress (drawingPtrRef !== null).
+  // ── Pinch-to-zoom (driven by native touch events for accurate finger tracking) ──
+  // During the gesture only a cheap CSS transform is applied to the page column; the
+  // real zoom + re-rasterization happens once, on release, anchored at the focus.
+  const beginPinch = useCallback((p1: { x: number; y: number }, p2: { x: number; y: number }) => {
+    const fx = (p1.x + p2.x) / 2, fy = (p1.y + p2.y) / 2;
+    isPinchRef.current = true;
+    pinchDistRef.current = Math.hypot(p1.x - p2.x, p1.y - p2.y) || 1;
+    pinchScaleRef.current = 1;
+    pinchStartFocalRef.current = { x: fx, y: fy };
+    pinchCurrentFocalRef.current = { x: fx, y: fy };
+    // Cancel any single-finger draw that was in progress when the pinch began.
+    if (drawingPtrRef.current !== null) {
+      drawingPtrRef.current = null;
+      setIsDrawing(false); setPenPoints([]); setPreviewData(null); setDrawStart(null);
+    }
+    // Resolve the page + normalized point under the focus for post-zoom re-anchoring.
+    let anchorEl = (document.elementFromPoint(fx, fy) as HTMLElement | null)?.closest('[data-page]') as HTMLElement | null;
+    if (!anchorEl) {
+      pageContainerRefs.current.forEach(c => {
+        const cr = c.getBoundingClientRect();
+        if (fx >= cr.left && fx <= cr.right && fy >= cr.top && fy <= cr.bottom) anchorEl = c;
+      });
+    }
+    if (anchorEl) {
+      const r = anchorEl.getBoundingClientRect();
+      pinchAnchorRef.current = {
+        pageNum: Number(anchorEl.dataset.page) || 1,
+        nx: r.width ? Math.max(0, Math.min(1, (fx - r.left) / r.width)) : 0.5,
+        ny: r.height ? Math.max(0, Math.min(1, (fy - r.top) / r.height)) : 0.5,
+      };
+    } else {
+      pinchAnchorRef.current = null;
+    }
+    const layer = zoomLayerRef.current;
+    if (layer) {
+      const zr = layer.getBoundingClientRect();
+      pinchOriginRef.current = { x: fx - zr.left, y: fy - zr.top };
+      layer.style.transformOrigin = `${pinchOriginRef.current.x}px ${pinchOriginRef.current.y}px`;
+      layer.style.willChange = 'transform';
+    }
+  }, []);
+
+  const updatePinch = useCallback((p1: { x: number; y: number }, p2: { x: number; y: number }) => {
+    if (!isPinchRef.current) return;
+    const fx = (p1.x + p2.x) / 2, fy = (p1.y + p2.y) / 2;
+    const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+    pinchCurrentFocalRef.current = { x: fx, y: fy };
+    const rawS = dist / (pinchDistRef.current || 1);
+    const targetZoom = Math.max(0.25, Math.min(4.0, (zoomRef.current || 1) * rawS));
+    const s = targetZoom / (zoomRef.current || 1);
+    pinchScaleRef.current = s;
+    const layer = zoomLayerRef.current;
+    if (layer) {
+      const dx = fx - pinchStartFocalRef.current.x;
+      const dy = fy - pinchStartFocalRef.current.y;
+      layer.style.transform = `translate(${dx}px, ${dy}px) scale(${s})`;
+    }
+  }, []);
+
+  // Commit a pinch: turn the transient transform into a real zoom level and queue a
+  // focal re-anchor so the point under the fingers stays put after re-layout.
+  const finalizePinch = useCallback(() => {
+    if (!isPinchRef.current) return;
+    isPinchRef.current = false;
+    const layer = zoomLayerRef.current;
+    if (layer) { layer.style.transform = ''; layer.style.transformOrigin = ''; layer.style.willChange = ''; }
+    const s = pinchScaleRef.current;
+    pinchScaleRef.current = 1;
+    const anchor = pinchAnchorRef.current;
+    pinchAnchorRef.current = null;
+    if (Math.abs(s - 1) < 0.002) return; // negligible change
+    const newZoom = Math.max(0.25, Math.min(4.0, (zoomRef.current || 1) * s));
+    if (Math.abs(newZoom - zoomRef.current) < 0.0005) return;
+    if (anchor) {
+      const f = pinchCurrentFocalRef.current;
+      pendingZoomAnchorRef.current = { pageNum: anchor.pageNum, nx: anchor.nx, ny: anchor.ny, fx: f.x, fy: f.y };
+    }
+    setZoomLevel(newZoom);
+  }, []);
+
+  // Touch-based pan + pinch for mobile (native touch events: e.touches is authoritative).
+  // Single finger over a nav tool scrolls; two fingers pinch-zoom. Pen/mouse drawing is
+  // handled separately via pointer events.
   useEffect(() => {
     if (isLoadingPdf) return;
     const main = mainRef.current;
@@ -1728,6 +1809,16 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     let startX = 0, startY = 0, startSL = 0, startST = 0, panning = false;
 
     const onTouchStart = (e: TouchEvent) => {
+      activeTouchCountRef.current = e.touches.length;
+      if (e.touches.length >= 2) {
+        panning = false;
+        beginPinch(
+          { x: e.touches[0].clientX, y: e.touches[0].clientY },
+          { x: e.touches[1].clientX, y: e.touches[1].clientY },
+        );
+        e.preventDefault();
+        return;
+      }
       // Only scroll for nav tools (pan/select). When a drawing tool is active, let
       // pointer events handle the gesture so the user can draw with their finger.
       const isNavTool = currentToolRef.current === 'pan' || currentToolRef.current === 'select';
@@ -1740,14 +1831,28 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     };
 
     const onTouchMove = (e: TouchEvent) => {
-      // If a handle drag has claimed the pointer, stop scrolling and let pointer events handle it.
+      activeTouchCountRef.current = e.touches.length;
+      // Two fingers → pinch-zoom.
+      if (e.touches.length >= 2) {
+        const p1 = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        const p2 = { x: e.touches[1].clientX, y: e.touches[1].clientY };
+        if (!isPinchRef.current) beginPinch(p1, p2); else updatePinch(p1, p2);
+        e.preventDefault();
+        return;
+      }
+      // One finger → scroll (only while a pan/select gesture is active).
       if (!panning || e.touches.length !== 1 || drawingPtrRef.current !== null) { panning = false; return; }
       e.preventDefault();
       main.scrollLeft = startSL - (e.touches[0].clientX - startX);
       main.scrollTop  = startST - (e.touches[0].clientY - startY);
     };
 
-    const onTouchEnd = () => { panning = false; };
+    const onTouchEnd = (e: TouchEvent) => {
+      activeTouchCountRef.current = e.touches.length;
+      // A finger lifting out of a two-finger gesture commits the zoom.
+      if (isPinchRef.current && e.touches.length < 2) finalizePinch();
+      if (e.touches.length === 0) panning = false;
+    };
 
     main.addEventListener('touchstart',  onTouchStart, { passive: false });
     main.addEventListener('touchmove',   onTouchMove,  { passive: false });
@@ -1760,7 +1865,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       main.removeEventListener('touchend',    onTouchEnd);
       main.removeEventListener('touchcancel', onTouchEnd);
     };
-  }, [isLoadingPdf]);
+  }, [isLoadingPdf, beginPinch, updatePinch, finalizePinch]);
 
   // ── Pointer Events (Apple Pencil + palm rejection + pinch-to-zoom) ──
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -1773,17 +1878,12 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     activePageRef.current = pageNum;
     setActivePage(pageNum);
 
+    // Two or more fingers down → the native touch listener owns the gesture (pinch).
+    // Ignore the pointer event so it never starts a draw/select.
+    if (e.pointerType === 'touch' && activeTouchCountRef.current >= 2) return;
+
     // Palm rejection: if pen is active, ignore new touch contacts
     if (drawingPtrRef.current !== null && e.pointerType === 'touch') return;
-
-    // Two touch fingers → start pinch, cancel draw
-    if (e.pointerType === 'touch' && touchPtsRef.current.size === 2) {
-      if (drawingPtrRef.current !== null) {
-        setIsDrawing(false); setPenPoints([]); setPreviewData(null); setDrawStart(null);
-        drawingPtrRef.current = null;
-      }
-      return;
-    }
 
     // Touch + pan always yields to the touch-scroll listener.
     if (e.pointerType === 'touch' && currentTool === 'pan') return;
@@ -1906,66 +2006,11 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   }, [currentTool, annotations, pendingAnnotations, getCoords]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    // While two or more fingers are down, the native touch listener owns the gesture
+    // (pinch-zoom) — ignore pointer moves so nothing else reacts to it.
+    if (e.pointerType === 'touch' && activeTouchCountRef.current >= 2) return;
     touchPtsRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     shiftPressedRef.current = e.shiftKey;
-
-    // Pinch-to-zoom: two touch points. Apply a transient GPU transform to the page
-    // column during the gesture (smooth, no re-render); the real zoom + re-rasterize
-    // happens once, on release, anchored at the pinch focus.
-    if (touchPtsRef.current.size >= 2) {
-      const [a, b] = [...touchPtsRef.current.values()];
-      const dist = Math.hypot(a.x - b.x, a.y - b.y);
-      const fx = (a.x + b.x) / 2, fy = (a.y + b.y) / 2;
-      const layer = zoomLayerRef.current;
-      if (!isPinchRef.current) {
-        // Cancel any single-finger draw that was in progress when the pinch began.
-        if (drawingPtrRef.current !== null) {
-          drawingPtrRef.current = null;
-          setIsDrawing(false); setPenPoints([]); setPreviewData(null); setDrawStart(null);
-        }
-        isPinchRef.current = true;
-        pinchDistRef.current = dist;
-        pinchScaleRef.current = 1;
-        pinchStartFocalRef.current = { x: fx, y: fy };
-        pinchCurrentFocalRef.current = { x: fx, y: fy };
-        // Resolve the page + normalized point under the focus for post-zoom re-anchoring.
-        let anchorEl = (document.elementFromPoint(fx, fy) as HTMLElement | null)?.closest('[data-page]') as HTMLElement | null;
-        if (!anchorEl) {
-          pageContainerRefs.current.forEach(c => {
-            const cr = c.getBoundingClientRect();
-            if (fx >= cr.left && fx <= cr.right && fy >= cr.top && fy <= cr.bottom) anchorEl = c;
-          });
-        }
-        if (anchorEl) {
-          const r = anchorEl.getBoundingClientRect();
-          pinchAnchorRef.current = {
-            pageNum: Number(anchorEl.dataset.page) || 1,
-            nx: r.width ? Math.max(0, Math.min(1, (fx - r.left) / r.width)) : 0.5,
-            ny: r.height ? Math.max(0, Math.min(1, (fy - r.top) / r.height)) : 0.5,
-          };
-        } else {
-          pinchAnchorRef.current = null;
-        }
-        if (layer) {
-          const zr = layer.getBoundingClientRect();
-          pinchOriginRef.current = { x: fx - zr.left, y: fy - zr.top };
-          layer.style.transformOrigin = `${pinchOriginRef.current.x}px ${pinchOriginRef.current.y}px`;
-          layer.style.willChange = 'transform';
-        }
-      } else {
-        pinchCurrentFocalRef.current = { x: fx, y: fy };
-        const rawS = dist / (pinchDistRef.current || 1);
-        const targetZoom = Math.max(0.25, Math.min(4.0, zoomRef.current * rawS));
-        const s = targetZoom / (zoomRef.current || 1);
-        pinchScaleRef.current = s;
-        if (layer) {
-          const dx = fx - pinchStartFocalRef.current.x;
-          const dy = fy - pinchStartFocalRef.current.y;
-          layer.style.transform = `translate(${dx}px, ${dy}px) scale(${s})`;
-        }
-      }
-      return;
-    }
 
     // Handle drag: update annotation geometry live while dragging a control point
     if (dragHandleRef.current && drawingPtrRef.current === e.pointerId) {
@@ -2029,35 +2074,11 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     }
   }, [currentTool, isDrawing, drawStart, getCoords, zoomLevel, annotations, pendingAnnotations]);
 
-  // Commit a pinch gesture: turn the transient transform into a real zoom level and
-  // queue a focal re-anchor so the point under the fingers stays put after re-layout.
-  const finalizePinch = useCallback(() => {
-    if (!isPinchRef.current) return;
-    isPinchRef.current = false;
-    const layer = zoomLayerRef.current;
-    if (layer) { layer.style.transform = ''; layer.style.transformOrigin = ''; layer.style.willChange = ''; }
-    const s = pinchScaleRef.current;
-    pinchScaleRef.current = 1;
-    const anchor = pinchAnchorRef.current;
-    pinchAnchorRef.current = null;
-    if (Math.abs(s - 1) < 0.002) return; // negligible change
-    const newZoom = Math.max(0.25, Math.min(4.0, (zoomRef.current || 1) * s));
-    if (Math.abs(newZoom - zoomRef.current) < 0.0005) return;
-    if (anchor) {
-      const f = pinchCurrentFocalRef.current;
-      pendingZoomAnchorRef.current = { pageNum: anchor.pageNum, nx: anchor.nx, ny: anchor.ny, fx: f.x, fy: f.y };
-    }
-    setZoomLevel(newZoom);
-  }, []);
-
   const handlePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    // A finger lifting ends a pinch — commit the zoom now.
-    if (isPinchRef.current) {
-      touchPtsRef.current.delete(e.pointerId);
-      finalizePinch();
-      return;
-    }
     touchPtsRef.current.delete(e.pointerId);
+    // Pinch is owned by the native touch listener; a touch pointer-up during a pinch
+    // just cleans up here (it never started a draw, so there is nothing else to do).
+    if (isPinchRef.current) return;
     if (drawingPtrRef.current !== e.pointerId) return;
     drawingPtrRef.current = null; panStartRef.current = null;
 
@@ -2140,19 +2161,19 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     // Keep the current drawing tool active so the user can draw another annotation.
     // Only select the just-placed item so its bounding box is visible.
     setSelectedAnnId(placed.id);
-  }, [isDrawing, drawStart, currentTool, penPoints, getCoords, commitAnnotation, stampType, liveEditData, updateAnnotation, finalizePinch]);
+  }, [isDrawing, drawStart, currentTool, penPoints, getCoords, commitAnnotation, stampType, liveEditData, updateAnnotation]);
 
   const handlePointerCancel = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     touchPtsRef.current.delete(e.pointerId);
-    // Pinch interrupted — commit whatever zoom was reached so the view doesn't snap back.
-    if (isPinchRef.current) { finalizePinch(); return; }
+    // Pinch lifecycle is owned by the native touch listener; nothing to do here for it.
+    if (isPinchRef.current) return;
     if (drawingPtrRef.current === e.pointerId) {
       drawingPtrRef.current = null;
       setIsDrawing(false); setPenPoints([]); setPreviewData(null); setDrawStart(null);
-      isPinchRef.current = false; panStartRef.current = null;
+      panStartRef.current = null;
       dragHandleRef.current = null; setLiveEditData(null);
     }
-  }, [finalizePinch]);
+  }, []);
 
   // Ctrl+scroll to zoom
   const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
