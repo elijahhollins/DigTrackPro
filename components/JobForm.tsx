@@ -12,7 +12,7 @@ interface JobFormProps {
 
 const JobForm: React.FC<JobFormProps> = ({ onSave, onClose, initialData, isDarkMode }) => {
   const [formData, setFormData] = useState({
-    jobNumber: '', customer: '', address: '', city: '', state: '', county: '',
+    jobNumber: '', jobName: '', customer: '', siteContact: '', address: '', city: '', state: '', county: '',
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -20,7 +20,9 @@ const JobForm: React.FC<JobFormProps> = ({ onSave, onClose, initialData, isDarkM
     if (initialData) {
       setFormData({
         jobNumber: initialData.jobNumber,
-        customer: initialData.customer,
+        jobName: initialData.jobName || '',
+        customer: initialData.customer || '',
+        siteContact: initialData.siteContact || '',
         address: initialData.address,
         city: initialData.city,
         state: initialData.state,
@@ -59,8 +61,8 @@ const JobForm: React.FC<JobFormProps> = ({ onSave, onClose, initialData, isDarkM
               <input required className={`w-full px-3 py-2 border rounded-lg text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.jobNumber} onChange={e => setFormData({...formData, jobNumber: e.target.value})} placeholder="e.g. 25-001" />
             </div>
             <div className="space-y-1">
-              <label className="text-[9px] font-black uppercase text-slate-400">Customer</label>
-              <input required className={`w-full px-3 py-2 border rounded-lg text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.customer} onChange={e => setFormData({...formData, customer: e.target.value})} placeholder="Client Name" />
+              <label className="text-[9px] font-black uppercase text-slate-400">Job Name</label>
+              <input required className={`w-full px-3 py-2 border rounded-lg text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.jobName} onChange={e => setFormData({...formData, jobName: e.target.value})} placeholder="e.g. Prairie Ridge Phase 2" />
             </div>
           </div>
 
@@ -84,8 +86,13 @@ const JobForm: React.FC<JobFormProps> = ({ onSave, onClose, initialData, isDarkM
             </div>
           </div>
 
-          <button 
-            type="submit" 
+          <div className="space-y-1">
+            <label className="text-[9px] font-black uppercase text-slate-400">Site Contact</label>
+            <input className={`w-full px-3 py-2 border rounded-lg text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.siteContact} onChange={e => setFormData({...formData, siteContact: e.target.value})} placeholder="On-site contact name / phone" />
+          </div>
+
+          <button
+            type="submit"
             disabled={isSubmitting}
             className="w-full bg-brand text-[#0f172a] py-3 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-brand/10 mt-2 transition-all hover:scale-[1.01] active:scale-95 disabled:opacity-50"
           >

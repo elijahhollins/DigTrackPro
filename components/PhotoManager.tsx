@@ -100,7 +100,7 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({
       .filter(j =>
         !q ||
         j.jobNumber.toLowerCase().includes(q) ||
-        j.customer.toLowerCase().includes(q) ||
+        (j.jobName || '').toLowerCase().includes(q) ||
         j.address.toLowerCase().includes(q) ||
         j.city.toLowerCase().includes(q),
       )
@@ -337,7 +337,7 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({
                   </svg>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className={`font-black text-sm uppercase tracking-wider truncate ${tp}`}>{currentJob.customer}</p>
+                  <p className={`font-black text-sm uppercase tracking-wider truncate ${tp}`}>{currentJob.jobName || `Job #${currentJob.jobNumber}`}</p>
                   <p className={`text-xs truncate ${ts}`}>{currentJob.address}, {currentJob.city}</p>
                 </div>
                 {currentJob.isComplete && (
@@ -570,7 +570,7 @@ const PhotoManager: React.FC<PhotoManagerProps> = ({
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <p className={`font-black text-xs uppercase tracking-wider ${tp}`}>Job #{job.jobNumber}</p>
-                          <p className={`text-[11px] font-semibold truncate ${ts} mt-0.5`}>{job.customer}</p>
+                          <p className={`text-[11px] font-semibold truncate ${ts} mt-0.5`}>{job.jobName || '—'}</p>
                           <p className={`text-[10px] truncate ${tm}`}>{job.address}, {job.city}</p>
                         </div>
                         <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors ${dm ? 'bg-white/5 group-hover:bg-brand/10' : 'bg-slate-100 group-hover:bg-brand/10'}`}>

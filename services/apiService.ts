@@ -85,11 +85,13 @@ create table if not exists profiles (
 );
 
 create table if not exists jobs (
-    id uuid primary key, 
+    id uuid primary key,
     company_id uuid references companies(id) not null,
-    job_number text, 
-    customer text, 
-    address text, 
+    job_number text,
+    job_name text,
+    customer text,
+    site_contact text,
+    address text,
     city text, 
     state text, 
     county text, 
@@ -279,7 +281,13 @@ ALTER TABLE tickets ADD COLUMN IF NOT EXISTS bbox_lng2 double precision;
 ALTER TABLE tickets ADD COLUMN IF NOT EXISTS bbox_lat3 double precision;
 ALTER TABLE tickets ADD COLUMN IF NOT EXISTS bbox_lng3 double precision;
 ALTER TABLE tickets ADD COLUMN IF NOT EXISTS bbox_lat4 double precision;
-ALTER TABLE tickets ADD COLUMN IF NOT EXISTS bbox_lng4 double precision;`;
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS bbox_lng4 double precision;
+
+-- Migration: separate job name from site contact on existing installations
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS job_name text;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS site_contact text;
+-- Existing rows stored the parsed site contact in "customer"; move it to site_contact.
+UPDATE jobs SET site_contact = customer WHERE site_contact IS NULL AND customer IS NOT NULL;`;
 
 const generateUUID = () => crypto.randomUUID();
 
@@ -287,7 +295,9 @@ const mapJob = (data: any): Job => ({
   id: data.id,
   companyId: data.company_id,
   jobNumber: data.job_number || 'UNKNOWN',
+  jobName: data.job_name || '',
   customer: data.customer || '',
+  siteContact: data.site_contact || '',
   address: data.address || '',
   city: data.city || '',
   state: data.state || '',
@@ -387,7 +397,9 @@ export const apiService = {
       id: job.id,
       company_id: job.companyId,
       job_number: job.jobNumber,
+      job_name: job.jobName,
       customer: job.customer,
+      site_contact: job.siteContact,
       address: job.address,
       city: job.city,
       state: job.state,

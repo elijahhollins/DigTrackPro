@@ -56,7 +56,7 @@ export default function TimeTrackingView({ sessionUser, jobs, isDarkMode }: Time
       .map(j => ({
         kind: 'dig' as const,
         ref: j.id,
-        label: `${j.jobNumber} — ${j.customer || [j.address, j.city].filter(Boolean).join(', ') || 'Dig job'}`,
+        label: `${j.jobNumber} — ${j.jobName || [j.address, j.city].filter(Boolean).join(', ') || 'Dig job'}`,
       }));
     const svc: ClockableJob[] = serviceJobs.map(j => ({
       kind: 'service' as const,

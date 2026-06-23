@@ -264,7 +264,7 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
           placement = {
             key, kind: 'job',
             label: `Job #${job.jobNumber}`,
-            sublabel: geoQuery || job.customer || '',
+            sublabel: geoQuery || job.jobName || '',
             items: [], geo,
           };
           // Prefer coords already resolved on one of the job's dig tickets.
@@ -803,7 +803,7 @@ const RelocateModal: React.FC<RelocateModalProps> = ({
             <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Job</p>
             <select className={inputCls} value={jobId} onChange={e => setJobId(e.target.value)}>
               <option value="">— Select job —</option>
-              {activeJobs.map(j => <option key={j.id} value={j.id}>#{j.jobNumber} — {j.customer}</option>)}
+              {activeJobs.map(j => <option key={j.id} value={j.id}>#{j.jobNumber}{j.jobName ? ` — ${j.jobName}` : ''}</option>)}
             </select>
             {activeJobs.length === 0 && <p className={d('text-[10px] text-slate-600', 'text-[10px] text-slate-400')}>No active jobs available.</p>}
           </div>
