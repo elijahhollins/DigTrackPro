@@ -1,5 +1,5 @@
 import React, { useState, useReducer, useRef, useCallback, useEffect } from 'react';
-import { Plus, X, ChevronLeft, ChevronRight, Clock, Calendar, Pencil, Trash2, Briefcase, Users, Wrench, GripHorizontal, RotateCcw } from 'lucide-react';
+import { Plus, X, ChevronLeft, ChevronRight, Clock, Calendar, Pencil, Trash2, Briefcase, Users, Wrench, GripHorizontal, RotateCcw, Search } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient.ts';
 import { scheduleService } from '../../services/scheduleService.ts';
 
@@ -1159,7 +1159,106 @@ const AddBlockModal = ({
   const [startDate,    setStart]    = useState(todayISO);
   const [durationDays, setDuration] = useState(5);
 
-  const selectedJob = jobs.find(j => j.jobNumber === jobNum);
+  // Live job search state
+  const [jobQuery,    setJobQuery]    = useState('');
+  const [jobListOpen, setJobListOpen] = useState(false);
+  const [activeIdx,   setActiveIdx]   = useState(0);
+  const jobSearchRef = useRef<HTMLDivElement>(null);
+
+  // Live crew search state
+  const [crewQuery,    setCrewQuery]    = useState('');
+  const [crewListOpen, setCrewListOpen] = useState(false);
+  const [crewActiveIdx, setCrewActiveIdx] = useState(0);
+  const crewSearchRef = useRef<HTMLDivElement>(null);
+
+  const selectedJob  = jobs.find(j => j.jobNumber === jobNum);
+  const selectedCrew = crews.find(c => c.id === crewId);
+
+  const filteredJobs = (() => {
+    const q = jobQuery.trim().toLowerCase();
+    if (!q) return jobs;
+    return jobs.filter(
+      j =>
+        j.jobNumber.toLowerCase().includes(q) ||
+        j.location.toLowerCase().includes(q),
+    );
+  })();
+
+  const filteredCrews = (() => {
+    const q = crewQuery.trim().toLowerCase();
+    if (!q) return crews;
+    return crews.filter(c => c.name.toLowerCase().includes(q));
+  })();
+
+  // Close the job dropdown when clicking outside of it
+  useEffect(() => {
+    if (!jobListOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (jobSearchRef.current && !jobSearchRef.current.contains(e.target as Node)) {
+        setJobListOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [jobListOpen]);
+
+  // Close the crew dropdown when clicking outside of it
+  useEffect(() => {
+    if (!crewListOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (crewSearchRef.current && !crewSearchRef.current.contains(e.target as Node)) {
+        setCrewListOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [crewListOpen]);
+
+  const selectJob = (j: JobOption) => {
+    setJobNum(j.jobNumber);
+    setJobQuery('');
+    setJobListOpen(false);
+  };
+
+  const selectCrew = (c: Crew) => {
+    setCrewId(c.id);
+    setCrewQuery('');
+    setCrewListOpen(false);
+  };
+
+  const handleJobKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setJobListOpen(true);
+      setActiveIdx(i => Math.min(i + 1, filteredJobs.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActiveIdx(i => Math.max(i - 1, 0));
+    } else if (e.key === 'Enter' && jobListOpen) {
+      e.preventDefault();
+      const pick = filteredJobs[activeIdx];
+      if (pick) selectJob(pick);
+    } else if (e.key === 'Escape') {
+      setJobListOpen(false);
+    }
+  };
+
+  const handleCrewKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setCrewListOpen(true);
+      setCrewActiveIdx(i => Math.min(i + 1, filteredCrews.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setCrewActiveIdx(i => Math.max(i - 1, 0));
+    } else if (e.key === 'Enter' && crewListOpen) {
+      e.preventDefault();
+      const pick = filteredCrews[crewActiveIdx];
+      if (pick) selectCrew(pick);
+    } else if (e.key === 'Escape') {
+      setCrewListOpen(false);
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1190,34 +1289,88 @@ const AddBlockModal = ({
             <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1.5">
               Assign to Crew
             </label>
-            <select
-              value={crewId}
-              onChange={e => setCrewId(e.target.value)}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/10 bg-white"
-              required
-            >
-              {crews.map(c => (
-                <option key={c.id} value={c.id}>{c.name} ({c.size} workers)</option>
-              ))}
-            </select>
+            <div ref={crewSearchRef} className="relative">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                <input
+                  type="text"
+                  value={crewListOpen ? crewQuery : (selectedCrew ? `${selectedCrew.name} (${selectedCrew.size} workers)` : '')}
+                  onChange={e => { setCrewQuery(e.target.value); setCrewListOpen(true); setCrewActiveIdx(0); }}
+                  onFocus={() => { setCrewQuery(''); setCrewListOpen(true); setCrewActiveIdx(0); }}
+                  onKeyDown={handleCrewKeyDown}
+                  placeholder="Search by crew name…"
+                  autoComplete="off"
+                  className="w-full border border-slate-200 rounded-lg pl-9 pr-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/10 bg-white"
+                />
+              </div>
+              {crewListOpen && (
+                <ul className="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg py-1">
+                  {filteredCrews.length === 0 ? (
+                    <li className="px-3 py-2 text-sm text-slate-400 italic">No matching crews</li>
+                  ) : (
+                    filteredCrews.map((c, i) => (
+                      <li key={c.id}>
+                        <button
+                          type="button"
+                          onMouseDown={e => { e.preventDefault(); selectCrew(c); }}
+                          onMouseEnter={() => setCrewActiveIdx(i)}
+                          className={`w-full text-left px-3 py-2 text-sm transition-colors ${
+                            i === crewActiveIdx ? 'bg-brand/10 text-brand' : 'text-slate-700 hover:bg-slate-50'
+                          } ${c.id === crewId ? 'font-semibold' : ''}`}
+                        >
+                          <span className="font-medium">{c.name}</span>
+                          <span className="text-slate-400"> ({c.size} workers)</span>
+                        </button>
+                      </li>
+                    ))
+                  )}
+                </ul>
+              )}
+            </div>
           </div>
 
           <div>
             <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1.5">
               Job Number
             </label>
-            <select
-              value={jobNum}
-              onChange={e => setJobNum(e.target.value)}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/10 bg-white"
-              required
-            >
-              {jobs.map(j => (
-                <option key={j.jobNumber} value={j.jobNumber}>
-                  {j.jobNumber} — {j.location}
-                </option>
-              ))}
-            </select>
+            <div ref={jobSearchRef} className="relative">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                <input
+                  type="text"
+                  value={jobListOpen ? jobQuery : (jobNum || '')}
+                  onChange={e => { setJobQuery(e.target.value); setJobListOpen(true); setActiveIdx(0); }}
+                  onFocus={() => { setJobQuery(''); setJobListOpen(true); setActiveIdx(0); }}
+                  onKeyDown={handleJobKeyDown}
+                  placeholder="Search by job number or location…"
+                  autoComplete="off"
+                  className="w-full border border-slate-200 rounded-lg pl-9 pr-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/10 bg-white"
+                />
+              </div>
+              {jobListOpen && (
+                <ul className="absolute z-10 mt-1 w-full max-h-56 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg py-1">
+                  {filteredJobs.length === 0 ? (
+                    <li className="px-3 py-2 text-sm text-slate-400 italic">No matching jobs</li>
+                  ) : (
+                    filteredJobs.map((j, i) => (
+                      <li key={j.jobNumber}>
+                        <button
+                          type="button"
+                          onMouseDown={e => { e.preventDefault(); selectJob(j); }}
+                          onMouseEnter={() => setActiveIdx(i)}
+                          className={`w-full text-left px-3 py-2 text-sm transition-colors ${
+                            i === activeIdx ? 'bg-brand/10 text-brand' : 'text-slate-700 hover:bg-slate-50'
+                          } ${j.jobNumber === jobNum ? 'font-semibold' : ''}`}
+                        >
+                          <span className="font-medium">{j.jobNumber}</span>
+                          <span className="text-slate-400"> — {j.location}</span>
+                        </button>
+                      </li>
+                    ))
+                  )}
+                </ul>
+              )}
+            </div>
           </div>
 
           <div className="flex gap-3">
