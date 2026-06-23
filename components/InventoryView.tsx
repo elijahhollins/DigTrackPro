@@ -2,6 +2,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { User, UserRole, UserRecord, Job, InventoryItem, InventoryItemType, InventoryLocation, InventoryMovement, InventoryMovementType } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
+import { scheduleService } from '../services/scheduleService.ts';
+import { Employee } from '../services/schedulingTypes.ts';
 
 interface InventoryViewProps {
   sessionUser: User;
@@ -45,6 +47,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [locations, setLocations] = useState<InventoryLocation[]>([]);
   const [movements, setMovements] = useState<InventoryMovement[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [typeFilter, setTypeFilter] = useState<InventoryItemType | 'ALL'>('ALL');
   const [search, setSearch] = useState('');
@@ -77,6 +80,13 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
     } finally {
       setIsLoading(false);
     }
+    // Foreman list (employees flagged as foreman with a linked login). Loaded
+    // best-effort — the scheduling module may be off for some companies.
+    try {
+      setEmployees(await scheduleService.getEmployees());
+    } catch (err) {
+      console.warn('Inventory: employee/foreman list unavailable.', err);
+    }
   };
 
   useEffect(() => { load(); }, []);
@@ -84,6 +94,19 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
   const locationMap = useMemo(() => new Map(locations.map(l => [l.id, l])), [locations]);
   const userMap = useMemo(() => new Map(users.map(u => [u.id, u])), [users]);
   const jobMap = useMemo(() => new Map(jobs.map(j => [j.id, j])), [jobs]);
+
+  // Equipment may only be assigned to a foreman: an Employee marked isForeman
+  // with a linked login (profileId) — the login is required both to store the
+  // assignment (current_assignee_id → profiles) and to follow their clock-ins.
+  // Derived straight from employees (using the employee's own name) so foremen
+  // show up even if their profile row isn't in the loaded users list.
+  const foremen = useMemo<{ id: string; name: string }[]>(() =>
+    employees
+      .filter(e => e.isForeman && e.profileId)
+      .map(e => ({ id: e.profileId as string, name: e.name }))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    [employees],
+  );
 
   const filteredItems = useMemo(() => {
     return items.filter(item => {
@@ -451,7 +474,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
         <ItemFormModal
           item={editingItem}
           locations={locations}
-          users={users}
+          foremen={foremen}
           jobs={jobs}
           isDarkMode={isDarkMode}
           companyId={sessionUser.companyId}
@@ -491,6 +514,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
           item={movementItem}
           locations={locations}
           users={users}
+          foremen={foremen}
           jobs={jobs}
           sessionUser={sessionUser}
           isDarkMode={isDarkMode}
@@ -527,7 +551,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
 interface ItemFormProps {
   item: InventoryItem | null;
   locations: InventoryLocation[];
-  users: UserRecord[];
+  foremen: { id: string; name: string }[];
   jobs: Job[];
   companyId: string;
   isDarkMode?: boolean;
@@ -537,7 +561,7 @@ interface ItemFormProps {
 
 type ItemLocKind = 'shop' | 'job' | 'crew';
 
-const ItemFormModal: React.FC<ItemFormProps> = ({ item, locations, users, jobs, companyId, isDarkMode, onSave, onClose }) => {
+const ItemFormModal: React.FC<ItemFormProps> = ({ item, locations, foremen, jobs, companyId, isDarkMode, onSave, onClose }) => {
   const [name, setName] = useState(item?.name || '');
   const [itemType, setItemType] = useState<InventoryItemType>(item?.itemType || InventoryItemType.EQUIPMENT);
   const [unitNumber, setUnitNumber] = useState(item?.unitNumber || '');
@@ -710,7 +734,7 @@ const ItemFormModal: React.FC<ItemFormProps> = ({ item, locations, users, jobs, 
               {([
                 { id: 'shop' as ItemLocKind, label: 'Shop' },
                 { id: 'job'  as ItemLocKind, label: 'Job Site' },
-                { id: 'crew' as ItemLocKind, label: 'Crew' },
+                { id: 'crew' as ItemLocKind, label: 'Foreman' },
               ]).map(opt => (
                 <button
                   key={opt.id}
@@ -741,10 +765,17 @@ const ItemFormModal: React.FC<ItemFormProps> = ({ item, locations, users, jobs, 
               </select>
             )}
             {locKind === 'crew' && (
-              <select className={inputCls} value={currentAssigneeId} onChange={e => setCurrentAssigneeId(e.target.value)}>
-                <option value="">— Select crew member —</option>
-                {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-              </select>
+              <>
+                <select className={inputCls} value={currentAssigneeId} onChange={e => setCurrentAssigneeId(e.target.value)}>
+                  <option value="">— Select foreman —</option>
+                  {foremen.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+                {foremen.length === 0 && (
+                  <p className={d('text-[10px] text-slate-600', 'text-[10px] text-slate-400')}>
+                    No foremen with a login. In Field Ops → Resources, mark an employee as a Foreman and link their login email.
+                  </p>
+                )}
+              </>
             )}
           </div>
 
@@ -885,6 +916,7 @@ interface MovementModalProps {
   item: InventoryItem;
   locations: InventoryLocation[];
   users: UserRecord[];
+  foremen: { id: string; name: string }[];
   jobs: Job[];
   sessionUser: User;
   isDarkMode?: boolean;
@@ -893,7 +925,7 @@ interface MovementModalProps {
   onClose: () => void;
 }
 
-const MovementModal: React.FC<MovementModalProps> = ({ item, locations, users, jobs, sessionUser, isDarkMode, onSave, onClose }) => {
+const MovementModal: React.FC<MovementModalProps> = ({ item, locations, users, foremen, jobs, sessionUser, isDarkMode, onSave, onClose }) => {
   const isEquip = item.itemType === InventoryItemType.EQUIPMENT;
   const defaultType = isEquip ? InventoryMovementType.TRANSFER : InventoryMovementType.CONSUME;
   const [movementType, setMovementType] = useState<InventoryMovementType>(defaultType);
@@ -921,7 +953,7 @@ const MovementModal: React.FC<MovementModalProps> = ({ item, locations, users, j
     setError('');
     try {
       const selectedJob = jobs.find(j => j.id === jobId);
-      const assignee = users.find(u => u.id === assigneeId);
+      const assignee = foremen.find(f => f.id === assigneeId) ?? users.find(u => u.id === assigneeId);
       const delta = quantityDelta ? parseFloat(quantityDelta) : undefined;
       const mv = await apiService.addInventoryMovement({
         companyId: sessionUser.companyId,
@@ -1060,11 +1092,14 @@ const MovementModal: React.FC<MovementModalProps> = ({ item, locations, users, j
 
         {movementType === InventoryMovementType.ASSIGN && (
           <div className="space-y-1.5">
-            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Assign To</p>
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Assign To Foreman</p>
             <select className={inputCls} value={assigneeId} onChange={e => setAssigneeId(e.target.value)}>
-              <option value="">— Select crew member —</option>
-              {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+              <option value="">— Select foreman —</option>
+              {foremen.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
             </select>
+            {foremen.length === 0 && (
+              <p className="text-[10px] text-slate-400">No foremen with a login. In Field Ops → Resources, mark an employee as a Foreman and link their login email.</p>
+            )}
           </div>
         )}
 

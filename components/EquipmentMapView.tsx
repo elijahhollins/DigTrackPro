@@ -7,6 +7,10 @@ import {
   InventoryItem, InventoryItemType, InventoryLocation, InventoryMovementType,
 } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
+import { scheduleService } from '../services/scheduleService.ts';
+import { timeTrackingService } from '../services/timeTrackingService.ts';
+import { Employee, ServiceJob } from '../services/schedulingTypes.ts';
+import { TimeEntry } from '../services/timeTrackingTypes.ts';
 
 // Respect Nominatim's 1 request/second usage policy
 const NOMINATIM_RATE_LIMIT_MS = 1100;
@@ -146,6 +150,9 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
 
   const [items, setItems]         = useState<InventoryItem[]>([]);
   const [locations, setLocations] = useState<InventoryLocation[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [serviceJobs, setServiceJobs] = useState<ServiceJob[]>([]);
+  const [activeEntries, setActiveEntries] = useState<TimeEntry[]>([]);
   const [placements, setPlacements] = useState<Placement[]>([]);
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('ALL');
   const [relocating, setRelocating] = useState<InventoryItem | null>(null);
@@ -183,12 +190,99 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
     return map;
   }, [tickets]);
 
+  // ── Foreman ↔ login ↔ active job wiring ────────────────────────────────────
+  // Equipment is assigned to a foreman by their login id (currentAssigneeId →
+  // profiles.id). A foreman is an Employee with isForeman + a linked profileId.
+  // When that foreman clocks into a job, their gear rides along to the job pin.
+  const foremanEmpByProfile = useMemo(() => {
+    const map = new Map<string, Employee>();
+    for (const e of employees) {
+      if (e.isForeman && e.profileId) map.set(e.profileId, e);
+    }
+    return map;
+  }, [employees]);
+
+  // Foremen that can be assigned equipment: those with a linked login (profile),
+  // required both to store the assignment (current_assignee_id → profiles) and to
+  // follow their clock-ins. Derived straight from employees (using the employee's
+  // own name) so a foreman shows up even if their profile isn't in the user list.
+  const foremanOptions = useMemo<{ id: string; name: string }[]>(() =>
+    employees
+      .filter(e => e.isForeman && e.profileId)
+      .map(e => ({ id: e.profileId as string, name: e.name }))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    [employees],
+  );
+
+  // employeeId → currently-open time entry (the job they're clocked into).
+  const activeEntryByEmp = useMemo(() => {
+    const map = new Map<number, TimeEntry>();
+    for (const en of activeEntries) {
+      if (!map.has(en.employeeId)) map.set(en.employeeId, en);
+    }
+    return map;
+  }, [activeEntries]);
+
+  const serviceJobMap = useMemo(
+    () => new Map(serviceJobs.map(s => [String(s.id), s])),
+    [serviceJobs],
+  );
+
+  // Resolve where a foreman (by login id) is currently clocked in, if anywhere.
+  // `located` means we can pin their gear on the map (the job has a usable
+  // address/coords); otherwise their equipment is listed in the sidebar instead.
+  const foremanActiveJob = useCallback((assigneeId: string): {
+    placementKey: string;
+    label: string;
+    sublabel: string;
+    geo?: GeoInput;
+    coords?: { lat: number; lng: number };
+    located: boolean;
+    statusLabel: string;
+  } | null => {
+    const emp = foremanEmpByProfile.get(assigneeId);
+    if (!emp) return null;                       // not a foreman
+    const entry = activeEntryByEmp.get(emp.id);
+    if (!entry) return null;                     // foreman is off the clock
+
+    if (entry.jobKind === 'dig') {
+      const job = jobMap.get(entry.jobRef);
+      if (!job) return { placementKey: '', label: entry.jobLabel, sublabel: '', located: false, statusLabel: `On ${entry.jobLabel || 'a job'}` };
+      const geo: GeoInput = { street: job.address, city: job.city, state: job.state };
+      const coords = jobTicketCoords.get(job.jobNumber);
+      return {
+        placementKey: `job:${job.id}`,
+        label: `Job #${job.jobNumber}`,
+        sublabel: geoToText(geo) || job.customer || '',
+        geo, coords, located: true,
+        statusLabel: `On Job #${job.jobNumber}`,
+      };
+    }
+
+    // Service (non-dig) job.
+    const sj = serviceJobMap.get(entry.jobRef);
+    const addr = sj?.address?.trim();
+    if (!sj || !addr) {
+      return { placementKey: '', label: entry.jobLabel, sublabel: '', located: false, statusLabel: `On ${sj?.jobName || entry.jobLabel || 'a job'}` };
+    }
+    return {
+      placementKey: `svc:${sj.id}`,
+      label: sj.jobName || `Job ${sj.jobNumber}`,
+      sublabel: addr,
+      geo: { street: addr },
+      located: true,
+      statusLabel: `On ${sj.jobName || sj.jobNumber}`,
+    };
+  }, [foremanEmpByProfile, activeEntryByEmp, jobMap, serviceJobMap, jobTicketCoords]);
+
   // Keep a live lookup + setter ref so popup buttons (raw HTML) can open the
   // relocate panel without re-binding every render.
   const itemsByIdRef = useRef<Map<string, InventoryItem>>(new Map());
   itemsByIdRef.current = new Map(items.map(i => [i.id, i]));
   const setRelocatingRef = useRef(setRelocating);
   setRelocatingRef.current = setRelocating;
+  // item.id → foreman name, for the "Assigned to {foreman}" line in job popups.
+  const itemForemanRef = useRef<Map<string, string>>(new Map());
 
   // Shop awaiting a tap-to-place repositioning. Mobile-friendly alternative to
   // dragging the pin: pick a shop, then tap anywhere on the map to drop it.
@@ -212,6 +306,26 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
     } finally {
       setIsLoading(false);
     }
+
+    // Foreman / time-tracking data drives "follow the foreman to their job"
+    // placement. These modules may be disabled or only partly set up for a
+    // company, so load each source INDEPENDENTLY and degrade gracefully — a
+    // failure in one (e.g. no time entries yet) must not blank the foreman list.
+    try {
+      setEmployees(await scheduleService.getEmployees());
+    } catch (err) {
+      console.warn('Equipment map: employee/foreman list unavailable.', err);
+    }
+    try {
+      setActiveEntries(await timeTrackingService.getCompanyActiveEntries());
+    } catch (err) {
+      console.warn('Equipment map: active time entries unavailable.', err);
+    }
+    try {
+      setServiceJobs(await scheduleService.getServiceJobs());
+    } catch (err) {
+      console.warn('Equipment map: service jobs unavailable.', err);
+    }
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
@@ -221,35 +335,72 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
     [items, typeFilter],
   );
 
-  // Items that can't be put on the map (assigned to a person, or sitting
-  // nowhere with a known address) — surfaced in a list beneath the map.
+  // Items that can't be put on the map and aren't tied to a foreman — sitting at
+  // a shop with no address. Foreman-assigned items live in the sidebar instead.
   const unplaced = useMemo(() => {
     return visibleItems.filter(e => {
       if (e.currentJobId && jobMap.has(e.currentJobId)) return false;          // out on a job
-      if (e.currentAssigneeId && !e.currentLocationId && userMap.has(e.currentAssigneeId)) {
-        return true;                                                            // checked out to a crew member — can't be mapped
-      }
+      if (e.currentAssigneeId) return false;                                   // assigned to a foreman → sidebar / job pin
       // Everything else defaults to a shop: its own addressed location, or the
       // default shop. It's only unmappable if no shop has an address at all.
       const ownLoc = e.currentLocationId ? locMap.get(e.currentLocationId) : undefined;
       const shop = locHasAddress(ownLoc) ? ownLoc : defaultShop;
       return !locHasAddress(shop);
     });
-  }, [visibleItems, jobMap, locMap, userMap, defaultShop]);
+  }, [visibleItems, jobMap, locMap, defaultShop]);
+
+  // ── Sidebar groups: equipment assigned to a foreman who isn't on a locatable
+  // job right now. Organized by foreman, with their equipment underneath. When a
+  // foreman clocks in, their gear moves to the job pin and leaves this list.
+  interface ForemanGroup {
+    assigneeId: string;
+    name: string;
+    isForeman: boolean;
+    statusLabel: string;
+    items: InventoryItem[];
+  }
+  const foremanGroups = useMemo<ForemanGroup[]>(() => {
+    const groups = new Map<string, ForemanGroup>();
+    for (const item of visibleItems) {
+      if (!item.currentAssigneeId) continue;
+      const active = foremanActiveJob(item.currentAssigneeId);
+      if (active?.located) continue; // mapped at the job pin — not in the sidebar
+
+      const id = item.currentAssigneeId;
+      if (!groups.has(id)) {
+        const emp = foremanEmpByProfile.get(id);
+        const isForeman = !!emp;
+        groups.set(id, {
+          assigneeId: id,
+          name: emp?.name ?? userMap.get(id)?.name ?? 'Unknown',
+          isForeman,
+          statusLabel: active ? active.statusLabel : 'Not clocked in',
+          items: [],
+        });
+      }
+      groups.get(id)!.items.push(item);
+    }
+    return Array.from(groups.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [visibleItems, foremanActiveJob, userMap, foremanEmpByProfile]);
 
   // ── Build placement groups and resolve coordinates ─────────────────────────
   const placementKey = useMemo(() => {
     const locFingerprint = locations.map(l => `${l.id}:${geoToText(locGeo(l))}`).join(',');
+    // Foreman clock-ins move equipment, so fold the active entries + foreman
+    // links into the key — otherwise placements wouldn't refresh on clock-in/out.
+    const foremanFingerprint = activeEntries.map(e => `${e.employeeId}:${e.jobKind}:${e.jobRef}`).sort().join(',')
+      + '~' + employees.filter(e => e.isForeman).map(e => `${e.id}:${e.profileId ?? ''}`).sort().join(',');
     return visibleItems
       .map(e => `${e.id}:${e.currentJobId ?? ''}:${e.currentLocationId ?? ''}:${e.currentAssigneeId ?? ''}:${e.updatedAt}`)
       .sort()
-      .join('|') + `#${jobMap.size}#${locMap.size}#${jobTicketCoords.size}#${userMap.size}#${defaultShop?.id ?? ''}#${locFingerprint}`;
-  }, [visibleItems, jobMap, locMap, userMap, jobTicketCoords, defaultShop, locations]);
+      .join('|') + `#${jobMap.size}#${locMap.size}#${jobTicketCoords.size}#${userMap.size}#${defaultShop?.id ?? ''}#${locFingerprint}#${foremanFingerprint}#${serviceJobMap.size}`;
+  }, [visibleItems, jobMap, locMap, userMap, jobTicketCoords, defaultShop, locations, activeEntries, employees, serviceJobMap]);
 
   useEffect(() => {
     // Group inventory by destination (job site or shop).
     const groups = new Map<string, Placement>();
     const cache = coordsCacheRef.current;
+    const foremanNames = new Map<string, string>(); // item.id → foreman name (popup)
 
     for (const item of visibleItems) {
       let key: string | null = null;
@@ -271,10 +422,24 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
           const coords = jobTicketCoords.get(job.jobNumber) ?? (geoQuery ? cache.get(geoQuery) : undefined);
           if (coords) { placement.lat = coords.lat; placement.lng = coords.lng; }
         }
-      } else if (item.currentAssigneeId && !item.currentLocationId && userMap.has(item.currentAssigneeId)) {
-        // Checked out to a crew member with no shop — can't be mapped; shown in
-        // the "Not on map" list instead.
-        continue;
+      } else if (item.currentAssigneeId) {
+        // Assigned to a foreman: follow them to the job they're clocked into.
+        const active = foremanActiveJob(item.currentAssigneeId);
+        if (!active?.located) continue;  // off the clock → sidebar handles it
+        const foremanName = userMap.get(item.currentAssigneeId)?.name;
+        if (foremanName) foremanNames.set(item.id, foremanName);
+        key = active.placementKey;
+        if (!groups.has(key)) {
+          const geoQuery = active.geo ? geoToText(active.geo) : '';
+          placement = {
+            key, kind: 'job',
+            label: active.label,
+            sublabel: active.sublabel,
+            items: [], geo: active.geo,
+          };
+          const coords = active.coords ?? (geoQuery ? cache.get(geoQuery) : undefined);
+          if (coords) { placement.lat = coords.lat; placement.lng = coords.lng; }
+        }
       } else {
         // Default to a shop: the item's own addressed location when it has one,
         // otherwise the company's default shop. This parks all otherwise-idle
@@ -307,6 +472,7 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
     }
 
     const list = Array.from(groups.values());
+    itemForemanRef.current = foremanNames;
     setPlacements(list);
 
     // Geocode any placements without known coordinates, honoring the rate limit.
@@ -398,16 +564,24 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
         const unitBadge = it.unitNumber
           ? `<span style="font-size:9px;font-weight:900;color:#d97706;background:#fef3c7;border:1px solid #fde68a;padding:1px 5px;border-radius:4px;flex:none;">#${escapeHtml(it.unitNumber)}</span>`
           : '';
+        // Gear that rode in with a clocked-in foreman shows whose it is.
+        const foremanName = itemForemanRef.current.get(it.id);
+        const foremanLine = foremanName
+          ? `<div style="font-size:9px;color:#7c3aed;font-weight:700;margin-left:12px;">with ${escapeHtml(foremanName)}</div>`
+          : '';
         return `
-          <div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-top:1px solid #f1f5f9;">
-            <span style="width:6px;height:6px;border-radius:${isMat ? '50%' : '2px'};background:${color};flex:none;"></span>
-            ${unitBadge}
-            <span style="font-size:12px;font-weight:700;color:#1e293b;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(it.name)}</span>
-            ${detail ? `<span style="font-size:10px;color:#94a3b8;flex:none;">${escapeHtml(detail)}</span>` : ''}
-            <button data-equip-move="${it.id}" style="
-              padding:3px 8px;background:#7c3aed;color:white;border:none;border-radius:6px;
-              font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;flex:none;
-            ">Move</button>
+          <div style="padding:5px 0;border-top:1px solid #f1f5f9;">
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span style="width:6px;height:6px;border-radius:${isMat ? '50%' : '2px'};background:${color};flex:none;"></span>
+              ${unitBadge}
+              <span style="font-size:12px;font-weight:700;color:#1e293b;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(it.name)}</span>
+              ${detail ? `<span style="font-size:10px;color:#94a3b8;flex:none;">${escapeHtml(detail)}</span>` : ''}
+              <button data-equip-move="${it.id}" style="
+                padding:3px 8px;background:#7c3aed;color:white;border:none;border-radius:6px;
+                font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;flex:none;
+              ">Move</button>
+            </div>
+            ${foremanLine}
           </div>`;
       }).join('');
 
@@ -520,6 +694,10 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
     .filter(p => p.lat != null && p.lng != null)
     .reduce((sum, p) => sum + p.items.length, 0);
 
+  // How many visible items are assigned to a foreman at all (mapped or not) —
+  // drives the sidebar's empty-state messaging.
+  const assignedToForemanCount = visibleItems.filter(i => i.currentAssigneeId).length;
+
   const filterChips: Array<{ id: TypeFilter; label: string }> = [
     { id: 'ALL', label: 'All' },
     { id: InventoryItemType.EQUIPMENT, label: 'Equipment' },
@@ -553,39 +731,104 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
         )}
       </div>
 
-      {/* Map container */}
-      <div className={`relative rounded-2xl overflow-hidden border ${dm ? 'border-white/[0.06]' : 'border-slate-100'}`} style={{ height: '540px' }}>
-        {isLoading && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/80 dark:bg-[#0b1629]/80">
-            <div className="w-6 h-6 border-2 border-brand border-t-transparent rounded-full animate-spin" />
+      {/* Map + foreman sidebar. The sidebar is always present on the map so it's
+          discoverable: it lists equipment assigned to foremen who aren't clocked
+          in (gear for clocked-in foremen rides along on the job pin instead). */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        {/* Map container */}
+        <div className={`relative rounded-2xl overflow-hidden border lg:col-span-2 ${dm ? 'border-white/[0.06]' : 'border-slate-100'}`} style={{ height: '540px' }}>
+          {isLoading && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/80 dark:bg-[#0b1629]/80">
+              <div className="w-6 h-6 border-2 border-brand border-t-transparent rounded-full animate-spin" />
+            </div>
+          )}
+          {loadError && (
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3">
+              <p className={`text-sm font-bold ${dm ? 'text-rose-400' : 'text-rose-600'}`}>{loadError}</p>
+              <button onClick={loadData} className={`text-[10px] font-black uppercase tracking-widest px-4 py-2 rounded-xl ${dm ? 'bg-white/5 text-slate-300 hover:bg-white/10' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
+                Retry
+              </button>
+            </div>
+          )}
+          {!isLoading && !loadError && visibleItems.length === 0 && (
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 pointer-events-none">
+              <p className={`text-[11px] font-black uppercase tracking-widest ${subtitle}`}>Nothing to map</p>
+              <p className={`text-[10px] font-bold ${subtitle}`}>Add inventory in the Inventory tab and assign it to a job or shop.</p>
+            </div>
+          )}
+          {repositioning && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[20] flex items-center gap-3 px-4 py-2 rounded-xl shadow-lg bg-emerald-500 text-white">
+              <span className="text-[10px] font-black uppercase tracking-widest">Tap the map to place “{repositioning.name}”</span>
+              <button
+                onClick={() => setRepositioning(null)}
+                className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg bg-white/20 hover:bg-white/30"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+          <div ref={mapDivRef} className="w-full h-full" />
+        </div>
+
+        {/* Foreman sidebar — equipment grouped by the foreman it's assigned to,
+            for crews that aren't clocked in (so their gear isn't on the map). */}
+        <div className={`rounded-2xl border flex flex-col overflow-hidden ${dm ? 'bg-[#0b1629] border-white/[0.06]' : 'bg-white border-slate-100 shadow-sm'}`} style={{ height: '540px' }}>
+          <div className={`px-4 py-3 border-b ${dm ? 'border-white/[0.06]' : 'border-slate-100'}`}>
+            <p className={`text-[9px] font-black uppercase tracking-widest text-brand`}>Assigned to Foremen</p>
+            <p className={`text-[10px] font-bold mt-0.5 ${subtitle}`}>Off the clock — gear maps once the foreman clocks into a job.</p>
           </div>
-        )}
-        {loadError && (
-          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3">
-            <p className={`text-sm font-bold ${dm ? 'text-rose-400' : 'text-rose-600'}`}>{loadError}</p>
-            <button onClick={loadData} className={`text-[10px] font-black uppercase tracking-widest px-4 py-2 rounded-xl ${dm ? 'bg-white/5 text-slate-300 hover:bg-white/10' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>
-              Retry
-            </button>
-          </div>
-        )}
-        {!isLoading && !loadError && visibleItems.length === 0 && (
-          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 pointer-events-none">
-            <p className={`text-[11px] font-black uppercase tracking-widest ${subtitle}`}>Nothing to map</p>
-            <p className={`text-[10px] font-bold ${subtitle}`}>Add inventory in the Inventory tab and assign it to a job or shop.</p>
-          </div>
-        )}
-        {repositioning && (
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[20] flex items-center gap-3 px-4 py-2 rounded-xl shadow-lg bg-emerald-500 text-white">
-            <span className="text-[10px] font-black uppercase tracking-widest">Tap the map to place “{repositioning.name}”</span>
-            <button
-              onClick={() => setRepositioning(null)}
-              className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg bg-white/20 hover:bg-white/30"
-            >
-              Cancel
-            </button>
-          </div>
-        )}
-        <div ref={mapDivRef} className="w-full h-full" />
+          {foremanGroups.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center gap-2 px-6 text-center">
+              <svg className={`w-8 h-8 ${dm ? 'text-slate-700' : 'text-slate-300'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0z M12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+              {assignedToForemanCount > 0 ? (
+                <p className={`text-[10px] font-bold ${subtitle}`}>All foreman-assigned equipment is on the map — those crews are clocked in.</p>
+              ) : (
+                <>
+                  <p className={`text-[11px] font-black uppercase tracking-widest ${subtitle}`}>Nothing assigned</p>
+                  <p className={`text-[10px] font-bold ${subtitle}`}>Assign equipment to a foreman (Move → Foreman) to see it here.</p>
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto no-scrollbar p-3 flex flex-col gap-3">
+              {foremanGroups.map(group => (
+                <div key={group.assigneeId} className={`rounded-xl border ${dm ? 'border-white/[0.06] bg-white/[0.02]' : 'border-slate-100 bg-slate-50'}`}>
+                  <div className="px-3 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <span className="w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black bg-violet-500/15 text-violet-500 flex-none">
+                        {group.name.charAt(0).toUpperCase()}
+                      </span>
+                      <div className="min-w-0">
+                        <p className={`text-[12px] font-black truncate ${dm ? 'text-slate-100' : 'text-slate-800'}`}>{group.name}</p>
+                        <p className={`text-[9px] font-bold uppercase tracking-wider ${subtitle}`}>
+                          {group.statusLabel}{!group.isForeman ? ' · not a foreman' : ''}
+                        </p>
+                      </div>
+                      <span className={`ml-auto text-[10px] font-black flex-none ${subtitle}`}>{group.items.length}</span>
+                    </div>
+                  </div>
+                  <div className={`border-t ${dm ? 'border-white/[0.06]' : 'border-slate-100'}`}>
+                    {group.items.map(it => (
+                      <div key={it.id} className={`group flex items-center gap-2 px-3 py-2 border-b last:border-b-0 ${dm ? 'border-white/[0.04] hover:bg-white/[0.03]' : 'border-slate-100 hover:bg-white'}`}>
+                        <span className={`w-1.5 h-1.5 flex-none ${it.itemType === InventoryItemType.MATERIAL ? 'rounded-full' : 'rounded-sm'} bg-violet-500`} />
+                        {it.unitNumber && (
+                          <span className="text-[8px] font-black text-amber-600 bg-amber-100 border border-amber-200 px-1 rounded flex-none">#{it.unitNumber}</span>
+                        )}
+                        <span className={`text-[11px] font-bold truncate flex-1 ${dm ? 'text-slate-200' : 'text-slate-700'}`}>{it.name}</span>
+                        <button
+                          onClick={() => setRelocating(it)}
+                          className="px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest bg-brand/15 text-brand hover:bg-brand/25 transition-all flex-none"
+                        >
+                          Move
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Legend */}
@@ -643,7 +886,7 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
           item={relocating}
           jobs={jobs}
           locations={locations}
-          users={users}
+          foremen={foremanOptions}
           sessionUser={sessionUser}
           jobMap={jobMap}
           locMap={locMap}
@@ -663,7 +906,7 @@ interface RelocateModalProps {
   item:        InventoryItem;
   jobs:        Job[];
   locations:   InventoryLocation[];
-  users:       UserRecord[];
+  foremen:     { id: string; name: string }[];   // only foremen may be assigned equipment
   sessionUser: User;
   jobMap:      Map<string, Job>;
   locMap:      Map<string, InventoryLocation>;
@@ -676,7 +919,7 @@ interface RelocateModalProps {
 type DestKind = 'job' | 'shop' | 'person';
 
 const RelocateModal: React.FC<RelocateModalProps> = ({
-  item, jobs, locations, users, sessionUser, jobMap, locMap, userMap, isDarkMode, onClose, onMoved,
+  item, jobs, locations, foremen, sessionUser, jobMap, locMap, userMap, isDarkMode, onClose, onMoved,
 }) => {
   const d = (dark: string, light: string) => isDarkMode ? dark : light;
 
@@ -708,7 +951,7 @@ const RelocateModal: React.FC<RelocateModalProps> = ({
   const destOptions: Array<{ id: DestKind; label: string; icon: React.ReactNode }> = [
     { id: 'job',    label: 'Job Site', icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a2 2 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z M15 11a3 3 0 11-6 0 3 3 0 016 0z" /> },
     { id: 'shop',   label: 'Shop',     icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z M9 22V12h6v10" /> },
-    { id: 'person', label: 'Crew',     icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0z M12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /> },
+    { id: 'person', label: 'Foreman',  icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0z M12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /> },
   ];
 
   const handleSave = async () => {
@@ -716,7 +959,7 @@ const RelocateModal: React.FC<RelocateModalProps> = ({
     // Validate the chosen destination.
     if (dest === 'job' && !jobId)       { setError('Pick a job.'); return; }
     if (dest === 'shop' && !locationId) { setError('Pick a shop location.'); return; }
-    if (dest === 'person' && !assigneeId) { setError('Pick a crew member.'); return; }
+    if (dest === 'person' && !assigneeId) { setError('Pick a foreman.'); return; }
 
     setIsSaving(true);
     try {
@@ -820,11 +1063,19 @@ const RelocateModal: React.FC<RelocateModalProps> = ({
         )}
         {dest === 'person' && (
           <div className="space-y-1.5">
-            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Crew Member</p>
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Foreman</p>
             <select className={inputCls} value={assigneeId} onChange={e => setAssigneeId(e.target.value)}>
-              <option value="">— Select crew member —</option>
-              {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+              <option value="">— Select foreman —</option>
+              {foremen.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
             </select>
+            {foremen.length === 0 && (
+              <p className={d('text-[10px] text-slate-600', 'text-[10px] text-slate-400')}>
+                No foremen with a login. In Field Ops → Resources, mark an employee as a Foreman and link their login email.
+              </p>
+            )}
+            <p className={d('text-[10px] text-slate-600', 'text-[10px] text-slate-400')}>
+              The equipment will show on the map at whatever job this foreman is clocked into.
+            </p>
           </div>
         )}
 
