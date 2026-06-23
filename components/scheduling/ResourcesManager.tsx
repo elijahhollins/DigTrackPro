@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Trash2, Users, Wrench, Package, Upload, Pencil, X, Check, DollarSign, Link, LinkOff, Search } from 'lucide-react';
+import { Plus, Trash2, Users, Wrench, Package, Upload, Pencil, X, Check, DollarSign, Link, Unlink, Search } from 'lucide-react';
 import { scheduleService } from '../../services/scheduleService.ts';
 import { Employee, Equipment, Material } from '../../services/schedulingTypes.ts';
 import CsvImportModal from './CsvImportModal.tsx';
@@ -513,7 +513,7 @@ export default function ResourcesManager({ companyId, isAdmin, isDarkMode }: Res
                         onClick={() => setEditEmpDraft(d => ({ ...d, profileId: null, linkedEmail: '' }))}
                         className={`flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded transition ${isDarkMode ? 'text-rose-400 hover:bg-rose-900/30' : 'text-rose-600 hover:bg-rose-100'}`}
                       >
-                        <LinkOff size={12} />Unlink
+                        <Unlink size={12} />Unlink
                       </button>
                     </div>
                   ) : (
