@@ -118,7 +118,7 @@ CREATE POLICY "time_entries_admin_all" ON time_entries
       SELECT 1 FROM profiles p
       WHERE p.id = auth.uid()
         AND p.role IN ('ADMIN', 'SUPER_ADMIN')
-        AND (p.role = 'SUPER_ADMIN' OR p.company_id = company_id)
+        AND (p.role = 'SUPER_ADMIN' OR p.company_id = time_entries.company_id)
     )
   )
   WITH CHECK (
@@ -126,7 +126,7 @@ CREATE POLICY "time_entries_admin_all" ON time_entries
       SELECT 1 FROM profiles p
       WHERE p.id = auth.uid()
         AND p.role IN ('ADMIN', 'SUPER_ADMIN')
-        AND (p.role = 'SUPER_ADMIN' OR p.company_id = company_id)
+        AND (p.role = 'SUPER_ADMIN' OR p.company_id = time_entries.company_id)
     )
   );
 

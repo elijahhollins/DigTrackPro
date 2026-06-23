@@ -62,7 +62,7 @@ CREATE POLICY "time_clock_crews_admin_manage" ON time_clock_crews
       SELECT 1 FROM profiles p
       WHERE p.id = auth.uid()
         AND p.role IN ('ADMIN', 'SUPER_ADMIN')
-        AND (p.role = 'SUPER_ADMIN' OR p.company_id = company_id)
+        AND (p.role = 'SUPER_ADMIN' OR p.company_id = time_clock_crews.company_id)
     )
   )
   WITH CHECK (
@@ -70,7 +70,7 @@ CREATE POLICY "time_clock_crews_admin_manage" ON time_clock_crews
       SELECT 1 FROM profiles p
       WHERE p.id = auth.uid()
         AND p.role IN ('ADMIN', 'SUPER_ADMIN')
-        AND (p.role = 'SUPER_ADMIN' OR p.company_id = company_id)
+        AND (p.role = 'SUPER_ADMIN' OR p.company_id = time_clock_crews.company_id)
     )
   );
 
