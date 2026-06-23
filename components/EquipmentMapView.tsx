@@ -694,6 +694,10 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
     .filter(p => p.lat != null && p.lng != null)
     .reduce((sum, p) => sum + p.items.length, 0);
 
+  // How many visible items are assigned to a foreman at all (mapped or not) —
+  // drives the sidebar's empty-state messaging.
+  const assignedToForemanCount = visibleItems.filter(i => i.currentAssigneeId).length;
+
   const filterChips: Array<{ id: TypeFilter; label: string }> = [
     { id: 'ALL', label: 'All' },
     { id: InventoryItemType.EQUIPMENT, label: 'Equipment' },
@@ -727,11 +731,12 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
         )}
       </div>
 
-      {/* Map + foreman sidebar (sidebar only renders when there's off-the-clock
-          foreman equipment to surface — otherwise the map spans full width). */}
-      <div className={`grid grid-cols-1 gap-4 ${foremanGroups.length > 0 ? 'lg:grid-cols-3' : ''}`}>
+      {/* Map + foreman sidebar. The sidebar is always present on the map so it's
+          discoverable: it lists equipment assigned to foremen who aren't clocked
+          in (gear for clocked-in foremen rides along on the job pin instead). */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         {/* Map container */}
-        <div className={`relative rounded-2xl overflow-hidden border ${foremanGroups.length > 0 ? 'lg:col-span-2' : ''} ${dm ? 'border-white/[0.06]' : 'border-slate-100'}`} style={{ height: '540px' }}>
+        <div className={`relative rounded-2xl overflow-hidden border lg:col-span-2 ${dm ? 'border-white/[0.06]' : 'border-slate-100'}`} style={{ height: '540px' }}>
           {isLoading && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/80 dark:bg-[#0b1629]/80">
               <div className="w-6 h-6 border-2 border-brand border-t-transparent rounded-full animate-spin" />
@@ -767,12 +772,24 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
 
         {/* Foreman sidebar — equipment grouped by the foreman it's assigned to,
             for crews that aren't clocked in (so their gear isn't on the map). */}
-        {foremanGroups.length > 0 && (
-          <div className={`rounded-2xl border flex flex-col overflow-hidden ${dm ? 'bg-[#0b1629] border-white/[0.06]' : 'bg-white border-slate-100 shadow-sm'}`} style={{ maxHeight: '540px' }}>
-            <div className={`px-4 py-3 border-b ${dm ? 'border-white/[0.06]' : 'border-slate-100'}`}>
-              <p className={`text-[9px] font-black uppercase tracking-widest text-brand`}>Assigned to Foremen</p>
-              <p className={`text-[10px] font-bold mt-0.5 ${subtitle}`}>Off the clock — gear maps once the foreman clocks into a job.</p>
+        <div className={`rounded-2xl border flex flex-col overflow-hidden ${dm ? 'bg-[#0b1629] border-white/[0.06]' : 'bg-white border-slate-100 shadow-sm'}`} style={{ height: '540px' }}>
+          <div className={`px-4 py-3 border-b ${dm ? 'border-white/[0.06]' : 'border-slate-100'}`}>
+            <p className={`text-[9px] font-black uppercase tracking-widest text-brand`}>Assigned to Foremen</p>
+            <p className={`text-[10px] font-bold mt-0.5 ${subtitle}`}>Off the clock — gear maps once the foreman clocks into a job.</p>
+          </div>
+          {foremanGroups.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center gap-2 px-6 text-center">
+              <svg className={`w-8 h-8 ${dm ? 'text-slate-700' : 'text-slate-300'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M16 7a4 4 0 11-8 0 4 4 0 018 0z M12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+              {assignedToForemanCount > 0 ? (
+                <p className={`text-[10px] font-bold ${subtitle}`}>All foreman-assigned equipment is on the map — those crews are clocked in.</p>
+              ) : (
+                <>
+                  <p className={`text-[11px] font-black uppercase tracking-widest ${subtitle}`}>Nothing assigned</p>
+                  <p className={`text-[10px] font-bold ${subtitle}`}>Assign equipment to a foreman (Move → Foreman) to see it here.</p>
+                </>
+              )}
             </div>
+          ) : (
             <div className="flex-1 overflow-y-auto no-scrollbar p-3 flex flex-col gap-3">
               {foremanGroups.map(group => (
                 <div key={group.assigneeId} className={`rounded-xl border ${dm ? 'border-white/[0.06] bg-white/[0.02]' : 'border-slate-100 bg-slate-50'}`}>
@@ -810,8 +827,8 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
                 </div>
               ))}
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Legend */}
