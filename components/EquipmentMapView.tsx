@@ -202,11 +202,16 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
     return map;
   }, [employees]);
 
-  // The login ids that belong to a foreman — restricts who equipment may be
-  // assigned to (the relocate panel only offers these).
-  const foremanUsers = useMemo(
-    () => users.filter(u => foremanEmpByProfile.has(u.id)),
-    [users, foremanEmpByProfile],
+  // Foremen that can be assigned equipment: those with a linked login (profile),
+  // required both to store the assignment (current_assignee_id → profiles) and to
+  // follow their clock-ins. Derived straight from employees (using the employee's
+  // own name) so a foreman shows up even if their profile isn't in the user list.
+  const foremanOptions = useMemo<{ id: string; name: string }[]>(() =>
+    employees
+      .filter(e => e.isForeman && e.profileId)
+      .map(e => ({ id: e.profileId as string, name: e.name }))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    [employees],
   );
 
   // employeeId → currently-open time entry (the job they're clocked into).
@@ -303,20 +308,19 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
     }
 
     // Foreman / time-tracking data drives "follow the foreman to their job"
-    // placement. These modules may be disabled for a company, so load them
-    // best-effort and degrade gracefully (the map still works without them).
+    // placement. These modules may be disabled or only partly set up for a
+    // company, so load each source INDEPENDENTLY and degrade gracefully — a
+    // failure in one (e.g. no time entries yet) must not blank the foreman list.
     try {
-      const [empRes, entriesRes] = await Promise.all([
-        scheduleService.getEmployees(),
-        timeTrackingService.getCompanyActiveEntries(),
-      ]);
-      setEmployees(empRes);
-      setActiveEntries(entriesRes);
+      setEmployees(await scheduleService.getEmployees());
     } catch (err) {
-      console.warn('Equipment map: foreman/time-tracking data unavailable.', err);
+      console.warn('Equipment map: employee/foreman list unavailable.', err);
     }
-    // Service jobs are only needed to locate a foreman clocked into a service
-    // (non-dig) job. Loaded separately so a failure here doesn't lose employees.
+    try {
+      setActiveEntries(await timeTrackingService.getCompanyActiveEntries());
+    } catch (err) {
+      console.warn('Equipment map: active time entries unavailable.', err);
+    }
     try {
       setServiceJobs(await scheduleService.getServiceJobs());
     } catch (err) {
@@ -364,11 +368,11 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
 
       const id = item.currentAssigneeId;
       if (!groups.has(id)) {
-        const user = userMap.get(id);
-        const isForeman = foremanEmpByProfile.has(id);
+        const emp = foremanEmpByProfile.get(id);
+        const isForeman = !!emp;
         groups.set(id, {
           assigneeId: id,
-          name: user?.name ?? 'Unknown',
+          name: emp?.name ?? userMap.get(id)?.name ?? 'Unknown',
           isForeman,
           statusLabel: active ? active.statusLabel : 'Not clocked in',
           items: [],
@@ -865,7 +869,7 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
           item={relocating}
           jobs={jobs}
           locations={locations}
-          foremen={foremanUsers}
+          foremen={foremanOptions}
           sessionUser={sessionUser}
           jobMap={jobMap}
           locMap={locMap}
@@ -885,7 +889,7 @@ interface RelocateModalProps {
   item:        InventoryItem;
   jobs:        Job[];
   locations:   InventoryLocation[];
-  foremen:     UserRecord[];   // only foremen may be assigned equipment
+  foremen:     { id: string; name: string }[];   // only foremen may be assigned equipment
   sessionUser: User;
   jobMap:      Map<string, Job>;
   locMap:      Map<string, InventoryLocation>;
@@ -1049,7 +1053,7 @@ const RelocateModal: React.FC<RelocateModalProps> = ({
             </select>
             {foremen.length === 0 && (
               <p className={d('text-[10px] text-slate-600', 'text-[10px] text-slate-400')}>
-                No foremen yet. Mark an employee as a foreman under Field Ops → Resources.
+                No foremen with a login. In Field Ops → Resources, mark an employee as a Foreman and link their login email.
               </p>
             )}
             <p className={d('text-[10px] text-slate-600', 'text-[10px] text-slate-400')}>

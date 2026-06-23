@@ -96,13 +96,17 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
   const jobMap = useMemo(() => new Map(jobs.map(j => [j.id, j])), [jobs]);
 
   // Equipment may only be assigned to a foreman: an Employee marked isForeman
-  // whose login (profileId) maps to one of the company's user records.
-  const foremen = useMemo(() => {
-    const foremanProfileIds = new Set(
-      employees.filter(e => e.isForeman && e.profileId).map(e => e.profileId),
-    );
-    return users.filter(u => foremanProfileIds.has(u.id));
-  }, [employees, users]);
+  // with a linked login (profileId) — the login is required both to store the
+  // assignment (current_assignee_id → profiles) and to follow their clock-ins.
+  // Derived straight from employees (using the employee's own name) so foremen
+  // show up even if their profile row isn't in the loaded users list.
+  const foremen = useMemo<{ id: string; name: string }[]>(() =>
+    employees
+      .filter(e => e.isForeman && e.profileId)
+      .map(e => ({ id: e.profileId as string, name: e.name }))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    [employees],
+  );
 
   const filteredItems = useMemo(() => {
     return items.filter(item => {
@@ -547,7 +551,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
 interface ItemFormProps {
   item: InventoryItem | null;
   locations: InventoryLocation[];
-  foremen: UserRecord[];
+  foremen: { id: string; name: string }[];
   jobs: Job[];
   companyId: string;
   isDarkMode?: boolean;
@@ -768,7 +772,7 @@ const ItemFormModal: React.FC<ItemFormProps> = ({ item, locations, foremen, jobs
                 </select>
                 {foremen.length === 0 && (
                   <p className={d('text-[10px] text-slate-600', 'text-[10px] text-slate-400')}>
-                    No foremen yet. Mark an employee as a foreman under Field Ops → Resources.
+                    No foremen with a login. In Field Ops → Resources, mark an employee as a Foreman and link their login email.
                   </p>
                 )}
               </>
@@ -908,7 +912,7 @@ interface MovementModalProps {
   item: InventoryItem;
   locations: InventoryLocation[];
   users: UserRecord[];
-  foremen: UserRecord[];
+  foremen: { id: string; name: string }[];
   jobs: Job[];
   sessionUser: User;
   isDarkMode?: boolean;
@@ -945,7 +949,7 @@ const MovementModal: React.FC<MovementModalProps> = ({ item, locations, users, f
     setError('');
     try {
       const selectedJob = jobs.find(j => j.id === jobId);
-      const assignee = users.find(u => u.id === assigneeId);
+      const assignee = foremen.find(f => f.id === assigneeId) ?? users.find(u => u.id === assigneeId);
       const delta = quantityDelta ? parseFloat(quantityDelta) : undefined;
       const mv = await apiService.addInventoryMovement({
         companyId: sessionUser.companyId,
@@ -1090,7 +1094,7 @@ const MovementModal: React.FC<MovementModalProps> = ({ item, locations, users, f
               {foremen.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
             </select>
             {foremen.length === 0 && (
-              <p className="text-[10px] text-slate-400">No foremen yet. Mark an employee as a foreman under Field Ops → Resources.</p>
+              <p className="text-[10px] text-slate-400">No foremen with a login. In Field Ops → Resources, mark an employee as a Foreman and link their login email.</p>
             )}
           </div>
         )}
