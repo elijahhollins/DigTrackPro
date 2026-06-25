@@ -92,6 +92,8 @@ const App: React.FC = () => {
   const [editingTicket, setEditingTicket] = useState<DigTicket | null>(null);
   const [editFromMap, setEditFromMap] = useState(false);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
+  // Bumped whenever the Job form closes so the Job Hub re-reads cost-code assignments.
+  const [jobFormVersion, setJobFormVersion] = useState(0);
   const [noShowTicket, setNoShowTicket] = useState<DigTicket | null>(null);
   const [notesTicket, setNotesTicket] = useState<DigTicket | null>(null);
   const [digConfirmTicket, setDigConfirmTicket] = useState<DigTicket | null>(null);
@@ -1199,6 +1201,7 @@ const App: React.FC = () => {
               schedulingEnabled={isSchedulingEnabled}
               timeTrackingEnabled={isTimeTrackingEnabled}
               inventoryEnabled={isInventoryEnabled}
+              refreshKey={jobFormVersion}
               onCreateJob={() => { setEditingJob(null); setShowJobForm(true); }}
               onEditJob={(job: Job) => { setEditingJob(job); setShowJobForm(true); }}
               onDeleteJob={(job: Job) => { if (confirm(`Delete job #${job.jobNumber}? This cannot be undone.`)) apiService.deleteJob(job.id).then(() => initApp()); }}
@@ -1285,7 +1288,7 @@ const App: React.FC = () => {
 
       {/* ── MODALS ── */}
       {(showTicketForm || editingTicket) && <TicketForm onSave={handleSaveTicket} onDelete={editingTicket ? handleDeleteTicket : undefined} onClose={() => { setShowTicketForm(false); setEditingTicket(null); setEditFromMap(false); }} initialData={editingTicket} isDarkMode={isDarkMode} existingTickets={tickets} sidePanel={editFromMap} />}
-      {(showJobForm || editingJob) && <JobForm onSave={async (data) => { const job: Job = editingJob ? { ...editingJob, ...data } : { ...data, id: crypto.randomUUID(), companyId: sessionUser.companyId, createdAt: Date.now(), isComplete: false }; const saved = await apiService.saveJob(job); setJobs(prev => [...prev.filter(j => j.id !== saved.id), saved]); setShowJobForm(false); setEditingJob(null); }} onClose={() => { setShowJobForm(false); setEditingJob(null); }} initialData={editingJob || undefined} isDarkMode={isDarkMode} companyId={sessionUser.companyId} timeTrackingEnabled={isTimeTrackingEnabled} />}
+      {(showJobForm || editingJob) && <JobForm onSave={async (data) => { const job: Job = editingJob ? { ...editingJob, ...data } : { ...data, id: crypto.randomUUID(), companyId: sessionUser.companyId, createdAt: Date.now(), isComplete: false }; const saved = await apiService.saveJob(job); setJobs(prev => [...prev.filter(j => j.id !== saved.id), saved]); setShowJobForm(false); setEditingJob(null); setJobFormVersion(v => v + 1); }} onClose={() => { setShowJobForm(false); setEditingJob(null); setJobFormVersion(v => v + 1); }} initialData={editingJob || undefined} isDarkMode={isDarkMode} companyId={sessionUser.companyId} timeTrackingEnabled={isTimeTrackingEnabled} />}
       {selectedJobSummary && <JobSummaryModal job={selectedJobSummary} onClose={() => setSelectedJobSummary(null)} onEdit={() => { setEditingJob(selectedJobSummary); setShowJobForm(true); setSelectedJobSummary(null); }} onDelete={() => { apiService.deleteJob(selectedJobSummary.id).then(() => initApp()); setSelectedJobSummary(null); }} onToggleComplete={async () => { await apiService.saveJob({ ...selectedJobSummary, isComplete: !selectedJobSummary.isComplete }); initApp(); }} onViewMedia={() => { setMediaFolderFilter(selectedJobSummary.jobNumber); handleNavigate('photos'); }} onViewMarkup={() => { setShowMarkup(selectedJobSummary); setSelectedJobSummary(null); }} isDarkMode={isDarkMode} />}
       {showMarkup && <JobPrintMarkup job={showMarkup} isAdmin={isAdmin} sessionUser={sessionUser} onClose={() => setShowMarkup(null)} isDarkMode={isDarkMode} />}
       {noShowTicket && <NoShowForm ticket={noShowTicket} userName={sessionUser?.name || ''} onSave={handleSaveNoShow} onDelete={async () => { await apiService.deleteNoShow(noShowTicket.id); initApp(); return true; }} onClose={() => setNoShowTicket(null)} isDarkMode={isDarkMode} />}

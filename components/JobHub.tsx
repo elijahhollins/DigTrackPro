@@ -21,6 +21,8 @@ interface JobHubProps {
   schedulingEnabled?: boolean;
   timeTrackingEnabled?: boolean;
   inventoryEnabled?: boolean;
+  // Bumped by the parent whenever the Job form closes, so we re-read cost-code assignments.
+  refreshKey?: number;
   onCreateJob: () => void;
   onEditJob: (job: Job) => void;
   onDeleteJob: (job: Job) => void;
@@ -59,7 +61,7 @@ const HEALTH_DOT: Record<string, string> = {
 
 export const JobHub: React.FC<JobHubProps> = ({
   jobs, tickets, companyId, isAdmin, isDarkMode,
-  schedulingEnabled, timeTrackingEnabled, inventoryEnabled,
+  schedulingEnabled, timeTrackingEnabled, inventoryEnabled, refreshKey,
   onCreateJob, onEditJob, onDeleteJob, onToggleComplete, onOpenMarkup, onViewDoc, onViewMedia,
 }) => {
   const [search, setSearch] = useState('');
@@ -81,7 +83,6 @@ export const JobHub: React.FC<JobHubProps> = ({
   const [prints, setPrints] = useState<JobPrint[]>([]);
   const [printsLoading, setPrintsLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [ccBusy, setCcBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const card = isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-200 shadow-sm';
@@ -137,7 +138,7 @@ export const JobHub: React.FC<JobHubProps> = ({
       } catch (err) { console.error('JobHub aux load failed:', err); }
     })();
     return () => { alive = false; };
-  }, [companyId, timeTrackingEnabled, inventoryEnabled, schedulingEnabled]);
+  }, [companyId, timeTrackingEnabled, inventoryEnabled, schedulingEnabled, refreshKey]);
 
   // ── grouped ticket lookup by job number ─────────────────────────────────────
   const ticketsByJob = useMemo(() => {
@@ -255,22 +256,6 @@ export const JobHub: React.FC<JobHubProps> = ({
       setUploading(false);
       if (fileRef.current) fileRef.current.value = '';
     }
-  };
-
-  const toggleCode = async (code: CostCode) => {
-    if (!selectedJob) return;
-    setCcBusy(true);
-    try {
-      const existing = assignments.find(a => a.jobKind === 'dig' && a.jobRef === selectedJob.id && a.costCodeId === code.id);
-      if (existing) {
-        await timeTrackingService.unassignCostCode(existing.id);
-        setAssignments(prev => prev.filter(a => a.id !== existing.id));
-      } else {
-        const a = await timeTrackingService.assignCostCode(companyId, 'dig', selectedJob.id, code.id);
-        setAssignments(prev => [...prev, a]);
-      }
-    } catch (err) { console.error('Cost-code toggle failed:', err); }
-    finally { setCcBusy(false); }
   };
 
   // ── render helpers ──────────────────────────────────────────────────────────
@@ -493,31 +478,36 @@ export const JobHub: React.FC<JobHubProps> = ({
                 )}
               </Panel>
 
-              {/* Cost codes */}
+              {/* Cost codes — read-only here; edit via the Edit Job form */}
               {timeTrackingEnabled && (
                 <Panel>
-                  <SectionTitle icon={<svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>} title="Cost Codes" />
-                  {!isAdmin ? (
-                    detail.assignedCodes.length === 0
-                      ? <p className={`text-[11px] font-bold uppercase italic ${subtle}`}>Full active list available when clocking in.</p>
-                      : <div className="flex flex-wrap gap-2">{detail.assignedCodes.map(c => <span key={c.id} className="px-2.5 py-1 rounded-lg bg-brand/10 text-brand text-[10px] font-black">{c.code}</span>)}</div>
-                  ) : costCodes.length === 0 ? (
-                    <p className={`text-[11px] font-bold ${subtle}`}>No cost codes yet. Add them in the Time tab.</p>
+                  <SectionTitle
+                    icon={<svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>}
+                    title="Cost Codes"
+                    right={isAdmin && (
+                      <button onClick={() => onEditJob(selectedJob)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand/10 text-brand text-[9px] font-black uppercase tracking-widest hover:bg-brand/20">
+                        <Pencil size={12} /> Edit
+                      </button>
+                    )}
+                  />
+                  {detail.assignedCodes.length === 0 ? (
+                    <p className={`text-[11px] font-bold uppercase italic ${subtle}`}>
+                      {!isAdmin
+                        ? 'Full active list available when clocking in.'
+                        : 'No codes assigned — crew sees the full active list. Use Edit to assign codes.'}
+                    </p>
                   ) : (
                     <>
-                      <p className={`text-[10px] mb-2 ${subtle}`}>
-                        {detail.assignedCodes.length === 0 ? 'No codes assigned — crew sees the full active list.' : 'Crew can only clock into the checked codes.'}
-                      </p>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 max-h-56 overflow-y-auto">
-                        {costCodes.filter(c => c.isActive).map(c => {
-                          const checked = detail.assignedCodes.some(a => a.id === c.id);
-                          return (
-                            <label key={c.id} className={`flex items-center gap-2.5 px-2 py-1.5 rounded-lg cursor-pointer ${isDarkMode ? 'hover:bg-white/5' : 'hover:bg-slate-50'}`}>
-                              <input type="checkbox" className="w-4 h-4 accent-brand" checked={checked} disabled={ccBusy} onChange={() => toggleCode(c)} />
-                              <span className="text-[11px] min-w-0 truncate"><span className="font-black">{c.code}</span>{c.description ? <span className={subtle}> — {c.description}</span> : ''}</span>
-                            </label>
-                          );
-                        })}
+                      {isAdmin && (
+                        <p className={`text-[10px] mb-2 ${subtle}`}>Crew can only clock into these codes. Use Edit to change them.</p>
+                      )}
+                      <div className="flex flex-wrap gap-2">
+                        {detail.assignedCodes.map(c => (
+                          <span key={c.id} className="px-2.5 py-1 rounded-lg bg-brand/10 text-brand text-[10px] font-black">
+                            {c.code}{c.description ? <span className="font-semibold opacity-70"> — {c.description}</span> : ''}
+                          </span>
+                        ))}
                       </div>
                     </>
                   )}
