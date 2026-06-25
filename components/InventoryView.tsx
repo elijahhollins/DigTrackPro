@@ -51,6 +51,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
   const [isLoading, setIsLoading] = useState(true);
   const [typeFilter, setTypeFilter] = useState<InventoryItemType | 'ALL'>('ALL');
   const [search, setSearch] = useState('');
+  const [sortKey, setSortKey] = useState<'name' | 'unit' | 'type' | 'location'>('name');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   // Item form state
   const [showItemForm, setShowItemForm] = useState(false);
@@ -121,6 +123,32 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
       return true;
     });
   }, [items, typeFilter, search]);
+
+  const sortedItems = useMemo(() => {
+    return [...filteredItems].sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === 'name') {
+        cmp = a.name.localeCompare(b.name);
+      } else if (sortKey === 'unit') {
+        if (!a.unitNumber && !b.unitNumber) cmp = 0;
+        else if (!a.unitNumber) cmp = 1;
+        else if (!b.unitNumber) cmp = -1;
+        else cmp = a.unitNumber.localeCompare(b.unitNumber, undefined, { numeric: true, sensitivity: 'base' });
+      } else if (sortKey === 'type') {
+        cmp = a.itemType.localeCompare(b.itemType);
+      } else if (sortKey === 'location') {
+        const aLoc = (a.currentLocationId ? locationMap.get(a.currentLocationId)?.name : '') || '';
+        const bLoc = (b.currentLocationId ? locationMap.get(b.currentLocationId)?.name : '') || '';
+        cmp = aLoc.localeCompare(bLoc);
+      }
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+  }, [filteredItems, sortKey, sortDir, locationMap]);
+
+  const handleSort = (key: 'name' | 'unit' | 'type' | 'location') => {
+    if (sortKey === key) setSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(key); setSortDir('asc'); }
+  };
 
   const d = (cls: string, dark: string, light: string) => isDarkMode ? `${cls} ${dark}` : `${cls} ${light}`;
 
@@ -219,13 +247,57 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
               <table className="w-full text-left">
                 <thead>
                   <tr className={d('border-b', 'border-white/[0.05] bg-white/[0.015]', 'border-slate-100 bg-slate-50/80')}>
-                    {['Name', 'Type', 'Location / Assignee', 'Details', 'Actions'].map(h => (
-                      <th key={h} className={d(`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] ${h === 'Actions' ? 'text-right' : ''}`, 'text-slate-600', 'text-slate-400')}>{h}</th>
+                    {([
+                      { label: 'Name', key: 'name' as const, secondary: { key: 'unit' as const, label: 'Unit #' } },
+                      { label: 'Type', key: 'type' as const, secondary: null },
+                      { label: 'Location / Assignee', key: 'location' as const, secondary: null },
+                      { label: 'Details', key: null, secondary: null },
+                      { label: 'Actions', key: null, secondary: null },
+                    ] as { label: string; key: 'name' | 'unit' | 'type' | 'location' | null; secondary: { key: 'name' | 'unit' | 'type' | 'location'; label: string } | null }[]).map(h => (
+                      <th
+                        key={h.label}
+                        className={`px-5 py-4 ${h.label === 'Actions' ? 'text-right' : ''}`}
+                      >
+                        <div className="flex items-center gap-2">
+                          {h.key ? (
+                            <button
+                              onClick={() => handleSort(h.key!)}
+                              className={d(
+                                'text-[9px] font-black uppercase tracking-[0.18em] select-none transition-colors',
+                                `${sortKey === h.key ? 'text-brand' : 'text-slate-600 hover:text-slate-300'}`,
+                                `${sortKey === h.key ? 'text-brand' : 'text-slate-400 hover:text-slate-600'}`,
+                              )}
+                            >
+                              {h.label}
+                              <span className={`ml-1 ${sortKey === h.key ? '' : 'opacity-30'}`}>
+                                {sortKey === h.key && sortDir === 'asc' ? '↑' : '↓'}
+                              </span>
+                            </button>
+                          ) : (
+                            <span className={d('text-[9px] font-black uppercase tracking-[0.18em]', 'text-slate-600', 'text-slate-400')}>{h.label}</span>
+                          )}
+                          {h.secondary && (
+                            <button
+                              onClick={() => handleSort(h.secondary!.key)}
+                              className={d(
+                                'text-[9px] font-black uppercase tracking-[0.18em] select-none transition-colors',
+                                `${sortKey === h.secondary.key ? 'text-brand' : 'text-slate-700 hover:text-slate-300'}`,
+                                `${sortKey === h.secondary.key ? 'text-brand' : 'text-slate-300 hover:text-slate-600'}`,
+                              )}
+                            >
+                              {h.secondary.label}
+                              <span className={`ml-1 ${sortKey === h.secondary.key ? '' : 'opacity-30'}`}>
+                                {sortKey === h.secondary.key && sortDir === 'asc' ? '↑' : '↓'}
+                              </span>
+                            </button>
+                          )}
+                        </div>
+                      </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className={d('divide-y', 'divide-white/[0.03]', 'divide-slate-50')}>
-                  {filteredItems.map(item => {
+                  {sortedItems.map(item => {
                     const loc = item.currentLocationId ? locationMap.get(item.currentLocationId) : null;
                     const assignee = item.currentAssigneeId ? userMap.get(item.currentAssigneeId) : null;
                     const job = item.currentJobId ? jobMap.get(item.currentJobId) : null;
