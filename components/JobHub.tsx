@@ -21,6 +21,8 @@ interface JobHubProps {
   schedulingEnabled?: boolean;
   timeTrackingEnabled?: boolean;
   inventoryEnabled?: boolean;
+  // Bumped by the parent whenever the Job form closes, so we re-read cost-code assignments.
+  refreshKey?: number;
   onCreateJob: () => void;
   onEditJob: (job: Job) => void;
   onDeleteJob: (job: Job) => void;
@@ -59,7 +61,7 @@ const HEALTH_DOT: Record<string, string> = {
 
 export const JobHub: React.FC<JobHubProps> = ({
   jobs, tickets, companyId, isAdmin, isDarkMode,
-  schedulingEnabled, timeTrackingEnabled, inventoryEnabled,
+  schedulingEnabled, timeTrackingEnabled, inventoryEnabled, refreshKey,
   onCreateJob, onEditJob, onDeleteJob, onToggleComplete, onOpenMarkup, onViewDoc, onViewMedia,
 }) => {
   const [search, setSearch] = useState('');
@@ -136,7 +138,7 @@ export const JobHub: React.FC<JobHubProps> = ({
       } catch (err) { console.error('JobHub aux load failed:', err); }
     })();
     return () => { alive = false; };
-  }, [companyId, timeTrackingEnabled, inventoryEnabled, schedulingEnabled]);
+  }, [companyId, timeTrackingEnabled, inventoryEnabled, schedulingEnabled, refreshKey]);
 
   // ── grouped ticket lookup by job number ─────────────────────────────────────
   const ticketsByJob = useMemo(() => {
