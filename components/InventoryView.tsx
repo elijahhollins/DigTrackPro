@@ -832,7 +832,7 @@ const ItemFormModal: React.FC<ItemFormProps> = ({ item, locations, foremen, jobs
               <select className={inputCls} value={currentJobId} onChange={e => setCurrentJobId(e.target.value)}>
                 <option value="">— Select job —</option>
                 {jobs.filter(j => !j.isComplete).map(j => (
-                  <option key={j.id} value={j.id}>#{j.jobNumber} — {j.customer}</option>
+                  <option key={j.id} value={j.id}>#{j.jobNumber}{j.jobName ? ` — ${j.jobName}` : ""}</option>
                 ))}
               </select>
             )}
@@ -1136,7 +1136,7 @@ const MovementModal: React.FC<MovementModalProps> = ({ item, locations, users, f
             <select className={inputCls} value={jobId} onChange={e => setJobId(e.target.value)}>
               <option value="">— Select job —</option>
               {jobs.filter(j => !j.isComplete).map(j => (
-                <option key={j.id} value={j.id}>#{j.jobNumber} — {j.customer}</option>
+                <option key={j.id} value={j.id}>#{j.jobNumber}{j.jobName ? ` — ${j.jobName}` : ""}</option>
               ))}
             </select>
           </div>
@@ -1193,7 +1193,7 @@ const MovementModal: React.FC<MovementModalProps> = ({ item, locations, users, f
             <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Linked Job (optional)</p>
             <select className={inputCls} value={jobId} onChange={e => setJobId(e.target.value)}>
               <option value="">— No job —</option>
-              {jobs.filter(j => !j.isComplete).map(j => <option key={j.id} value={j.id}>#{j.jobNumber} — {j.customer}</option>)}
+              {jobs.filter(j => !j.isComplete).map(j => <option key={j.id} value={j.id}>#{j.jobNumber}{j.jobName ? ` — ${j.jobName}` : ""}</option>)}
             </select>
           </div>
         )}

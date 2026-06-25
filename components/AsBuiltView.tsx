@@ -32,7 +32,7 @@ export const AsBuiltView: React.FC<AsBuiltViewProps> = ({ jobs, sessionUser, isA
     const q = search.toLowerCase();
     const matchesSearch =
       job.jobNumber.toLowerCase().includes(q) ||
-      job.customer.toLowerCase().includes(q) ||
+      (job.jobName || '').toLowerCase().includes(q) ||
       job.address.toLowerCase().includes(q);
     if (!matchesSearch) return false;
     if (hideNoPdfs) {
@@ -249,7 +249,7 @@ export const AsBuiltView: React.FC<AsBuiltViewProps> = ({ jobs, sessionUser, isA
                         Job #{job.jobNumber}
                       </p>
                       <p className={`text-xs truncate ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                        {job.customer} — {job.address}, {job.city}
+                        {job.jobName ? `${job.jobName} — ` : ''}{job.address}, {job.city}
                       </p>
                     </div>
 

@@ -370,9 +370,11 @@ const App: React.FC = () => {
     const newJob: Job = { 
       id: crypto.randomUUID(), 
       companyId: sessionUser!.companyId,
-      jobNumber: ticketData.jobNumber, 
-      customer: ticketData.siteContact || 'Auto-Detected Client', 
-      address: ticketData.street, 
+      jobNumber: ticketData.jobNumber,
+      jobName: '',
+      customer: '',
+      siteContact: ticketData.siteContact || '',
+      address: ticketData.street,
       city: ticketData.city, 
       state: ticketData.state, 
       county: ticketData.county, 
@@ -597,7 +599,7 @@ const App: React.FC = () => {
     const jobTickets = tickets.filter(t => t.jobNumber === jobNumber && !t.isArchived);
     if (jobTickets.length === 0) return;
     const firstTkt = jobTickets[0];
-    const newJob: Job = { id: crypto.randomUUID(), companyId: sessionUser!.companyId, jobNumber: jobNumber, customer: firstTkt.siteContact || 'Client', address: firstTkt.street, city: firstTkt.city, state: firstTkt.state, county: firstTkt.county, createdAt: Date.now(), isComplete: false };
+    const newJob: Job = { id: crypto.randomUUID(), companyId: sessionUser!.companyId, jobNumber: jobNumber, jobName: '', customer: '', siteContact: firstTkt.siteContact || '', address: firstTkt.street, city: firstTkt.city, state: firstTkt.state, county: firstTkt.county, createdAt: Date.now(), isComplete: false };
     try {
       const saved = await apiService.saveJob(newJob);
       setJobs(prev => [...prev, saved]);
@@ -956,7 +958,7 @@ const App: React.FC = () => {
                         <tr className={`border-b ${isDarkMode ? 'border-white/[0.05] bg-white/[0.015]' : 'border-slate-100 bg-slate-50/80'}`}>
                           <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Job #</th>
                           <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Tickets</th>
-                          <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Client / Location</th>
+                          <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Job Name / Location</th>
                           <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] text-center ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Status</th>
                           <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] text-right ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Dig By</th>
                           <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] text-center ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Dig Begun?</th>
@@ -995,7 +997,7 @@ const App: React.FC = () => {
                                   <span className={`text-[10px] font-black uppercase px-2 py-1 rounded-lg ${isDarkMode ? 'bg-white/[0.04] text-slate-500' : 'bg-slate-100 text-slate-500'}`}>{jobTickets.length}</span>
                                 </td>
                                 <td className="px-5 py-4">
-                                  <p className={`text-[12px] font-bold truncate max-w-[200px] ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>{jobEntity?.customer || 'Direct Client'}</p>
+                                  <p className={`text-[12px] font-bold truncate max-w-[200px] ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>{jobEntity?.jobName || `Job #${jobNum}`}</p>
                                   <p className={`text-[10px] truncate max-w-[200px] mt-0.5 ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>{jobEntity?.city || 'Field Location'}</p>
                                 </td>
                                 <td className="px-5 py-4 text-center">

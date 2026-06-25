@@ -52,8 +52,8 @@ export const JobSummaryModal: React.FC<JobSummaryModalProps> = ({
           {/* Main Info Card */}
           <div className="space-y-4">
             <div className="space-y-1">
-              <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Customer / Entity</label>
-              <p className={`text-base font-black uppercase tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-950'}`}>{job.customer}</p>
+              <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Job Name</label>
+              <p className={`text-base font-black uppercase tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-950'}`}>{job.jobName || `Job #${job.jobNumber}`}</p>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">
@@ -65,6 +65,12 @@ export const JobSummaryModal: React.FC<JobSummaryModalProps> = ({
                 <p className={`text-[11px] font-bold ${isDarkMode ? 'text-slate-300' : 'text-slate-950'}`}>{job.city}, {job.state}</p>
               </div>
             </div>
+            {job.siteContact && (
+              <div className="space-y-1">
+                <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Site Contact</label>
+                <p className={`text-[11px] font-bold ${isDarkMode ? 'text-slate-300' : 'text-slate-950'}`}>{job.siteContact}</p>
+              </div>
+            )}
           </div>
 
           {/* Job Prints Preview */}

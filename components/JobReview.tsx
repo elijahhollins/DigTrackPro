@@ -98,7 +98,7 @@ export const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, isDarkMode,
                     >
                       Job #{jobNum}
                     </button>
-                    <p className={`text-[10px] font-bold uppercase tracking-widest mt-1 truncate max-w-[180px] ${isDarkMode ? 'text-slate-400' : 'text-slate-700'}`}>{jobEntity?.customer || 'Unknown Client'}</p>
+                    <p className={`text-[10px] font-bold uppercase tracking-widest mt-1 truncate max-w-[180px] ${isDarkMode ? 'text-slate-400' : 'text-slate-700'}`}>{jobEntity?.jobName || `Job #${jobNum}`}</p>
                   </div>
                   {isComplete && <div className="bg-emerald-500/10 text-emerald-500 px-2 py-0.5 rounded text-[8px] font-black uppercase">Complete</div>}
                 </div>
@@ -152,7 +152,7 @@ export const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, isDarkMode,
             <thead className={`${isDarkMode ? 'bg-black/20' : 'bg-slate-50'} border-b border-black/5`}>
               <tr>
                 <th className="px-6 py-4 text-[9px] font-black uppercase tracking-[0.2em] text-slate-500">Job Reference</th>
-                <th className="px-6 py-4 text-[9px] font-black uppercase tracking-[0.2em] text-slate-500">Customer</th>
+                <th className="px-6 py-4 text-[9px] font-black uppercase tracking-[0.2em] text-slate-500">Job Name</th>
                 <th className="px-6 py-4 text-[9px] font-black uppercase tracking-[0.2em] text-slate-500">Status</th>
                 <th className="px-6 py-4 text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 text-right">Tickets</th>
               </tr>
@@ -183,7 +183,7 @@ export const JobReview: React.FC<JobReviewProps> = ({ tickets, jobs, isDarkMode,
                           </button>
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-xs font-bold">{jobEntity?.customer || 'Direct'}</td>
+                      <td className="px-6 py-4 text-xs font-bold">{jobEntity?.jobName || `Job #${jobNum}`}</td>
                       <td className="px-6 py-4">
                         <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase ${jobEntity?.isComplete ? 'bg-emerald-500/10 text-emerald-500' : 'bg-blue-500/10 text-blue-500'}`}>
                           {jobEntity?.isComplete ? 'Closed' : 'Active'}

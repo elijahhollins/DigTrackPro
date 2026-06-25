@@ -163,7 +163,7 @@ export const JobHub: React.FC<JobHubProps> = ({
   const visibleJobs = useMemo(() => {
     const q = search.trim().toLowerCase();
     let list = jobs.filter(j =>
-      !q || j.jobNumber.toLowerCase().includes(q) || (j.customer ?? '').toLowerCase().includes(q) || (j.city ?? '').toLowerCase().includes(q)
+      !q || j.jobNumber.toLowerCase().includes(q) || (j.jobName ?? '').toLowerCase().includes(q) || (j.city ?? '').toLowerCase().includes(q)
     );
     if (hideCompleted) list = list.filter(j => !j.isComplete);
     return [...list].sort((a, b) => b.jobNumber.localeCompare(a.jobNumber, undefined, { numeric: true }));
@@ -341,7 +341,7 @@ export const JobHub: React.FC<JobHubProps> = ({
                           ? <span className="px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-500 text-[8px] font-black uppercase">{needsAttention} ⚠</span>
                           : null}
                     </div>
-                    <p className={`text-[11px] font-bold truncate mt-0.5 ${subtle}`}>{job.customer || 'Direct'}</p>
+                    <p className={`text-[11px] font-bold truncate mt-0.5 ${subtle}`}>{job.jobName || `Job #${job.jobNumber}`}</p>
                     <div className="flex items-center gap-2 mt-1.5">
                       {HEALTH_ORDER.filter(s => health[s]).map(s => (
                         <span key={s} className="flex items-center gap-1">
@@ -379,7 +379,7 @@ export const JobHub: React.FC<JobHubProps> = ({
                         {selectedJob.isComplete ? 'Closed' : 'Active'}
                       </span>
                     </div>
-                    <p className={`text-xs font-bold mt-1 ${isDarkMode ? 'text-slate-200' : 'text-slate-700'}`}>{selectedJob.customer || 'Direct'}</p>
+                    <p className={`text-xs font-bold mt-1 ${isDarkMode ? 'text-slate-200' : 'text-slate-700'}`}>{selectedJob.jobName || `Job #${selectedJob.jobNumber}`}</p>
                     <p className={`text-[11px] font-semibold ${subtle}`}>{[selectedJob.address, selectedJob.city, selectedJob.state].filter(Boolean).join(', ')}</p>
                   </div>
                   {isAdmin && (
