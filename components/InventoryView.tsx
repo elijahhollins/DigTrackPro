@@ -51,6 +51,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
   const [isLoading, setIsLoading] = useState(true);
   const [typeFilter, setTypeFilter] = useState<InventoryItemType | 'ALL'>('ALL');
   const [search, setSearch] = useState('');
+  const [sortKey, setSortKey] = useState<'name' | 'type' | 'location'>('name');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   // Item form state
   const [showItemForm, setShowItemForm] = useState(false);
@@ -121,6 +123,27 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
       return true;
     });
   }, [items, typeFilter, search]);
+
+  const sortedItems = useMemo(() => {
+    return [...filteredItems].sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === 'name') {
+        cmp = a.name.localeCompare(b.name);
+      } else if (sortKey === 'type') {
+        cmp = a.itemType.localeCompare(b.itemType);
+      } else if (sortKey === 'location') {
+        const aLoc = (a.currentLocationId ? locationMap.get(a.currentLocationId)?.name : '') || '';
+        const bLoc = (b.currentLocationId ? locationMap.get(b.currentLocationId)?.name : '') || '';
+        cmp = aLoc.localeCompare(bLoc);
+      }
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+  }, [filteredItems, sortKey, sortDir, locationMap]);
+
+  const handleSort = (key: 'name' | 'type' | 'location') => {
+    if (sortKey === key) setSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(key); setSortDir('asc'); }
+  };
 
   const d = (cls: string, dark: string, light: string) => isDarkMode ? `${cls} ${dark}` : `${cls} ${light}`;
 
@@ -219,13 +242,34 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
               <table className="w-full text-left">
                 <thead>
                   <tr className={d('border-b', 'border-white/[0.05] bg-white/[0.015]', 'border-slate-100 bg-slate-50/80')}>
-                    {['Name', 'Type', 'Location / Assignee', 'Details', 'Actions'].map(h => (
-                      <th key={h} className={d(`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] ${h === 'Actions' ? 'text-right' : ''}`, 'text-slate-600', 'text-slate-400')}>{h}</th>
+                    {([
+                      { label: 'Name', key: 'name' as const },
+                      { label: 'Type', key: 'type' as const },
+                      { label: 'Location / Assignee', key: 'location' as const },
+                      { label: 'Details', key: null },
+                      { label: 'Actions', key: null },
+                    ] as { label: string; key: 'name' | 'type' | 'location' | null }[]).map(h => (
+                      <th
+                        key={h.label}
+                        onClick={h.key ? () => handleSort(h.key!) : undefined}
+                        className={d(
+                          `px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] ${h.label === 'Actions' ? 'text-right' : ''} ${h.key ? 'cursor-pointer select-none' : ''}`,
+                          `text-slate-600 ${h.key ? 'hover:text-slate-300' : ''}`,
+                          `text-slate-400 ${h.key ? 'hover:text-slate-600' : ''}`,
+                        )}
+                      >
+                        {h.label}
+                        {h.key && (
+                          <span className={`ml-1 ${sortKey === h.key ? (isDarkMode ? 'text-brand' : 'text-brand') : 'opacity-30'}`}>
+                            {sortKey === h.key && sortDir === 'asc' ? '↑' : '↓'}
+                          </span>
+                        )}
+                      </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className={d('divide-y', 'divide-white/[0.03]', 'divide-slate-50')}>
-                  {filteredItems.map(item => {
+                  {sortedItems.map(item => {
                     const loc = item.currentLocationId ? locationMap.get(item.currentLocationId) : null;
                     const assignee = item.currentAssigneeId ? userMap.get(item.currentAssigneeId) : null;
                     const job = item.currentJobId ? jobMap.get(item.currentJobId) : null;
