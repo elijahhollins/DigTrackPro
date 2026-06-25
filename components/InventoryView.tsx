@@ -2,6 +2,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { User, UserRole, UserRecord, Job, InventoryItem, InventoryItemType, InventoryLocation, InventoryMovement, InventoryMovementType } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
+import { scheduleService } from '../services/scheduleService.ts';
+import { Employee } from '../services/schedulingTypes.ts';
 
 interface InventoryViewProps {
   sessionUser: User;
@@ -45,9 +47,12 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [locations, setLocations] = useState<InventoryLocation[]>([]);
   const [movements, setMovements] = useState<InventoryMovement[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [typeFilter, setTypeFilter] = useState<InventoryItemType | 'ALL'>('ALL');
   const [search, setSearch] = useState('');
+  const [sortKey, setSortKey] = useState<'name' | 'unit' | 'type' | 'location'>('name');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   // Item form state
   const [showItemForm, setShowItemForm] = useState(false);
@@ -77,6 +82,13 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
     } finally {
       setIsLoading(false);
     }
+    // Foreman list (employees flagged as foreman with a linked login). Loaded
+    // best-effort — the scheduling module may be off for some companies.
+    try {
+      setEmployees(await scheduleService.getEmployees());
+    } catch (err) {
+      console.warn('Inventory: employee/foreman list unavailable.', err);
+    }
   };
 
   useEffect(() => { load(); }, []);
@@ -84,6 +96,19 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
   const locationMap = useMemo(() => new Map(locations.map(l => [l.id, l])), [locations]);
   const userMap = useMemo(() => new Map(users.map(u => [u.id, u])), [users]);
   const jobMap = useMemo(() => new Map(jobs.map(j => [j.id, j])), [jobs]);
+
+  // Equipment may only be assigned to a foreman: an Employee marked isForeman
+  // with a linked login (profileId) — the login is required both to store the
+  // assignment (current_assignee_id → profiles) and to follow their clock-ins.
+  // Derived straight from employees (using the employee's own name) so foremen
+  // show up even if their profile row isn't in the loaded users list.
+  const foremen = useMemo<{ id: string; name: string }[]>(() =>
+    employees
+      .filter(e => e.isForeman && e.profileId)
+      .map(e => ({ id: e.profileId as string, name: e.name }))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    [employees],
+  );
 
   const filteredItems = useMemo(() => {
     return items.filter(item => {
@@ -98,6 +123,32 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
       return true;
     });
   }, [items, typeFilter, search]);
+
+  const sortedItems = useMemo(() => {
+    return [...filteredItems].sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === 'name') {
+        cmp = a.name.localeCompare(b.name);
+      } else if (sortKey === 'unit') {
+        if (!a.unitNumber && !b.unitNumber) cmp = 0;
+        else if (!a.unitNumber) cmp = 1;
+        else if (!b.unitNumber) cmp = -1;
+        else cmp = a.unitNumber.localeCompare(b.unitNumber, undefined, { numeric: true, sensitivity: 'base' });
+      } else if (sortKey === 'type') {
+        cmp = a.itemType.localeCompare(b.itemType);
+      } else if (sortKey === 'location') {
+        const aLoc = (a.currentLocationId ? locationMap.get(a.currentLocationId)?.name : '') || '';
+        const bLoc = (b.currentLocationId ? locationMap.get(b.currentLocationId)?.name : '') || '';
+        cmp = aLoc.localeCompare(bLoc);
+      }
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+  }, [filteredItems, sortKey, sortDir, locationMap]);
+
+  const handleSort = (key: 'name' | 'unit' | 'type' | 'location') => {
+    if (sortKey === key) setSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(key); setSortDir('asc'); }
+  };
 
   const d = (cls: string, dark: string, light: string) => isDarkMode ? `${cls} ${dark}` : `${cls} ${light}`;
 
@@ -196,13 +247,57 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
               <table className="w-full text-left">
                 <thead>
                   <tr className={d('border-b', 'border-white/[0.05] bg-white/[0.015]', 'border-slate-100 bg-slate-50/80')}>
-                    {['Name', 'Type', 'Location / Assignee', 'Details', 'Actions'].map(h => (
-                      <th key={h} className={d(`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] ${h === 'Actions' ? 'text-right' : ''}`, 'text-slate-600', 'text-slate-400')}>{h}</th>
+                    {([
+                      { label: 'Name', key: 'name' as const, secondary: { key: 'unit' as const, label: 'Unit #' } },
+                      { label: 'Type', key: 'type' as const, secondary: null },
+                      { label: 'Location / Assignee', key: 'location' as const, secondary: null },
+                      { label: 'Details', key: null, secondary: null },
+                      { label: 'Actions', key: null, secondary: null },
+                    ] as { label: string; key: 'name' | 'unit' | 'type' | 'location' | null; secondary: { key: 'name' | 'unit' | 'type' | 'location'; label: string } | null }[]).map(h => (
+                      <th
+                        key={h.label}
+                        className={`px-5 py-4 ${h.label === 'Actions' ? 'text-right' : ''}`}
+                      >
+                        <div className="flex items-center gap-2">
+                          {h.key ? (
+                            <button
+                              onClick={() => handleSort(h.key!)}
+                              className={d(
+                                'text-[9px] font-black uppercase tracking-[0.18em] select-none transition-colors',
+                                `${sortKey === h.key ? 'text-brand' : 'text-slate-600 hover:text-slate-300'}`,
+                                `${sortKey === h.key ? 'text-brand' : 'text-slate-400 hover:text-slate-600'}`,
+                              )}
+                            >
+                              {h.label}
+                              <span className={`ml-1 ${sortKey === h.key ? '' : 'opacity-30'}`}>
+                                {sortKey === h.key && sortDir === 'asc' ? '↑' : '↓'}
+                              </span>
+                            </button>
+                          ) : (
+                            <span className={d('text-[9px] font-black uppercase tracking-[0.18em]', 'text-slate-600', 'text-slate-400')}>{h.label}</span>
+                          )}
+                          {h.secondary && (
+                            <button
+                              onClick={() => handleSort(h.secondary!.key)}
+                              className={d(
+                                'text-[9px] font-black uppercase tracking-[0.18em] select-none transition-colors',
+                                `${sortKey === h.secondary.key ? 'text-brand' : 'text-slate-700 hover:text-slate-300'}`,
+                                `${sortKey === h.secondary.key ? 'text-brand' : 'text-slate-300 hover:text-slate-600'}`,
+                              )}
+                            >
+                              {h.secondary.label}
+                              <span className={`ml-1 ${sortKey === h.secondary.key ? '' : 'opacity-30'}`}>
+                                {sortKey === h.secondary.key && sortDir === 'asc' ? '↑' : '↓'}
+                              </span>
+                            </button>
+                          )}
+                        </div>
+                      </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className={d('divide-y', 'divide-white/[0.03]', 'divide-slate-50')}>
-                  {filteredItems.map(item => {
+                  {sortedItems.map(item => {
                     const loc = item.currentLocationId ? locationMap.get(item.currentLocationId) : null;
                     const assignee = item.currentAssigneeId ? userMap.get(item.currentAssigneeId) : null;
                     const job = item.currentJobId ? jobMap.get(item.currentJobId) : null;
@@ -451,7 +546,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
         <ItemFormModal
           item={editingItem}
           locations={locations}
-          users={users}
+          foremen={foremen}
           jobs={jobs}
           isDarkMode={isDarkMode}
           companyId={sessionUser.companyId}
@@ -491,6 +586,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
           item={movementItem}
           locations={locations}
           users={users}
+          foremen={foremen}
           jobs={jobs}
           sessionUser={sessionUser}
           isDarkMode={isDarkMode}
@@ -527,7 +623,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
 interface ItemFormProps {
   item: InventoryItem | null;
   locations: InventoryLocation[];
-  users: UserRecord[];
+  foremen: { id: string; name: string }[];
   jobs: Job[];
   companyId: string;
   isDarkMode?: boolean;
@@ -537,7 +633,7 @@ interface ItemFormProps {
 
 type ItemLocKind = 'shop' | 'job' | 'crew';
 
-const ItemFormModal: React.FC<ItemFormProps> = ({ item, locations, users, jobs, companyId, isDarkMode, onSave, onClose }) => {
+const ItemFormModal: React.FC<ItemFormProps> = ({ item, locations, foremen, jobs, companyId, isDarkMode, onSave, onClose }) => {
   const [name, setName] = useState(item?.name || '');
   const [itemType, setItemType] = useState<InventoryItemType>(item?.itemType || InventoryItemType.EQUIPMENT);
   const [unitNumber, setUnitNumber] = useState(item?.unitNumber || '');
@@ -710,7 +806,7 @@ const ItemFormModal: React.FC<ItemFormProps> = ({ item, locations, users, jobs, 
               {([
                 { id: 'shop' as ItemLocKind, label: 'Shop' },
                 { id: 'job'  as ItemLocKind, label: 'Job Site' },
-                { id: 'crew' as ItemLocKind, label: 'Crew' },
+                { id: 'crew' as ItemLocKind, label: 'Foreman' },
               ]).map(opt => (
                 <button
                   key={opt.id}
@@ -741,10 +837,17 @@ const ItemFormModal: React.FC<ItemFormProps> = ({ item, locations, users, jobs, 
               </select>
             )}
             {locKind === 'crew' && (
-              <select className={inputCls} value={currentAssigneeId} onChange={e => setCurrentAssigneeId(e.target.value)}>
-                <option value="">— Select crew member —</option>
-                {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-              </select>
+              <>
+                <select className={inputCls} value={currentAssigneeId} onChange={e => setCurrentAssigneeId(e.target.value)}>
+                  <option value="">— Select foreman —</option>
+                  {foremen.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+                {foremen.length === 0 && (
+                  <p className={d('text-[10px] text-slate-600', 'text-[10px] text-slate-400')}>
+                    No foremen with a login. In Field Ops → Resources, mark an employee as a Foreman and link their login email.
+                  </p>
+                )}
+              </>
             )}
           </div>
 
@@ -824,8 +927,10 @@ const LocationFormModal: React.FC<LocationFormProps> = ({ location, companyId, i
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[200] flex items-center justify-center p-4">
-      <div className={`w-full max-w-sm rounded-[2rem] shadow-2xl border p-8 space-y-5 ${d('bg-[#1e293b] border-white/10', 'bg-white border-slate-200')}`}>
+    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[200] overflow-y-auto">
+      <div className="flex min-h-full items-center justify-center p-4">
+      <div className={`w-full max-w-sm rounded-[2rem] shadow-2xl border my-auto ${d('bg-[#1e293b] border-white/10', 'bg-white border-slate-200')}`}>
+        <div className="p-8 space-y-5">
         <div className="flex items-center justify-between">
           <h3 className={`text-[15px] font-black uppercase tracking-tight ${d('text-white', 'text-slate-900')}`}>{location ? 'Edit Location' : 'New Location'}</h3>
           <button onClick={onClose} className={`p-2 rounded-xl ${d('text-slate-500 hover:text-white hover:bg-white/10', 'text-slate-400 hover:text-slate-700 hover:bg-slate-100')}`}>
@@ -872,6 +977,8 @@ const LocationFormModal: React.FC<LocationFormProps> = ({ location, companyId, i
             {isSaving ? 'Saving…' : 'Save'}
           </button>
         </div>
+        </div>
+      </div>
       </div>
     </div>
   );
@@ -881,6 +988,7 @@ interface MovementModalProps {
   item: InventoryItem;
   locations: InventoryLocation[];
   users: UserRecord[];
+  foremen: { id: string; name: string }[];
   jobs: Job[];
   sessionUser: User;
   isDarkMode?: boolean;
@@ -889,7 +997,7 @@ interface MovementModalProps {
   onClose: () => void;
 }
 
-const MovementModal: React.FC<MovementModalProps> = ({ item, locations, users, jobs, sessionUser, isDarkMode, onSave, onClose }) => {
+const MovementModal: React.FC<MovementModalProps> = ({ item, locations, users, foremen, jobs, sessionUser, isDarkMode, onSave, onClose }) => {
   const isEquip = item.itemType === InventoryItemType.EQUIPMENT;
   const defaultType = isEquip ? InventoryMovementType.TRANSFER : InventoryMovementType.CONSUME;
   const [movementType, setMovementType] = useState<InventoryMovementType>(defaultType);
@@ -917,7 +1025,7 @@ const MovementModal: React.FC<MovementModalProps> = ({ item, locations, users, j
     setError('');
     try {
       const selectedJob = jobs.find(j => j.id === jobId);
-      const assignee = users.find(u => u.id === assigneeId);
+      const assignee = foremen.find(f => f.id === assigneeId) ?? users.find(u => u.id === assigneeId);
       const delta = quantityDelta ? parseFloat(quantityDelta) : undefined;
       const mv = await apiService.addInventoryMovement({
         companyId: sessionUser.companyId,
@@ -1056,11 +1164,14 @@ const MovementModal: React.FC<MovementModalProps> = ({ item, locations, users, j
 
         {movementType === InventoryMovementType.ASSIGN && (
           <div className="space-y-1.5">
-            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Assign To</p>
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Assign To Foreman</p>
             <select className={inputCls} value={assigneeId} onChange={e => setAssigneeId(e.target.value)}>
-              <option value="">— Select crew member —</option>
-              {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+              <option value="">— Select foreman —</option>
+              {foremen.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
             </select>
+            {foremen.length === 0 && (
+              <p className="text-[10px] text-slate-400">No foremen with a login. In Field Ops → Resources, mark an employee as a Foreman and link their login email.</p>
+            )}
           </div>
         )}
 
