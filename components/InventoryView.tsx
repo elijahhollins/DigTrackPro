@@ -51,7 +51,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
   const [isLoading, setIsLoading] = useState(true);
   const [typeFilter, setTypeFilter] = useState<InventoryItemType | 'ALL'>('ALL');
   const [search, setSearch] = useState('');
-  const [sortKey, setSortKey] = useState<'name' | 'type' | 'location'>('name');
+  const [sortKey, setSortKey] = useState<'name' | 'unit' | 'type' | 'location'>('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   // Item form state
@@ -129,6 +129,11 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
       let cmp = 0;
       if (sortKey === 'name') {
         cmp = a.name.localeCompare(b.name);
+      } else if (sortKey === 'unit') {
+        if (!a.unitNumber && !b.unitNumber) cmp = 0;
+        else if (!a.unitNumber) cmp = 1;
+        else if (!b.unitNumber) cmp = -1;
+        else cmp = a.unitNumber.localeCompare(b.unitNumber, undefined, { numeric: true, sensitivity: 'base' });
       } else if (sortKey === 'type') {
         cmp = a.itemType.localeCompare(b.itemType);
       } else if (sortKey === 'location') {
@@ -140,7 +145,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
     });
   }, [filteredItems, sortKey, sortDir, locationMap]);
 
-  const handleSort = (key: 'name' | 'type' | 'location') => {
+  const handleSort = (key: 'name' | 'unit' | 'type' | 'location') => {
     if (sortKey === key) setSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
     else { setSortKey(key); setSortDir('asc'); }
   };
@@ -243,27 +248,50 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ sessionUser, users
                 <thead>
                   <tr className={d('border-b', 'border-white/[0.05] bg-white/[0.015]', 'border-slate-100 bg-slate-50/80')}>
                     {([
-                      { label: 'Name', key: 'name' as const },
-                      { label: 'Type', key: 'type' as const },
-                      { label: 'Location / Assignee', key: 'location' as const },
-                      { label: 'Details', key: null },
-                      { label: 'Actions', key: null },
-                    ] as { label: string; key: 'name' | 'type' | 'location' | null }[]).map(h => (
+                      { label: 'Name', key: 'name' as const, secondary: { key: 'unit' as const, label: 'Unit #' } },
+                      { label: 'Type', key: 'type' as const, secondary: null },
+                      { label: 'Location / Assignee', key: 'location' as const, secondary: null },
+                      { label: 'Details', key: null, secondary: null },
+                      { label: 'Actions', key: null, secondary: null },
+                    ] as { label: string; key: 'name' | 'unit' | 'type' | 'location' | null; secondary: { key: 'name' | 'unit' | 'type' | 'location'; label: string } | null }[]).map(h => (
                       <th
                         key={h.label}
-                        onClick={h.key ? () => handleSort(h.key!) : undefined}
-                        className={d(
-                          `px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] ${h.label === 'Actions' ? 'text-right' : ''} ${h.key ? 'cursor-pointer select-none' : ''}`,
-                          `text-slate-600 ${h.key ? 'hover:text-slate-300' : ''}`,
-                          `text-slate-400 ${h.key ? 'hover:text-slate-600' : ''}`,
-                        )}
+                        className={`px-5 py-4 ${h.label === 'Actions' ? 'text-right' : ''}`}
                       >
-                        {h.label}
-                        {h.key && (
-                          <span className={`ml-1 ${sortKey === h.key ? (isDarkMode ? 'text-brand' : 'text-brand') : 'opacity-30'}`}>
-                            {sortKey === h.key && sortDir === 'asc' ? '↑' : '↓'}
-                          </span>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {h.key ? (
+                            <button
+                              onClick={() => handleSort(h.key!)}
+                              className={d(
+                                'text-[9px] font-black uppercase tracking-[0.18em] select-none transition-colors',
+                                `${sortKey === h.key ? 'text-brand' : 'text-slate-600 hover:text-slate-300'}`,
+                                `${sortKey === h.key ? 'text-brand' : 'text-slate-400 hover:text-slate-600'}`,
+                              )}
+                            >
+                              {h.label}
+                              <span className={`ml-1 ${sortKey === h.key ? '' : 'opacity-30'}`}>
+                                {sortKey === h.key && sortDir === 'asc' ? '↑' : '↓'}
+                              </span>
+                            </button>
+                          ) : (
+                            <span className={d('text-[9px] font-black uppercase tracking-[0.18em]', 'text-slate-600', 'text-slate-400')}>{h.label}</span>
+                          )}
+                          {h.secondary && (
+                            <button
+                              onClick={() => handleSort(h.secondary!.key)}
+                              className={d(
+                                'text-[9px] font-black uppercase tracking-[0.18em] select-none transition-colors',
+                                `${sortKey === h.secondary.key ? 'text-brand' : 'text-slate-700 hover:text-slate-300'}`,
+                                `${sortKey === h.secondary.key ? 'text-brand' : 'text-slate-300 hover:text-slate-600'}`,
+                              )}
+                            >
+                              {h.secondary.label}
+                              <span className={`ml-1 ${sortKey === h.secondary.key ? '' : 'opacity-30'}`}>
+                                {sortKey === h.secondary.key && sortDir === 'asc' ? '↑' : '↓'}
+                              </span>
+                            </button>
+                          )}
+                        </div>
                       </th>
                     ))}
                   </tr>
