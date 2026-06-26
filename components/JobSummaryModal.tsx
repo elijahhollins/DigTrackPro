@@ -55,6 +55,12 @@ export const JobSummaryModal: React.FC<JobSummaryModalProps> = ({
               <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Job Name</label>
               <p className={`text-base font-black uppercase tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-950'}`}>{job.jobName || `Job #${job.jobNumber}`}</p>
             </div>
+            {job.customer && (
+              <div className="space-y-1">
+                <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Customer</label>
+                <p className={`text-[11px] font-bold ${isDarkMode ? 'text-slate-300' : 'text-slate-950'}`}>{job.customer}</p>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">
                 <label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Base Location</label>

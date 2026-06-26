@@ -128,6 +128,11 @@ const JobForm: React.FC<JobFormProps> = ({ onSave, onClose, initialData, isDarkM
           </div>
 
           <div className="space-y-1">
+            <label className="text-[9px] font-black uppercase text-slate-400">Customer</label>
+            <input className={`w-full px-3 py-2 border rounded-lg text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.customer} onChange={e => setFormData({...formData, customer: e.target.value})} placeholder="Client / customer name" />
+          </div>
+
+          <div className="space-y-1">
             <label className="text-[9px] font-black uppercase text-slate-400">Base Address</label>
             <input required className={`w-full px-3 py-2 border rounded-lg text-xs font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`} value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} />
           </div>
