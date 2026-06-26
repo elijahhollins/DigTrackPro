@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Clock, Tags, ClipboardCheck } from 'lucide-react';
-import { Job, User, UserRole } from '../../types.ts';
+import { Clock, Tags, ClipboardCheck, ClipboardList } from 'lucide-react';
+import { Company, Job, User, UserRole } from '../../types.ts';
 import { scheduleService } from '../../services/scheduleService.ts';
 import { timeTrackingService } from '../../services/timeTrackingService.ts';
 import { Employee, ServiceJob } from '../../services/schedulingTypes.ts';
@@ -8,13 +8,15 @@ import { CostCode, ClockableJob } from '../../services/timeTrackingTypes.ts';
 import ClockPanel from './ClockPanel.tsx';
 import CostCodeManager from './CostCodeManager.tsx';
 import TimesheetView from './TimesheetView.tsx';
+import DailyReportView from './DailyReportView.tsx';
 
-type TimeTab = 'clock' | 'codes' | 'timesheets';
+type TimeTab = 'clock' | 'reports' | 'codes' | 'timesheets';
 
 interface TimeTrackingViewProps {
   sessionUser: User;
   jobs: Job[];          // dig jobs (uuid ids), already loaded in App state
   companyName?: string;
+  company?: Company;
   isDarkMode?: boolean;
 }
 
@@ -26,7 +28,7 @@ interface TimeTrackingViewProps {
  * dig jobs (passed in) and service jobs (loaded here), merged into a single
  * searchable list. Admins manage cost codes and review/approve timesheets.
  */
-export default function TimeTrackingView({ sessionUser, jobs, isDarkMode }: TimeTrackingViewProps) {
+export default function TimeTrackingView({ sessionUser, jobs, company, isDarkMode }: TimeTrackingViewProps) {
   const isAdmin = sessionUser.role === UserRole.ADMIN || sessionUser.role === UserRole.SUPER_ADMIN;
   const [tab, setTab] = useState<TimeTab>('clock');
 
@@ -66,12 +68,22 @@ export default function TimeTrackingView({ sessionUser, jobs, isDarkMode }: Time
     return [...dig, ...svc];
   }, [jobs, serviceJobs]);
 
-  const TABS: { id: TimeTab; label: string; icon: React.ReactNode; adminOnly?: boolean }[] = [
+  // A foreman (login linked to an employee flagged isForeman) can file daily
+  // reports even though their login is CREW role.
+  const isForeman = useMemo(
+    () => employees.some(e => e.profileId === sessionUser.id && e.isForeman),
+    [employees, sessionUser.id],
+  );
+
+  const TABS: { id: TimeTab; label: string; icon: React.ReactNode; adminOnly?: boolean; foremanOrAdmin?: boolean }[] = [
     { id: 'clock',      label: 'Clock In / Out', icon: <Clock size={16} /> },
+    { id: 'reports',    label: 'Daily Report',   icon: <ClipboardList size={16} />, foremanOrAdmin: true },
     { id: 'codes',      label: 'Cost Codes',     icon: <Tags size={16} />, adminOnly: true },
     { id: 'timesheets', label: 'Timesheets',     icon: <ClipboardCheck size={16} />, adminOnly: true },
   ];
-  const visibleTabs = TABS.filter(t => !t.adminOnly || isAdmin);
+  const visibleTabs = TABS.filter(t =>
+    (!t.adminOnly || isAdmin) && (!t.foremanOrAdmin || isAdmin || isForeman),
+  );
 
   if (loading) {
     return <div className={`p-6 text-sm ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Loading time tracker…</div>;
@@ -102,6 +114,18 @@ export default function TimeTrackingView({ sessionUser, jobs, isDarkMode }: Time
           sessionUser={sessionUser}
           isAdmin={isAdmin}
           employees={employees}
+          clockableJobs={clockableJobs}
+          isDarkMode={isDarkMode}
+        />
+      )}
+      {tab === 'reports' && (isAdmin || isForeman) && (
+        <DailyReportView
+          sessionUser={sessionUser}
+          company={company}
+          jobs={jobs}
+          serviceJobs={serviceJobs}
+          employees={employees}
+          costCodes={costCodes}
           clockableJobs={clockableJobs}
           isDarkMode={isDarkMode}
         />
