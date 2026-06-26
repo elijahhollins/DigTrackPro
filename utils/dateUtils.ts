@@ -60,8 +60,9 @@ export const getTicketStatus = (ticket: DigTicket): TicketStatus => {
   if (ticket.refreshRequested) return TicketStatus.REFRESH_NEEDED;
 
   const now = new Date();
-  // Ticket clears at 11:59 PM on workDate, so the first day crews can dig is workDate + 1
-  const start = parseDateLocal(addDaysToDateStr(ticket.workDate, 1), false);
+  // Ticket clears at 12:00 AM on the Work Valid Date (workDate), which is the
+  // first moment crews can dig. (workDate defaults to callInDate + 2 days.)
+  const start = parseDateLocal(ticket.workDate, false);
   const exp = parseDateLocal(ticket.expires, true);
   
   // Calculate days remaining relative to the start of "now" for simpler day-based logic
