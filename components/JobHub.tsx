@@ -27,6 +27,7 @@ interface JobHubProps {
   onEditJob: (job: Job) => void;
   onDeleteJob: (job: Job) => void;
   onToggleComplete: (job: Job) => Promise<void> | void;
+  onUpdateJob: (job: Job) => Promise<void> | void;
   onOpenMarkup: (job: Job) => void;
   onViewDoc: (url: string) => void;
   onViewMedia: (job: Job) => void;
@@ -62,12 +63,17 @@ const HEALTH_DOT: Record<string, string> = {
 export const JobHub: React.FC<JobHubProps> = ({
   jobs, tickets, companyId, isAdmin, isDarkMode,
   schedulingEnabled, timeTrackingEnabled, inventoryEnabled, refreshKey,
-  onCreateJob, onEditJob, onDeleteJob, onToggleComplete, onOpenMarkup, onViewDoc, onViewMedia,
+  onCreateJob, onEditJob, onDeleteJob, onToggleComplete, onUpdateJob, onOpenMarkup, onViewDoc, onViewMedia,
 }) => {
   const [search, setSearch] = useState('');
   const [hideCompleted, setHideCompleted] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
+
+  // ── inline customer edit ────────────────────────────────────────────────────
+  const [editingCustomer, setEditingCustomer] = useState(false);
+  const [customerDraft, setCustomerDraft] = useState('');
+  const [savingCustomer, setSavingCustomer] = useState(false);
 
   // ── company-wide aux data (loaded once) ──────────────────────────────────
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -193,6 +199,30 @@ export const JobHub: React.FC<JobHubProps> = ({
   }, [selectedJob?.jobNumber]);
 
   const selectJob = (id: string) => { setSelectedId(id); setMobileDetailOpen(true); };
+
+  // Drop any in-progress customer edit when the selected job changes.
+  useEffect(() => { setEditingCustomer(false); setSavingCustomer(false); }, [selectedId]);
+
+  const beginEditCustomer = () => {
+    if (!selectedJob) return;
+    setCustomerDraft(selectedJob.customer ?? '');
+    setEditingCustomer(true);
+  };
+
+  const saveCustomer = async () => {
+    if (!selectedJob) return;
+    const next = customerDraft.trim();
+    if (next === (selectedJob.customer ?? '')) { setEditingCustomer(false); return; }
+    setSavingCustomer(true);
+    try {
+      await onUpdateJob({ ...selectedJob, customer: next });
+      setEditingCustomer(false);
+    } catch (err: any) {
+      alert('Failed to save customer: ' + (err?.message ?? err));
+    } finally {
+      setSavingCustomer(false);
+    }
+  };
 
   // ── derived detail data for the selected job ────────────────────────────────
   const empById = useMemo(() => new Map(employees.map(e => [e.id, e])), [employees]);
@@ -366,6 +396,43 @@ export const JobHub: React.FC<JobHubProps> = ({
                     </div>
                     <p className={`text-xs font-bold mt-1 ${isDarkMode ? 'text-slate-200' : 'text-slate-700'}`}>{selectedJob.jobName || `Job #${selectedJob.jobNumber}`}</p>
                     <p className={`text-[11px] font-semibold ${subtle}`}>{[selectedJob.address, selectedJob.city, selectedJob.state].filter(Boolean).join(', ')}</p>
+
+                    {/* Customer — view + inline edit */}
+                    <div className="mt-2">
+                      <p className={`text-[9px] font-black uppercase tracking-widest ${subtle}`}>Customer</p>
+                      {editingCustomer ? (
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <input
+                            autoFocus
+                            value={customerDraft}
+                            onChange={e => setCustomerDraft(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') saveCustomer(); if (e.key === 'Escape') setEditingCustomer(false); }}
+                            disabled={savingCustomer}
+                            placeholder="Client / customer name"
+                            className={`px-2.5 py-1.5 rounded-lg border text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`}
+                          />
+                          <button onClick={saveCustomer} disabled={savingCustomer}
+                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-brand text-[#0f172a] text-[9px] font-black uppercase tracking-widest disabled:opacity-50">
+                            <CheckCircle2 size={12} /> {savingCustomer ? 'Saving…' : 'Save'}
+                          </button>
+                          <button onClick={() => setEditingCustomer(false)} disabled={savingCustomer}
+                            className={`flex items-center px-2 py-1.5 rounded-lg border text-[9px] font-black uppercase tracking-widest ${isDarkMode ? 'border-white/10 hover:bg-white/5' : 'border-slate-200 hover:bg-slate-50'}`}>
+                            <X size={12} />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <p className={`text-[11px] font-bold ${selectedJob.customer ? (isDarkMode ? 'text-slate-200' : 'text-slate-700') : `italic ${subtle}`}`}>
+                            {selectedJob.customer || 'No customer set'}
+                          </p>
+                          {isAdmin && (
+                            <button onClick={beginEditCustomer} className={`p-1 rounded-md transition-colors ${subtle} hover:text-brand`} aria-label="Edit customer">
+                              <Pencil size={12} />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                   {isAdmin && (
                     <div className="flex flex-wrap items-center gap-2">

@@ -132,7 +132,7 @@ export interface Job {
   companyId: string;
   jobNumber: string;
   jobName: string;
-  /** @deprecated Legacy field. Site contact info is now tracked via `siteContact`. */
+  /** Client / customer name for the job. (On-site contact is tracked separately via `siteContact`.) */
   customer: string;
   siteContact: string;
   address: string;

@@ -1206,6 +1206,7 @@ const App: React.FC = () => {
               onEditJob={(job: Job) => { setEditingJob(job); setShowJobForm(true); }}
               onDeleteJob={(job: Job) => { if (confirm(`Delete job #${job.jobNumber}? This cannot be undone.`)) apiService.deleteJob(job.id).then(() => initApp()); }}
               onToggleComplete={async (job: Job) => { await apiService.saveJob({ ...job, isComplete: !job.isComplete }); initApp(); }}
+              onUpdateJob={async (job: Job) => { await apiService.saveJob(job); initApp(); }}
               onOpenMarkup={(job: Job) => setShowMarkup(job)}
               onViewDoc={setViewingDocUrl}
               onViewMedia={(job: Job) => { setMediaFolderFilter(job.jobNumber); handleNavigate('photos'); }}
