@@ -1,7 +1,8 @@
 import React, { useState, useReducer, useRef, useCallback, useEffect } from 'react';
-import { Plus, X, ChevronLeft, ChevronRight, Clock, Calendar, Pencil, Trash2, Briefcase, Users, Wrench, GripHorizontal, RotateCcw, Search } from 'lucide-react';
+import { Plus, X, ChevronLeft, ChevronRight, Clock, Calendar, Pencil, Trash2, Briefcase, Users, Wrench, GripHorizontal, RotateCcw, Search, Upload } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient.ts';
 import { scheduleService } from '../../services/scheduleService.ts';
+import ScheduleImportModal, { type ScheduleImportRow } from './ScheduleImportModal.tsx';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -242,6 +243,7 @@ type BaseAction =
   | { type: 'INSERT_DELAY';       blockId: string; days: number }
   | { type: 'EXTEND_JOB';         blockId: string; days: number }
   | { type: 'ADD_BLOCK';          block: ScheduleBlock }
+  | { type: 'ADD_BLOCKS';         blocks: ScheduleBlock[] }
   | { type: 'ADD_BLOCK_PUSH';     block: ScheduleBlock; shiftDays: number }
   | { type: 'DELETE_BLOCK';       id: string }
   | { type: 'REPLACE_ALL';        blocks: ScheduleBlock[] }
@@ -360,6 +362,9 @@ function reducer(state: ScheduleBlock[], action: Action): ScheduleBlock[] {
 
     case 'ADD_BLOCK':
       return [...state, action.block];
+
+    case 'ADD_BLOCKS':
+      return [...state, ...action.blocks];
 
     case 'ADD_BLOCK_PUSH': {
       // Push only crew blocks that actually overlap with the new block
@@ -2059,6 +2064,7 @@ export default function Scheduler({
   const [dayPrompt,         setDayPrompt]         = useState<DayPromptState | null>(null);
   const [tooltip,           setTooltip]           = useState<TooltipState | null>(null);
   const [showAddModal,      setShowAddModal]      = useState(false);
+  const [showImportModal,   setShowImportModal]   = useState(false);
   const [showManageCrews,   setShowManageCrews]   = useState(false);
   const [showManageJobs,    setShowManageJobs]    = useState(false);
 
@@ -2475,6 +2481,56 @@ export default function Scheduler({
     dispatchWithHistory({ type: 'EXTEND_JOB', blockId: dayPrompt.blockId, days });
   };
 
+  // ── Spreadsheet import ───────────────────────────────────────────────────────
+  // Turn parsed rows into schedule blocks, creating any crews and job options
+  // they reference that don't exist yet. Crew/job state updates auto-persist via
+  // the existing save effects, and the block-save effect upserts referenced crews
+  // before blocks so the FK constraint is always satisfied.
+  const handleImport = useCallback((rows: ScheduleImportRow[]) => {
+    const skip = skipWeekendsRef.current;
+
+    // Resolve crews by name (case-insensitive), creating new ones as needed.
+    const crewIdByName = new Map<string, string>(
+      crewsState.map(c => [c.name.trim().toLowerCase(), c.id]),
+    );
+    const newCrews: Crew[] = [];
+    for (const r of rows) {
+      const key = r.crewName.trim().toLowerCase();
+      if (!crewIdByName.has(key)) {
+        const crew: Crew = { id: `crew-${crypto.randomUUID()}`, name: r.crewName.trim(), size: 1, memberIds: [] };
+        crewIdByName.set(key, crew.id);
+        newCrews.push(crew);
+      }
+    }
+
+    // Collect new job options referenced by the import.
+    const existingJobNums = new Set(jobsState.map(j => j.jobNumber.toLowerCase()));
+    const newJobs: JobOption[] = [];
+    const seenNewJobs = new Set<string>();
+    for (const r of rows) {
+      const key = r.jobNumber.toLowerCase();
+      if (!existingJobNums.has(key) && !seenNewJobs.has(key)) {
+        seenNewJobs.add(key);
+        newJobs.push({ jobNumber: r.jobNumber, location: r.location, estimatedDays: r.durationDays });
+      }
+    }
+
+    // Build the blocks, snapping start dates off weekends when that mode is on.
+    const importedBlocks: ScheduleBlock[] = rows.map(r => ({
+      id:           `block-${crypto.randomUUID()}`,
+      crewId:       crewIdByName.get(r.crewName.trim().toLowerCase())!,
+      jobNumber:    r.jobNumber,
+      startDate:    skip ? snapToWeekday(r.startDate) : r.startDate,
+      durationDays: Math.max(1, r.durationDays),
+      type:         'job',
+      extended:     false,
+    }));
+
+    if (newCrews.length > 0) setCrewsState(prev => [...prev, ...newCrews]);
+    if (newJobs.length > 0)   setJobsState(prev => [...prev, ...newJobs]);
+    if (importedBlocks.length > 0) dispatchWithHistory({ type: 'ADD_BLOCKS', blocks: importedBlocks });
+  }, [crewsState, jobsState, dispatchWithHistory]);
+
   // ── Build month-label spans for header ──────────────────────────────────────
 
   const monthLabels: { label: string; startCol: number; span: number }[] = [];
@@ -2647,6 +2703,14 @@ export default function Scheduler({
             }`}
           >
             <Wrench className="w-3.5 h-3.5" /><span className="hidden sm:inline"> Equipment</span>
+          </button>
+          <button
+            onClick={() => setShowImportModal(true)}
+            aria-label="Import schedule from spreadsheet"
+            title="Import schedule from a CSV or spreadsheet"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-slate-200 text-xs font-semibold rounded-lg transition-colors border border-white/10"
+          >
+            <Upload className="w-3.5 h-3.5" /><span className="hidden sm:inline"> Import</span>
           </button>
           <button
             onClick={() => setShowAddModal(true)}
@@ -3130,6 +3194,15 @@ export default function Scheduler({
             }
           }}
           onClose={() => setShowAddModal(false)}
+        />
+      )}
+
+      {showImportModal && (
+        <ScheduleImportModal
+          crews={crewsState}
+          jobs={jobsState}
+          onImport={handleImport}
+          onClose={() => setShowImportModal(false)}
         />
       )}
 
