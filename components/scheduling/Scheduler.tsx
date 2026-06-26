@@ -126,29 +126,93 @@ const fmtLong = (iso: string): string =>
 
 const todayISO = toISO(new Date());
 
-/** Returns true when two schedule intervals [aStart, aStart+aDays) and [bStart, bStart+bDays) overlap. */
+// ═══════════════════════════════════════════════════════════════════════════════
+// WEEKEND-AWARE SCHEDULING HELPERS
+// ═══════════════════════════════════════════════════════════════════════════════
+// When "skip weekends" is enabled, durations count working days (Mon–Fri) only
+// and blocks never start on a Saturday or Sunday. Every helper accepts a `skip`
+// flag and degrades to plain calendar math when it's false, so both modes share
+// one code path through the reducer and render logic.
+
+const isWeekendDate = (d: Date): boolean => d.getDay() === 0 || d.getDay() === 6;
+
+/** Snap an ISO date forward to the next weekday (Monday) when it lands on a weekend. */
+const snapToWeekday = (iso: string): string => {
+  const d = parseDate(iso);
+  while (isWeekendDate(d)) d.setDate(d.getDate() + 1);
+  return toISO(d);
+};
+
+/** Date of the n-th working day of a span, counting `start` as day 1 (start is snapped to a weekday). */
+const nthWorkingDay = (start: string, n: number): string => {
+  const d = parseDate(start);
+  while (isWeekendDate(d)) d.setDate(d.getDate() + 1);
+  let count = 1;
+  while (count < n) {
+    d.setDate(d.getDate() + 1);
+    if (!isWeekendDate(d)) count++;
+  }
+  return toISO(d);
+};
+
+/** Count the working days in the inclusive calendar range [start, end]. */
+const countWorkingDays = (start: string, end: string): number => {
+  if (end < start) return 0;
+  const d = parseDate(start);
+  const last = parseDate(end);
+  let count = 0;
+  while (d <= last) {
+    if (!isWeekendDate(d)) count++;
+    d.setDate(d.getDate() + 1);
+  }
+  return count;
+};
+
+/** Number of calendar columns a block occupies on the grid (spans weekends when skipping). */
+const blockSpanDays = (start: string, durationDays: number, skip: boolean): number =>
+  skip ? diffDays(nthWorkingDay(start, durationDays), start) + 1 : durationDays;
+
+/** First calendar day after a block ends (its next available start), weekday-snapped when skipping. */
+const blockEndExclusive = (start: string, durationDays: number, skip: boolean): string =>
+  skip ? snapToWeekday(addDays(nthWorkingDay(start, durationDays), 1)) : addDays(start, durationDays);
+
+/** Shift an ISO date forward by `n` working days (or calendar days when not skipping). */
+const shiftSchedDays = (start: string, n: number, skip: boolean): string => {
+  if (!skip || n <= 0) return addDays(start, n);
+  const d = parseDate(start);
+  let remaining = n;
+  while (remaining > 0) {
+    d.setDate(d.getDate() + 1);
+    if (!isWeekendDate(d)) remaining--;
+  }
+  return toISO(d);
+};
+
+/** Returns true when two schedule intervals overlap, accounting for weekend skipping. */
 const blocksOverlap = (
   aStart: string, aDays: number,
   bStart: string, bDays: number,
+  skip: boolean,
 ): boolean => {
-  const aEnd = addDays(aStart, aDays);
-  const bEnd = addDays(bStart, bDays);
+  const aEnd = blockEndExclusive(aStart, aDays, skip);
+  const bEnd = blockEndExclusive(bStart, bDays, skip);
   return aStart < bEnd && bStart < aEnd;
 };
 
-/** Returns blocks of the same crew that overlap with [startDate, startDate+durationDays), excluding excludeId. */
+/** Returns blocks of the same crew that overlap with the given interval, excluding excludeId. */
 const findOverlapConflicts = (
   blocks: ScheduleBlock[],
   crewId: string,
   startDate: string,
   durationDays: number,
+  skip: boolean,
   excludeId?: string,
 ): ScheduleBlock[] =>
   blocks.filter(
     b =>
       b.crewId === crewId &&
       b.id !== excludeId &&
-      blocksOverlap(startDate, durationDays, b.startDate, b.durationDays),
+      blocksOverlap(startDate, durationDays, b.startDate, b.durationDays, skip),
   );
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -172,7 +236,7 @@ const MOCK_BLOCK_IDS = new Set(INITIAL_BLOCKS.map(b => b.id));
 // REDUCER
 // ═══════════════════════════════════════════════════════════════════════════════
 
-type Action =
+type BaseAction =
   | { type: 'MOVE_BLOCK';         id: string; crewId: string; startDate: string }
   | { type: 'MOVE_BLOCK_PUSH';    id: string; crewId: string; startDate: string; shiftDays: number }
   | { type: 'INSERT_DELAY';       blockId: string; days: number }
@@ -185,17 +249,22 @@ type Action =
   | { type: 'UNASSIGN_EQUIPMENT'; blockId: string; equipmentId: string }
   | { type: 'SHIFT_CREW';         crewId: string; fromDate: string; days: number };
 
+// `skipWeekends` is injected at dispatch time so the pure reducer can do
+// weekday-aware date math without reading component state directly.
+type Action = BaseAction & { skipWeekends?: boolean };
+
 /** Push all blocks for a crew that start on or after `fromDate` forward by `shiftDays`. */
 function shiftAfter(
   blocks: ScheduleBlock[],
   crewId: string,
   fromDate: string,
   shiftDays: number,
+  skip: boolean,
   excludeId?: string,
 ): ScheduleBlock[] {
   return blocks.map(b => {
     if (b.crewId === crewId && b.id !== excludeId && b.startDate >= fromDate) {
-      return { ...b, startDate: addDays(b.startDate, shiftDays) };
+      return { ...b, startDate: shiftSchedDays(b.startDate, shiftDays, skip) };
     }
     return b;
   });
@@ -212,9 +281,10 @@ function pushConflictingForward(
   crewId: string,
   newStart: string,
   newDuration: number,
+  skip: boolean,
   excludeId?: string,
 ): ScheduleBlock[] {
-  const newEnd = addDays(newStart, newDuration);
+  const newEnd = blockEndExclusive(newStart, newDuration, skip);
 
   const crewBlocks = blocks
     .filter(b => b.crewId === crewId && b.id !== excludeId)
@@ -225,8 +295,9 @@ function pushConflictingForward(
 
   for (const b of crewBlocks) {
     if (b.startDate >= newStart && b.startDate < pushBoundary) {
-      updates.set(b.id, pushBoundary);
-      pushBoundary = addDays(pushBoundary, b.durationDays);
+      const placed = skip ? snapToWeekday(pushBoundary) : pushBoundary;
+      updates.set(b.id, placed);
+      pushBoundary = blockEndExclusive(placed, b.durationDays, skip);
     }
   }
 
@@ -237,6 +308,7 @@ function pushConflictingForward(
 }
 
 function reducer(state: ScheduleBlock[], action: Action): ScheduleBlock[] {
+  const skip = action.skipWeekends ?? false;
   switch (action.type) {
     case 'MOVE_BLOCK':
       return state.map(b =>
@@ -253,7 +325,7 @@ function reducer(state: ScheduleBlock[], action: Action): ScheduleBlock[] {
           ? { ...b, crewId: action.crewId, startDate: action.startDate }
           : b,
       );
-      return pushConflictingForward(moved, action.crewId, action.startDate, action.shiftDays, action.id);
+      return pushConflictingForward(moved, action.crewId, action.startDate, action.shiftDays, skip, action.id);
     }
 
     case 'INSERT_DELAY': {
@@ -269,21 +341,21 @@ function reducer(state: ScheduleBlock[], action: Action): ScheduleBlock[] {
         extended: false,
       };
       // Shift the target job AND every subsequent crew block forward by `days`
-      const shifted = shiftAfter(state, job.crewId, job.startDate, action.days);
+      const shifted = shiftAfter(state, job.crewId, job.startDate, action.days, skip);
       return [...shifted, delay];
     }
 
     case 'EXTEND_JOB': {
       const job = state.find(b => b.id === action.blockId);
       if (!job || job.type !== 'job') return state;
-      const oldEnd = addDays(job.startDate, job.durationDays);
+      const oldEnd = blockEndExclusive(job.startDate, job.durationDays, skip);
       const withExtended = state.map(b =>
         b.id === action.blockId
           ? { ...b, durationDays: b.durationDays + action.days, extended: true }
           : b,
       );
       // Shift blocks that begin at or after the job's original end date
-      return shiftAfter(withExtended, job.crewId, oldEnd, action.days, action.blockId);
+      return shiftAfter(withExtended, job.crewId, oldEnd, action.days, skip, action.blockId);
     }
 
     case 'ADD_BLOCK':
@@ -293,7 +365,7 @@ function reducer(state: ScheduleBlock[], action: Action): ScheduleBlock[] {
       // Push only crew blocks that actually overlap with the new block
       // (cascading as needed), then insert the new block.
       const shifted = pushConflictingForward(
-        state, action.block.crewId, action.block.startDate, action.block.durationDays,
+        state, action.block.crewId, action.block.startDate, action.block.durationDays, skip,
       );
       return [...shifted, action.block];
     }
@@ -321,7 +393,7 @@ function reducer(state: ScheduleBlock[], action: Action): ScheduleBlock[] {
     case 'SHIFT_CREW':
       return state.map(b =>
         b.crewId === action.crewId && b.startDate >= action.fromDate
-          ? { ...b, startDate: addDays(b.startDate, action.days) }
+          ? { ...b, startDate: shiftSchedDays(b.startDate, action.days, skip) }
           : b,
       );
 
@@ -524,9 +596,11 @@ interface TooltipState {
   y: number;
 }
 
-const BlockTooltip = ({ tip }: { tip: TooltipState }) => {
+const BlockTooltip = ({ tip, skipWeekends }: { tip: TooltipState; skipWeekends: boolean }) => {
   const { block, job, crew } = tip;
-  const endDate = addDays(block.startDate, block.durationDays - 1);
+  const endDate = skipWeekends
+    ? nthWorkingDay(block.startDate, block.durationDays)
+    : addDays(block.startDate, block.durationDays - 1);
   return (
     <div
       className="fixed z-50 pointer-events-none"
@@ -1727,6 +1801,20 @@ export default function Scheduler({
   const [view, setView]    = useState<'week' | 'month'>('week');
   const [viewOffset, setViewOffset] = useState(0); // days from default start
 
+  // Skip weekends: durations count working days (Mon–Fri) and blocks never start
+  // on a weekend. Defaults on, persisted so the choice survives reloads. Can be
+  // turned off for the occasional weekend crew.
+  const [skipWeekends, setSkipWeekends] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    const saved = window.localStorage.getItem('scheduler-skip-weekends');
+    return saved === null ? true : saved === 'true';
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem('scheduler-skip-weekends', String(skipWeekends)); } catch { /* ignore */ }
+  }, [skipWeekends]);
+  const skipWeekendsRef = useRef(skipWeekends);
+  skipWeekendsRef.current = skipWeekends;
+
   // Guards to avoid saving before the initial Supabase load completes
   const dbLoadedRef = useRef(false);
 
@@ -1947,6 +2035,7 @@ export default function Scheduler({
     blockId:      string;
     startX:       number;
     origDuration: number;
+    origStart:    string;
     crewId:       string;
   } | null>(null);
 
@@ -2016,7 +2105,7 @@ export default function Scheduler({
   const dispatchWithHistory = useCallback((action: Action) => {
     undoHistoryRef.current = [...undoHistoryRef.current.slice(-19), blocksRef.current];
     setCanUndo(true);
-    dispatch(action);
+    dispatch({ ...action, skipWeekends: skipWeekendsRef.current });
   }, [dispatch]);
 
   /** Restore the most recent snapshot from undo history. */
@@ -2080,7 +2169,9 @@ export default function Scheduler({
     // Position within the grid area (subtract the fixed crew-label column)
     const xInGrid    = xInContent - CREW_COL_W;
     const dayIndex   = Math.floor(xInGrid / dayWidth);
-    const newStart   = addDays(viewStart, dayIndex - dragOffsetDays);
+    const skip       = skipWeekendsRef.current;
+    let   newStart   = addDays(viewStart, dayIndex - dragOffsetDays);
+    if (skip) newStart = snapToWeekday(newStart);
 
     setDraggingId(null);
 
@@ -2088,7 +2179,7 @@ export default function Scheduler({
     const movingBlock = allBlocks.find(b => b.id === blockId);
     if (!movingBlock) return;
 
-    const conflicts = findOverlapConflicts(allBlocks, crewId, newStart, movingBlock.durationDays, blockId);
+    const conflicts = findOverlapConflicts(allBlocks, crewId, newStart, movingBlock.durationDays, skip, blockId);
     if (conflicts.length > 0) {
       const crew = crewsStateRef.current.find(c => c.id === crewId);
       setPendingMove({
@@ -2228,14 +2319,16 @@ export default function Scheduler({
       const xInContent = touch.clientX - containerRect.left + container.scrollLeft;
       const xInGrid    = xInContent - CREW_COL_W;
       const dayIndex   = dw > 0 ? Math.floor(xInGrid / dw) : 0;
-      const newStart   = addDays(viewStartRef.current, dayIndex - drag.offsetDays);
+      const skip       = skipWeekendsRef.current;
+      let   newStart   = addDays(viewStartRef.current, dayIndex - drag.offsetDays);
+      if (skip) newStart = snapToWeekday(newStart);
 
       if (targetCrew) {
         const allBlocks   = blocksRef.current;
         const movingBlock = allBlocks.find(b => b.id === drag.blockId);
         if (movingBlock) {
           const conflicts = findOverlapConflicts(
-            allBlocks, targetCrew.id, newStart, movingBlock.durationDays, drag.blockId,
+            allBlocks, targetCrew.id, newStart, movingBlock.durationDays, skip, drag.blockId,
           );
           if (conflicts.length > 0) {
             setPendingMove({
@@ -2272,6 +2365,7 @@ export default function Scheduler({
       blockId:      block.id,
       startX:       e.clientX,
       origDuration: block.durationDays,
+      origStart:    block.startDate,
       crewId:       block.crewId,
     };
     setResizingId(block.id);
@@ -2286,6 +2380,7 @@ export default function Scheduler({
       blockId:      block.id,
       startX:       touch.clientX,
       origDuration: block.durationDays,
+      origStart:    block.startDate,
       crewId:       block.crewId,
     };
     setResizingId(block.id);
@@ -2295,23 +2390,33 @@ export default function Scheduler({
   useEffect(() => {
     if (!resizingId) return;
 
+    // Convert a pixel drag (in calendar columns) into a working-day duration
+    // delta so that dragging across a weekend doesn't add weekend days when
+    // weekend-skipping is on.
+    const toDurationDelta = (r: NonNullable<typeof resizeRef.current>, cols: number): number => {
+      if (cols <= 0) return 0;
+      if (!skipWeekendsRef.current) return cols;
+      const origLast    = nthWorkingDay(r.origStart, r.origDuration);
+      const targetEnd   = addDays(origLast, cols);
+      const newDuration = countWorkingDays(r.origStart, targetEnd);
+      return Math.max(0, newDuration - r.origDuration);
+    };
+
     const onMouseMove = (e: MouseEvent) => {
       const r = resizeRef.current;
       if (!r || dayWidthRef.current === 0) return;
-      const deltaX    = e.clientX - r.startX;
-      const deltaDays = Math.max(0, Math.round(deltaX / dayWidthRef.current));
-      setResizeDeltaDays(deltaDays);
+      const cols = Math.max(0, Math.round((e.clientX - r.startX) / dayWidthRef.current));
+      setResizeDeltaDays(toDurationDelta(r, cols));
     };
 
     const onMouseUp = (e: MouseEvent) => {
       const r = resizeRef.current;
       if (!r) return;
       const dw = dayWidthRef.current;
-      const deltaDays = dw > 0
-        ? Math.max(0, Math.round((e.clientX - r.startX) / dw))
-        : 0;
-      if (deltaDays > 0) {
-        dispatch({ type: 'EXTEND_JOB', blockId: r.blockId, days: deltaDays });
+      const cols = dw > 0 ? Math.max(0, Math.round((e.clientX - r.startX) / dw)) : 0;
+      const days = toDurationDelta(r, cols);
+      if (days > 0) {
+        dispatch({ type: 'EXTEND_JOB', blockId: r.blockId, days, skipWeekends: skipWeekendsRef.current });
       }
       resizeRef.current = null;
       setResizingId(null);
@@ -2323,9 +2428,8 @@ export default function Scheduler({
       if (!r || dayWidthRef.current === 0) return;
       e.preventDefault();
       const touch = e.touches[0];
-      const deltaX    = touch.clientX - r.startX;
-      const deltaDays = Math.max(0, Math.round(deltaX / dayWidthRef.current));
-      setResizeDeltaDays(deltaDays);
+      const cols = Math.max(0, Math.round((touch.clientX - r.startX) / dayWidthRef.current));
+      setResizeDeltaDays(toDurationDelta(r, cols));
     };
 
     const onTouchEnd = (e: TouchEvent) => {
@@ -2333,11 +2437,10 @@ export default function Scheduler({
       if (!r) return;
       const dw = dayWidthRef.current;
       const touch = e.changedTouches[0];
-      const deltaDays = dw > 0
-        ? Math.max(0, Math.round((touch.clientX - r.startX) / dw))
-        : 0;
-      if (deltaDays > 0) {
-        dispatch({ type: 'EXTEND_JOB', blockId: r.blockId, days: deltaDays });
+      const cols = dw > 0 ? Math.max(0, Math.round((touch.clientX - r.startX) / dw)) : 0;
+      const days = toDurationDelta(r, cols);
+      if (days > 0) {
+        dispatch({ type: 'EXTEND_JOB', blockId: r.blockId, days, skipWeekends: skipWeekendsRef.current });
       }
       resizeRef.current = null;
       setResizingId(null);
@@ -2463,6 +2566,23 @@ export default function Scheduler({
         </span>
 
         <div className="ml-auto flex items-center gap-2">
+          {/* Skip-weekends toggle — when on, jobs span Mon–Fri and auto-skip Sat/Sun */}
+          <button
+            onClick={() => setSkipWeekends(s => !s)}
+            aria-pressed={skipWeekends}
+            aria-label={skipWeekends ? 'Weekends skipped — click to include weekends' : 'Weekends included — click to skip weekends'}
+            title={skipWeekends
+              ? 'Weekends skipped — jobs are scheduled Monday–Friday. Click to allow weekend work.'
+              : 'Weekends included — jobs can run any day. Click to skip weekends.'}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all border ${
+              skipWeekends
+                ? 'bg-white/10 hover:bg-white/20 text-slate-200 border-white/10'
+                : 'bg-amber-400 text-slate-900 border-amber-300 shadow-sm'
+            }`}
+          >
+            <Calendar className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">{skipWeekends ? 'Mon–Fri' : '7-Day'}</span>
+          </button>
           {/* Edit mode toggle */}
           <button
             onClick={() => setEditMode(m => !m)}
@@ -2804,7 +2924,8 @@ export default function Scheduler({
                   {crewBlocks.map(block => {
                     const left  = diffDays(block.startDate, viewStart) * dayWidth;
                     const isResizing = resizingId === block.id;
-                    const width = (block.durationDays + (isResizing ? resizeDeltaDays : 0)) * dayWidth;
+                    const previewDuration = block.durationDays + (isResizing ? resizeDeltaDays : 0);
+                    const width = blockSpanDays(block.startDate, previewDuration, skipWeekends) * dayWidth;
                     if (left + width < 0 || left > totalGridWidth) return null;
                     const job = jobsState.find(j => j.jobNumber === block.jobNumber);
                     const eqCount = (block.equipmentIds ?? []).length;
@@ -2858,7 +2979,7 @@ export default function Scheduler({
       </div>
 
       {/* ─── Overlays ─── */}
-      {tooltip && <BlockTooltip tip={tooltip} />}
+      {tooltip && <BlockTooltip tip={tooltip} skipWeekends={skipWeekends} />}
 
       {/* Touch drag ghost */}
       {touchGhostPos && touchDragRef.current && (
@@ -2988,9 +3109,12 @@ export default function Scheduler({
         <AddBlockModal
           crews={crewsState}
           jobs={jobsState}
-          onAdd={block => {
+          onAdd={rawBlock => {
+            const block = skipWeekends
+              ? { ...rawBlock, startDate: snapToWeekday(rawBlock.startDate) }
+              : rawBlock;
             const conflicts = findOverlapConflicts(
-              blocks, block.crewId, block.startDate, block.durationDays,
+              blocks, block.crewId, block.startDate, block.durationDays, skipWeekends,
             );
             if (conflicts.length > 0) {
               const crew = crewsState.find(c => c.id === block.crewId);
