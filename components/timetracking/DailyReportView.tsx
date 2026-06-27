@@ -1,16 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   FileText, Plus, Download, Trash2, Image as ImageIcon, X, Save, Camera, ClipboardList,
+  Lock, CheckCircle2, History, Clock,
 } from 'lucide-react';
 import { Company, Job, User } from '../../types.ts';
 import { Employee, ServiceJob } from '../../services/schedulingTypes.ts';
-import { CostCode, ClockableJob, DailyReport, DailyReportPhoto, TimeEntry } from '../../services/timeTrackingTypes.ts';
+import {
+  CostCode, ClockableJob, DailyReport, DailyReportPhoto, DailyReportStatus, TimeEntry,
+} from '../../services/timeTrackingTypes.ts';
 import { timeTrackingService } from '../../services/timeTrackingService.ts';
 import { dailyReportService, DailyReportInput } from '../../services/dailyReportService.ts';
 import { computeDailyReport, generateDailyReportPdf } from './dailyReportPdf.ts';
 
 interface DailyReportViewProps {
   sessionUser: User;
+  isAdmin: boolean;
   company?: Company;
   jobs: Job[];
   serviceJobs: ServiceJob[];
@@ -33,15 +37,17 @@ const prettyDate = (ymd: string) => {
 };
 
 export default function DailyReportView({
-  sessionUser, company, jobs, serviceJobs, employees, costCodes, clockableJobs, isDarkMode,
+  sessionUser, isAdmin, company, jobs, serviceJobs, employees, costCodes, clockableJobs, isDarkMode,
 }: DailyReportViewProps) {
   const card = isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200';
-  const input = `w-full px-3 py-3 rounded-lg border text-base ${isDarkMode ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-300 text-slate-900'}`;
+  const input = `w-full px-3 py-3 rounded-lg border text-base ${isDarkMode ? 'bg-slate-900 border-slate-700 text-slate-100' : 'bg-white border-slate-300 text-slate-900'} disabled:opacity-60`;
   const labelCls = 'block text-xs font-bold uppercase tracking-wide mb-1 text-slate-500';
 
   const [reports, setReports] = useState<DailyReport[]>([]);
   const [mode, setMode] = useState<'list' | 'edit'>('list');
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingStatus, setEditingStatus] = useState<DailyReportStatus>('draft');
+  const [editingPreparedById, setEditingPreparedById] = useState<string | null>(null);
 
   // form state
   const [selectedJob, setSelectedJob] = useState<ClockableJob | null>(null);
@@ -54,16 +60,53 @@ export default function DailyReportView({
   const [photos, setPhotos] = useState<DailyReportPhoto[]>([]);
 
   const [dayEntries, setDayEntries] = useState<TimeEntry[]>([]);
+  const [recentJobs, setRecentJobs] = useState<ClockableJob[]>([]);
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const maxDate = todayLocal();
+
+  // Whether the current login can edit the open report. New reports + own drafts
+  // are editable by the preparer; admins can edit anything. A submitted report is
+  // locked to its foreman (RLS enforces the same rule server-side).
+  const isMine = editingId === null || editingPreparedById === sessionUser.id;
+  const canEdit = isAdmin || (isMine && editingStatus === 'draft');
+  const locked = !canEdit;
+
+  const myEmployeeId = useMemo(
+    () => employees.find(e => e.profileId === sessionUser.id)?.id ?? null,
+    [employees, sessionUser.id],
+  );
 
   const loadReports = async () => {
     try { setReports(await dailyReportService.listReports()); }
     catch (err) { console.error('Failed to load daily reports:', err); }
   };
   useEffect(() => { loadReports(); }, []);
+
+  // Recently clocked-into jobs for this foreman (quick-pick). Falls back to the
+  // company's recent activity if their login isn't linked to an employee.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const entries = await timeTrackingService.listEntries(myEmployeeId != null ? { employeeId: myEmployeeId } : {});
+        const seen = new Set<string>();
+        const list: ClockableJob[] = [];
+        for (const e of entries) {            // listEntries is newest-first
+          const key = `${e.jobKind}:${e.jobRef}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          list.push(clockableJobs.find(j => j.kind === e.jobKind && j.ref === e.jobRef) ?? { kind: e.jobKind, ref: e.jobRef, label: e.jobLabel });
+          if (list.length >= 6) break;
+        }
+        if (!cancelled) setRecentJobs(list);
+      } catch (err) { console.error('Failed to load recent jobs:', err); }
+    })();
+    return () => { cancelled = true; };
+  }, [myEmployeeId, clockableJobs]);
 
   // Pull the selected job + day's time entries (for the live summary + PDF).
   useEffect(() => {
@@ -84,24 +127,14 @@ export default function DailyReportView({
   }, [jobSearch, clockableJobs]);
 
   // Resolve project number / name / customer for the header from the source job.
-  const jobMeta = useMemo(() => {
-    if (!selectedJob) return { projectNumber: '', projectName: '', customer: '' };
-    if (selectedJob.kind === 'dig') {
-      const j = jobs.find(x => x.id === selectedJob.ref);
-      return {
-        projectNumber: j?.jobNumber || '',
-        projectName: j?.jobName || '',
-        customer: j?.siteContact || j?.customer || '',
-      };
+  const resolveMetaFor = (jobKind: string, jobRef: string) => {
+    if (jobKind === 'dig') {
+      const j = jobs.find(x => x.id === jobRef);
+      return { projectNumber: j?.jobNumber || '', projectName: j?.jobName || '', customer: j?.siteContact || j?.customer || '' };
     }
-    const s = serviceJobs.find(x => String(x.id) === selectedJob.ref);
-    return {
-      projectNumber: s?.jobNumber || '',
-      projectName: s?.jobName || '',
-      customer: s?.customerName || '',
-    };
-  }, [selectedJob, jobs, serviceJobs]);
-
+    const s = serviceJobs.find(x => String(x.id) === jobRef);
+    return { projectNumber: s?.jobNumber || '', projectName: s?.jobName || '', customer: s?.customerName || '' };
+  };
   const summary = useMemo(() => {
     if (!selectedJob) return null;
     return computeDailyReport(
@@ -112,6 +145,8 @@ export default function DailyReportView({
 
   const resetForm = () => {
     setEditingId(null);
+    setEditingStatus('draft');
+    setEditingPreparedById(null);
     setSelectedJob(null);
     setJobSearch('');
     setReportDate(todayLocal());
@@ -127,6 +162,8 @@ export default function DailyReportView({
 
   const openReport = (r: DailyReport) => {
     setEditingId(r.id);
+    setEditingStatus(r.status);
+    setEditingPreparedById(r.preparedById);
     setSelectedJob(clockableJobs.find(j => j.kind === r.jobKind && j.ref === r.jobRef) ?? { kind: r.jobKind, ref: r.jobRef, label: r.jobLabel });
     setReportDate(r.reportDate);
     setProgressSummary(r.progressSummary);
@@ -137,6 +174,8 @@ export default function DailyReportView({
     setError('');
     setMode('edit');
   };
+
+  const setDate = (v: string) => setReportDate(v && v > maxDate ? maxDate : v);
 
   const handlePhotoFiles = async (files: File[]) => {
     if (files.length === 0) return;
@@ -155,6 +194,7 @@ export default function DailyReportView({
 
   const buildInput = (): DailyReportInput | null => {
     if (!selectedJob) { setError('Pick a job first.'); return null; }
+    if (reportDate > maxDate) { setError('Reports can only be filed for today or a past date.'); return null; }
     return {
       jobKind: selectedJob.kind,
       jobRef: selectedJob.ref,
@@ -165,12 +205,12 @@ export default function DailyReportView({
       locatesNotes: locatesNotes.trim(),
       injuriesCount: Math.max(0, injuriesCount || 0),
       photos,
-      preparedById: sessionUser.id,
-      preparedByName: sessionUser.name,
+      preparedById: editingPreparedById ?? sessionUser.id,
+      preparedByName: editingId ? (reports.find(r => r.id === editingId)?.preparedByName || sessionUser.name) : sessionUser.name,
     };
   };
 
-  const handleSave = async (): Promise<DailyReport | null> => {
+  const save = async (): Promise<DailyReport | null> => {
     const inputData = buildInput();
     if (!inputData) return null;
     setBusy(true); setError('');
@@ -179,6 +219,7 @@ export default function DailyReportView({
         ? await dailyReportService.updateReport(editingId, sessionUser.companyId, inputData)
         : await dailyReportService.createReport(sessionUser.companyId, inputData);
       setEditingId(saved.id);
+      setEditingPreparedById(saved.preparedById);
       await loadReports();
       return saved;
     } catch (err) {
@@ -188,32 +229,57 @@ export default function DailyReportView({
     } finally { setBusy(false); }
   };
 
-  const handleSaveAndClose = async () => {
-    const saved = await handleSave();
+  const handleSaveDraft = async () => {
+    const saved = await save();
     if (saved) { resetForm(); setMode('list'); }
   };
 
-  const downloadPdf = async (r: DailyReport, meta = jobMeta, entries = dayEntries) => {
+  const handleFinalize = async () => {
+    if (!confirm('Finalize and submit this report? After submitting, only an admin can make changes.')) return;
+    const saved = await save();
+    if (!saved) return;
+    setBusy(true);
+    try {
+      await dailyReportService.submitReport(saved.id);
+      await loadReports();
+      resetForm();
+      setMode('list');
+    } catch (err) {
+      console.error('Submit failed:', err);
+      setError(err instanceof Error ? err.message : 'Could not submit report.');
+    } finally { setBusy(false); }
+  };
+
+  const handleReopen = async () => {
+    if (editingId == null) return;
     setBusy(true); setError('');
     try {
-      // Ensure we have that report's entries (when downloading from the list).
-      let entriesForReport = entries;
-      if (entries.length === 0 || (selectedJob && (selectedJob.kind !== r.jobKind || selectedJob.ref !== r.jobRef))) {
-        entriesForReport = await timeTrackingService.listEntries({
-          from: new Date(r.reportDate + 'T00:00:00').toISOString(),
-          to: new Date(r.reportDate + 'T23:59:59').toISOString(),
-        });
-      }
-      const resolvedMeta = meta.projectNumber || meta.projectName ? meta : resolveMetaFor(r);
+      const r = await dailyReportService.reopenReport(editingId);
+      setEditingStatus(r.status);
+      await loadReports();
+    } catch (err) {
+      console.error('Reopen failed:', err);
+      setError(err instanceof Error ? err.message : 'Could not reopen report.');
+    } finally { setBusy(false); }
+  };
+
+  const downloadPdf = async (r: DailyReport) => {
+    setBusy(true); setError('');
+    try {
+      const entriesForReport = await timeTrackingService.listEntries({
+        from: new Date(r.reportDate + 'T00:00:00').toISOString(),
+        to: new Date(r.reportDate + 'T23:59:59').toISOString(),
+      });
+      const meta = resolveMetaFor(r.jobKind, r.jobRef);
       await generateDailyReportPdf({
         report: r,
         entries: entriesForReport,
         employees,
         costCodes,
         company: company ? { name: company.name, phone: company.phone, city: company.city, state: company.state, brandColor: company.brandColor } : undefined,
-        projectNumber: resolvedMeta.projectNumber,
-        projectName: resolvedMeta.projectName,
-        customer: resolvedMeta.customer,
+        projectNumber: meta.projectNumber,
+        projectName: meta.projectName,
+        customer: meta.customer,
       });
     } catch (err) {
       console.error('PDF generation failed:', err);
@@ -221,27 +287,27 @@ export default function DailyReportView({
     } finally { setBusy(false); }
   };
 
-  const resolveMetaFor = (r: DailyReport) => {
-    if (r.jobKind === 'dig') {
-      const j = jobs.find(x => x.id === r.jobRef);
-      return { projectNumber: j?.jobNumber || '', projectName: j?.jobName || '', customer: j?.siteContact || j?.customer || '' };
-    }
-    const s = serviceJobs.find(x => String(x.id) === r.jobRef);
-    return { projectNumber: s?.jobNumber || '', projectName: s?.jobName || '', customer: s?.customerName || '' };
-  };
-
-  const handleSaveAndPdf = async () => {
-    const saved = await handleSave();
-    if (saved) await downloadPdf(saved, jobMeta, dayEntries);
+  // From the editor: persist edits first (when allowed) so the PDF reflects them.
+  const handleDownloadFromEditor = async () => {
+    let r: DailyReport | null = null;
+    if (canEdit) r = await save();
+    else if (editingId != null) r = reports.find(x => x.id === editingId) ?? null;
+    if (r) await downloadPdf(r);
   };
 
   const removeReport = async (id: number) => {
     if (!confirm('Delete this daily report? This cannot be undone.')) return;
     setBusy(true);
     try { await dailyReportService.deleteReport(id); await loadReports(); }
-    catch (err) { console.error('Delete failed:', err); }
+    catch (err) { console.error('Delete failed:', err); setError(err instanceof Error ? err.message : 'Delete failed.'); }
     finally { setBusy(false); }
   };
+
+  const StatusBadge = ({ status }: { status: DailyReportStatus }) => (
+    status === 'submitted'
+      ? <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-green-500/15 text-green-600"><CheckCircle2 size={11} /> Submitted</span>
+      : <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600"><Clock size={11} /> Draft</span>
+  );
 
   // ── List view ──────────────────────────────────────────────────────────────
   if (mode === 'list') {
@@ -263,26 +329,35 @@ export default function DailyReportView({
           </div>
         ) : (
           <ul className="space-y-2">
-            {reports.map(r => (
-              <li key={r.id} className={`rounded-xl border p-4 flex items-center justify-between gap-3 ${card}`}>
-                <button className="min-w-0 text-left flex-1" onClick={() => openReport(r)}>
-                  <p className="text-base font-bold truncate">{r.jobLabel || 'Job'}</p>
-                  <p className="text-xs text-slate-500">
-                    {prettyDate(r.reportDate)}
-                    {r.photos.length > 0 && <span className="ml-2 inline-flex items-center gap-1"><ImageIcon size={11} /> {r.photos.length}</span>}
-                    {r.injuriesCount > 0 && <span className="ml-2 text-red-500 font-semibold">{r.injuriesCount} injury{r.injuriesCount > 1 ? '' : ''}</span>}
-                  </p>
-                </button>
-                <div className="flex items-center gap-1 shrink-0">
-                  <button onClick={() => downloadPdf(r)} disabled={busy} title="Download PDF" className="p-2 rounded-lg text-brand hover:bg-brand/10 disabled:opacity-50">
-                    <Download size={17} />
+            {reports.map(r => {
+              const editable = isAdmin || (r.preparedById === sessionUser.id && r.status === 'draft');
+              return (
+                <li key={r.id} className={`rounded-xl border p-4 flex items-center justify-between gap-3 ${card}`}>
+                  <button className="min-w-0 text-left flex-1" onClick={() => openReport(r)}>
+                    <div className="flex items-center gap-2">
+                      <p className="text-base font-bold truncate">{r.jobLabel || 'Job'}</p>
+                      <StatusBadge status={r.status} />
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {prettyDate(r.reportDate)}
+                      {r.preparedByName && <span className="ml-2">· {r.preparedByName}</span>}
+                      {r.photos.length > 0 && <span className="ml-2 inline-flex items-center gap-1"><ImageIcon size={11} /> {r.photos.length}</span>}
+                      {r.injuriesCount > 0 && <span className="ml-2 text-red-500 font-semibold">{r.injuriesCount} injury</span>}
+                    </p>
                   </button>
-                  <button onClick={() => removeReport(r.id)} disabled={busy} title="Delete" className="p-2 rounded-lg text-red-500 hover:bg-red-500/10 disabled:opacity-50">
-                    <Trash2 size={17} />
-                  </button>
-                </div>
-              </li>
-            ))}
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={() => downloadPdf(r)} disabled={busy} title="Download PDF" className="p-2 rounded-lg text-brand hover:bg-brand/10 disabled:opacity-50">
+                      <Download size={17} />
+                    </button>
+                    {editable && (
+                      <button onClick={() => removeReport(r.id)} disabled={busy} title="Delete" className="p-2 rounded-lg text-red-500 hover:bg-red-500/10 disabled:opacity-50">
+                        <Trash2 size={17} />
+                      </button>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
         {error && <div className="px-3 py-2 rounded-lg text-sm bg-red-500/10 text-red-500 border border-red-500/20">{error}</div>}
@@ -297,9 +372,20 @@ export default function DailyReportView({
         <button onClick={() => { resetForm(); setMode('list'); }} className="text-sm font-bold text-slate-500 hover:text-brand">
           ← All reports
         </button>
-        <span className="text-sm font-bold text-slate-500">{editingId ? 'Edit report' : 'New report'}</span>
+        <span className="flex items-center gap-2 text-sm font-bold text-slate-500">
+          {editingId ? 'Edit report' : 'New report'}
+          {editingId != null && <StatusBadge status={editingStatus} />}
+        </span>
       </div>
 
+      {locked && (
+        <div className="px-3 py-2 rounded-lg text-sm bg-slate-500/10 text-slate-500 border border-slate-500/20 flex items-center gap-2">
+          <Lock size={15} />
+          {editingStatus === 'submitted'
+            ? 'This report has been submitted and is locked. Ask an admin to make changes.'
+            : 'This report belongs to another foreman. Only they or an admin can edit it.'}
+        </div>
+      )}
       {error && <div className="px-3 py-2 rounded-lg text-sm bg-red-500/10 text-red-500 border border-red-500/20">{error}</div>}
 
       <div className={`rounded-xl border p-4 space-y-4 ${card}`}>
@@ -310,11 +396,27 @@ export default function DailyReportView({
             {selectedJob ? (
               <div className="flex items-center justify-between gap-2">
                 <span className="text-base font-bold truncate">{selectedJob.label}</span>
-                <button className="text-sm text-brand font-bold shrink-0" onClick={() => { setSelectedJob(null); setJobSearch(''); }}>Change</button>
+                {canEdit && <button className="text-sm text-brand font-bold shrink-0" onClick={() => { setSelectedJob(null); setJobSearch(''); }}>Change</button>}
               </div>
             ) : (
               <>
-                <input className={input} placeholder="Search jobs…" value={jobSearch} onChange={e => setJobSearch(e.target.value)} />
+                {/* Recent jobs quick-pick */}
+                {recentJobs.length > 0 && (
+                  <div className="mb-2">
+                    <p className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-500 mb-1.5">
+                      <History size={11} /> Recent jobs
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {recentJobs.map(j => (
+                        <button key={`${j.kind}:${j.ref}`} onClick={() => { setSelectedJob(j); setJobSearch(''); }}
+                          className={`px-3 py-2 rounded-lg text-sm font-semibold border text-left ${isDarkMode ? 'bg-slate-900 border-slate-700 hover:border-brand' : 'bg-slate-50 border-slate-200 hover:border-brand'}`}>
+                          {j.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <input className={input} placeholder="Search all jobs…" value={jobSearch} onChange={e => setJobSearch(e.target.value)} />
                 {jobSearch && (
                   <div className={`mt-1 max-h-52 overflow-y-auto rounded-lg border ${isDarkMode ? 'border-slate-700' : 'border-slate-200'}`}>
                     {filteredJobs.length === 0 && <div className="px-3 py-2 text-sm text-slate-500">No matching jobs.</div>}
@@ -331,7 +433,8 @@ export default function DailyReportView({
           </div>
           <div>
             <label className={labelCls}>Date</label>
-            <input type="date" className={input} value={reportDate} onChange={e => setReportDate(e.target.value)} />
+            <input type="date" className={input} max={maxDate} disabled={locked} value={reportDate} onChange={e => setDate(e.target.value)} />
+            <p className="text-[11px] text-slate-500 mt-1">Today or earlier — future dates aren't allowed.</p>
           </div>
         </div>
 
@@ -357,72 +460,101 @@ export default function DailyReportView({
         {/* Progress summary */}
         <div>
           <label className={labelCls}>Progress Summary</label>
-          <textarea className={`${input} min-h-[120px] resize-y`} placeholder="What got done today? Footage, bores, backfill, equipment, where the crew picks up tomorrow…"
+          <textarea className={`${input} min-h-[120px] resize-y`} disabled={locked} placeholder="What got done today? Footage, bores, backfill, equipment, where the crew picks up tomorrow…"
             value={progressSummary} onChange={e => setProgressSummary(e.target.value)} />
         </div>
 
         {/* Photos */}
         <div>
           <label className={labelCls}>Photos</label>
-          <input ref={fileRef} type="file" accept="image/*" multiple className="hidden"
-            onChange={e => { handlePhotoFiles(Array.from(e.target.files || [])); e.target.value = ''; }} />
-          <button onClick={() => fileRef.current?.click()} disabled={uploading}
-            className={`w-full flex items-center justify-center gap-2 px-4 py-4 rounded-xl border-2 border-dashed font-bold ${isDarkMode ? 'border-slate-600 text-slate-300' : 'border-slate-300 text-slate-600'} ${uploading ? 'opacity-60' : 'hover:border-brand/50 hover:text-brand'}`}>
-            <Camera size={18} /> {uploading ? 'Uploading…' : 'Add photos'}
-          </button>
-          {photos.length > 0 && (
+          {!locked && (
+            <>
+              <input ref={fileRef} type="file" accept="image/*" multiple className="hidden"
+                onChange={e => { handlePhotoFiles(Array.from(e.target.files || [])); e.target.value = ''; }} />
+              <button onClick={() => fileRef.current?.click()} disabled={uploading}
+                className={`w-full flex items-center justify-center gap-2 px-4 py-4 rounded-xl border-2 border-dashed font-bold ${isDarkMode ? 'border-slate-600 text-slate-300' : 'border-slate-300 text-slate-600'} ${uploading ? 'opacity-60' : 'hover:border-brand/50 hover:text-brand'}`}>
+                <Camera size={18} /> {uploading ? 'Uploading…' : 'Add photos'}
+              </button>
+            </>
+          )}
+          {photos.length > 0 ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-3">
               {photos.map((p, i) => (
                 <div key={p.url} className={`rounded-lg border overflow-hidden ${isDarkMode ? 'border-slate-700' : 'border-slate-200'}`}>
                   <div className="relative">
                     <img src={p.url} alt={p.caption || 'Site photo'} className="w-full h-28 object-cover" />
-                    <button onClick={() => setPhotos(prev => prev.filter((_, idx) => idx !== i))}
-                      className="absolute top-1 right-1 p-1 rounded-md bg-black/60 text-white hover:bg-red-500">
-                      <X size={14} />
-                    </button>
+                    {!locked && (
+                      <button onClick={() => setPhotos(prev => prev.filter((_, idx) => idx !== i))}
+                        className="absolute top-1 right-1 p-1 rounded-md bg-black/60 text-white hover:bg-red-500">
+                        <X size={14} />
+                      </button>
+                    )}
                   </div>
-                  <input className={`w-full px-2 py-1.5 text-xs border-t ${isDarkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-700'}`}
-                    placeholder="Caption…" value={p.caption}
+                  <input className={`w-full px-2 py-1.5 text-xs border-t ${isDarkMode ? 'bg-slate-900 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-700'} disabled:opacity-70`}
+                    placeholder="Caption…" value={p.caption} disabled={locked}
                     onChange={e => setPhotos(prev => prev.map((x, idx) => idx === i ? { ...x, caption: e.target.value } : x))} />
                 </div>
               ))}
             </div>
-          )}
+          ) : locked ? <p className="text-sm text-slate-500">No photos attached.</p> : null}
         </div>
 
         {/* Safety + JULIE + injuries */}
         <div className="grid sm:grid-cols-2 gap-4">
           <div>
             <label className={labelCls}>Safety notes</label>
-            <textarea className={`${input} min-h-[80px] resize-y`} placeholder="Toolbox talks, incidents, near-misses…"
+            <textarea className={`${input} min-h-[80px] resize-y`} disabled={locked} placeholder="Toolbox talks, incidents, near-misses…"
               value={safetyNotes} onChange={e => setSafetyNotes(e.target.value)} />
           </div>
           <div>
             <label className={labelCls}>JULIE locates / refreshes needed</label>
-            <textarea className={`${input} min-h-[80px] resize-y`} placeholder="Tickets to call in or refresh…"
+            <textarea className={`${input} min-h-[80px] resize-y`} disabled={locked} placeholder="Tickets to call in or refresh…"
               value={locatesNotes} onChange={e => setLocatesNotes(e.target.value)} />
           </div>
         </div>
 
         <div className="max-w-[180px]">
           <label className={labelCls}>Injuries reported</label>
-          <input type="number" min={0} className={input} value={injuriesCount}
+          <input type="number" min={0} className={input} disabled={locked} value={injuriesCount}
             onChange={e => setInjuriesCount(Math.max(0, parseInt(e.target.value || '0', 10)))} />
         </div>
 
-        <p className="text-xs text-slate-500">Prepared by <b>{sessionUser.name}</b> · {prettyDate(reportDate)}</p>
+        <p className="text-xs text-slate-500">Prepared by <b>{editingPreparedById && editingId ? (reports.find(r => r.id === editingId)?.preparedByName || sessionUser.name) : sessionUser.name}</b> · {prettyDate(reportDate)}</p>
       </div>
 
       {/* Actions */}
       <div className="flex flex-wrap gap-2">
-        <button onClick={handleSaveAndClose} disabled={busy || !selectedJob}
+        <button onClick={handleDownloadFromEditor} disabled={busy || !selectedJob}
           className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-bold border border-slate-300 disabled:opacity-50">
-          <Save size={16} /> Save
+          <Download size={16} /> Download PDF
         </button>
-        <button onClick={handleSaveAndPdf} disabled={busy || !selectedJob}
-          className="flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-black bg-brand text-white hover:opacity-90 disabled:opacity-50">
-          <Download size={16} /> {busy ? 'Working…' : 'Save & download PDF'}
-        </button>
+
+        {canEdit && editingStatus === 'draft' && (
+          <>
+            <button onClick={handleSaveDraft} disabled={busy || !selectedJob}
+              className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-bold border border-slate-300 disabled:opacity-50">
+              <Save size={16} /> Save draft
+            </button>
+            <button onClick={handleFinalize} disabled={busy || !selectedJob}
+              className="flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-black bg-brand text-white hover:opacity-90 disabled:opacity-50">
+              <CheckCircle2 size={16} /> {busy ? 'Working…' : 'Finalize & submit'}
+            </button>
+          </>
+        )}
+
+        {/* Admin editing an already-submitted report */}
+        {canEdit && editingStatus === 'submitted' && (
+          <>
+            <button onClick={async () => { const s = await save(); if (s) { resetForm(); setMode('list'); } }} disabled={busy || !selectedJob}
+              className="flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-black bg-brand text-white hover:opacity-90 disabled:opacity-50">
+              <Save size={16} /> Save changes
+            </button>
+            <button onClick={handleReopen} disabled={busy}
+              className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-bold border border-amber-400 text-amber-600 disabled:opacity-50">
+              <History size={16} /> Reopen to draft
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

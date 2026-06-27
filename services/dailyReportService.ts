@@ -9,7 +9,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { supabase } from '../lib/supabaseClient.ts';
-import { DailyReport, DailyReportPhoto, JobKind } from './timeTrackingTypes.ts';
+import { DailyReport, DailyReportPhoto, DailyReportStatus, JobKind } from './timeTrackingTypes.ts';
 
 const mapReport = (row: Record<string, unknown>): DailyReport => ({
   id:              Number(row.id ?? 0),
@@ -23,6 +23,8 @@ const mapReport = (row: Record<string, unknown>): DailyReport => ({
   locatesNotes:    String(row.locates_notes ?? ''),
   injuriesCount:   Number(row.injuries_count ?? 0),
   photos:          Array.isArray(row.photos) ? (row.photos as DailyReportPhoto[]) : [],
+  status:          (row.status as DailyReportStatus) === 'submitted' ? 'submitted' : 'draft',
+  submittedAt:     row.submitted_at != null ? String(row.submitted_at) : null,
   preparedById:    row.prepared_by_id != null ? String(row.prepared_by_id) : null,
   preparedByName:  String(row.prepared_by_name ?? ''),
   createdAt:       String(row.created_at ?? ''),
@@ -84,6 +86,28 @@ export const dailyReportService = {
     const { data, error } = await supabase
       .from('daily_reports')
       .update({ ...toDbRow(companyId, input), updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select().single();
+    if (error) throw error;
+    return mapReport(data as Record<string, unknown>);
+  },
+
+  /** Finalize a report: foreman can no longer edit it; only admins can. */
+  async submitReport(id: number): Promise<DailyReport> {
+    const { data, error } = await supabase
+      .from('daily_reports')
+      .update({ status: 'submitted', submitted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select().single();
+    if (error) throw error;
+    return mapReport(data as Record<string, unknown>);
+  },
+
+  /** Admin-only: reopen a submitted report so it can be edited again. */
+  async reopenReport(id: number): Promise<DailyReport> {
+    const { data, error } = await supabase
+      .from('daily_reports')
+      .update({ status: 'draft', submitted_at: null, updated_at: new Date().toISOString() })
       .eq('id', id)
       .select().single();
     if (error) throw error;

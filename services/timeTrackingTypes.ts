@@ -76,6 +76,10 @@ export interface DailyReportPhoto {
   caption: string;
 }
 
+// 'draft'    — foreman is still working on it; foreman (or admin) may edit.
+// 'submitted'— finalized by the foreman; only an admin may edit from here.
+export type DailyReportStatus = 'draft' | 'submitted';
+
 export interface DailyReport {
   id: number;
   companyId: string;
@@ -88,6 +92,8 @@ export interface DailyReport {
   locatesNotes: string;        // JULIE locates or refreshes needed
   injuriesCount: number;
   photos: DailyReportPhoto[];
+  status: DailyReportStatus;
+  submittedAt: string | null;
   preparedById: string | null;
   preparedByName: string;
   createdAt: string;

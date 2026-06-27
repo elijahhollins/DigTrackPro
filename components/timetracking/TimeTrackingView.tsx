@@ -121,6 +121,7 @@ export default function TimeTrackingView({ sessionUser, jobs, company, isDarkMod
       {tab === 'reports' && (isAdmin || isForeman) && (
         <DailyReportView
           sessionUser={sessionUser}
+          isAdmin={isAdmin}
           company={company}
           jobs={jobs}
           serviceJobs={serviceJobs}
