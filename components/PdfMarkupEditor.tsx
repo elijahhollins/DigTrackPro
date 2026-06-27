@@ -1311,8 +1311,17 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
         return next;
       });
       const avail = (availWidthRef.current || (mainRef.current?.clientWidth ?? window.innerWidth) - 48);
-      const scale = (Math.min(avail, 1400) / base.width) * zoom;
-      const vp = page.getViewport({ scale });
+      // Render at the device pixel ratio so pages are crisp on Retina/mobile screens.
+      // The CSS size stays the display size (canvas is stretched to its container), while
+      // the bitmap is denser. Cap the longest side so high zoom can't allocate a huge
+      // canvas (which would exhaust memory or exceed the browser's max canvas size).
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const MAX_CANVAS_PX = 4096;
+      const fitScale = (Math.min(avail, 1400) / base.width) * zoom;
+      let renderScale = fitScale * dpr;
+      const over = Math.max((base.width * renderScale) / MAX_CANVAS_PX, (base.height * renderScale) / MAX_CANVAS_PX, 1);
+      renderScale /= over;
+      const vp = page.getViewport({ scale: renderScale });
       canvas.width = vp.width; canvas.height = vp.height;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
@@ -1807,9 +1816,83 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     if (!main) return;
 
     let startX = 0, startY = 0, startSL = 0, startST = 0, panning = false;
+    // Velocity tracking for flick momentum (finger px / ms).
+    let lastX = 0, lastY = 0, lastT = 0, vx = 0, vy = 0;
+    let touchStartT = 0;
+    // Double-tap tracking (pan tool only).
+    let lastTapT = 0, lastTapX = 0, lastTapY = 0;
+    let momentumId = 0;
+    const stopMomentum = () => {
+      if (momentumId) { cancelAnimationFrame(momentumId); momentumId = 0; }
+      // Clear any leftover zoom-animation transform so an interrupted gesture is clean.
+      const layer = zoomLayerRef.current;
+      if (layer && !isPinchRef.current) { layer.style.transform = ''; layer.style.transformOrigin = ''; layer.style.willChange = ''; }
+    };
+
+    // Smoothly zoom toward a point (double-tap). Animates a transform, then commits
+    // the real zoom + focal anchor, reusing momentumId so a new touch cancels it.
+    const animateZoomTo = (clientX: number, clientY: number) => {
+      const layer = zoomLayerRef.current;
+      const curZoom = zoomRef.current;
+      const targetZoom = curZoom > 1.05 ? 1.0 : 2.0; // toggle fit ⇄ 2×
+      const ratio = targetZoom / (curZoom || 1);
+      if (!layer || Math.abs(ratio - 1) < 0.01) return;
+      let targetEl = (document.elementFromPoint(clientX, clientY) as HTMLElement | null)?.closest('[data-page]') as HTMLElement | null;
+      if (!targetEl) { pageContainerRefs.current.forEach(c => { const r = c.getBoundingClientRect(); if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) targetEl = c; }); }
+      let anchor: { pageNum: number; nx: number; ny: number } | null = null;
+      if (targetEl) {
+        const r = targetEl.getBoundingClientRect();
+        anchor = {
+          pageNum: Number(targetEl.dataset.page) || 1,
+          nx: Math.max(0, Math.min(1, (clientX - r.left) / (r.width || 1))),
+          ny: Math.max(0, Math.min(1, (clientY - r.top) / (r.height || 1))),
+        };
+      }
+      const zr = layer.getBoundingClientRect();
+      layer.style.transformOrigin = `${clientX - zr.left}px ${clientY - zr.top}px`;
+      layer.style.willChange = 'transform';
+      const dur = 200, t0 = performance.now();
+      const ease = (t: number) => 1 - Math.pow(1 - t, 3);
+      const step = (now: number) => {
+        const t = Math.min(1, (now - t0) / dur);
+        layer.style.transform = `scale(${1 + (ratio - 1) * ease(t)})`;
+        if (t < 1) { momentumId = requestAnimationFrame(step); return; }
+        momentumId = 0;
+        layer.style.transform = ''; layer.style.transformOrigin = ''; layer.style.willChange = '';
+        if (anchor) pendingZoomAnchorRef.current = { ...anchor, fx: clientX, fy: clientY };
+        setZoomLevel(targetZoom);
+      };
+      momentumId = requestAnimationFrame(step);
+    };
+
+    // After a flick, keep scrolling with decaying velocity for a native feel.
+    const startMomentum = () => {
+      // Scroll moves opposite to the finger; ignore tiny/slow releases.
+      let sx = -vx, sy = -vy;
+      if (Math.hypot(sx, sy) < 0.05) return;
+      const FRICTION = 0.94;           // velocity retained per 16ms frame
+      const MIN_SPEED = 0.015;         // px/ms — stop threshold
+      let prev = performance.now();
+      const step = (now: number) => {
+        const dt = Math.min(now - prev, 32); prev = now;
+        const decay = Math.pow(FRICTION, dt / 16);
+        sx *= decay; sy *= decay;
+        const maxL = Math.max(0, main.scrollWidth - main.clientWidth);
+        const maxT = Math.max(0, main.scrollHeight - main.clientHeight);
+        const nextL = Math.max(0, Math.min(maxL, main.scrollLeft + sx * dt));
+        const nextT = Math.max(0, Math.min(maxT, main.scrollTop + sy * dt));
+        if (nextL === main.scrollLeft) sx = 0;
+        if (nextT === main.scrollTop) sy = 0;
+        main.scrollLeft = nextL; main.scrollTop = nextT;
+        if (Math.hypot(sx, sy) < MIN_SPEED) { momentumId = 0; return; }
+        momentumId = requestAnimationFrame(step);
+      };
+      momentumId = requestAnimationFrame(step);
+    };
 
     const onTouchStart = (e: TouchEvent) => {
       activeTouchCountRef.current = e.touches.length;
+      stopMomentum();
       if (e.touches.length >= 2) {
         panning = false;
         beginPinch(
@@ -1828,6 +1911,8 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       startY  = e.touches[0].clientY;
       startSL = main.scrollLeft;
       startST = main.scrollTop;
+      lastX = startX; lastY = startY; lastT = performance.now(); vx = 0; vy = 0;
+      touchStartT = performance.now();
     };
 
     const onTouchMove = (e: TouchEvent) => {
@@ -1843,15 +1928,44 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       // One finger → scroll (only while a pan/select gesture is active).
       if (!panning || e.touches.length !== 1 || drawingPtrRef.current !== null) { panning = false; return; }
       e.preventDefault();
-      main.scrollLeft = startSL - (e.touches[0].clientX - startX);
-      main.scrollTop  = startST - (e.touches[0].clientY - startY);
+      const cx = e.touches[0].clientX, cy = e.touches[0].clientY;
+      main.scrollLeft = startSL - (cx - startX);
+      main.scrollTop  = startST - (cy - startY);
+      const now = performance.now();
+      const dt = now - lastT;
+      if (dt > 0) {
+        // Blend for a slightly smoothed velocity estimate.
+        vx = 0.7 * ((cx - lastX) / dt) + 0.3 * vx;
+        vy = 0.7 * ((cy - lastY) / dt) + 0.3 * vy;
+        lastX = cx; lastY = cy; lastT = now;
+      }
     };
 
     const onTouchEnd = (e: TouchEvent) => {
       activeTouchCountRef.current = e.touches.length;
       // A finger lifting out of a two-finger gesture commits the zoom.
       if (isPinchRef.current && e.touches.length < 2) finalizePinch();
-      if (e.touches.length === 0) panning = false;
+      if (e.touches.length === 0) {
+        const t = e.changedTouches[0];
+        const now = performance.now();
+        // Detect a tap: a short, near-stationary single-finger touch.
+        const moved = t ? Math.hypot(t.clientX - startX, t.clientY - startY) : Infinity;
+        const wasTap = panning && t != null && moved < 12 && now - touchStartT < 250;
+        // Double-tap (pan tool only) zooms toward the tapped point.
+        if (wasTap && currentToolRef.current === 'pan') {
+          if (now - lastTapT < 300 && Math.hypot(t.clientX - lastTapX, t.clientY - lastTapY) < 40) {
+            lastTapT = 0;
+            animateZoomTo(t.clientX, t.clientY);
+            panning = false;
+            return;
+          }
+          lastTapT = now; lastTapX = t.clientX; lastTapY = t.clientY;
+        }
+        // Released a single-finger scroll — fling with momentum if it was moving and
+        // the gesture didn't go stale (last sample within ~50ms of release).
+        if (panning && !wasTap && now - lastT < 50) startMomentum();
+        panning = false;
+      }
     };
 
     main.addEventListener('touchstart',  onTouchStart, { passive: false });
@@ -1860,6 +1974,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     main.addEventListener('touchcancel', onTouchEnd,   { passive: true });
 
     return () => {
+      stopMomentum();
       main.removeEventListener('touchstart',  onTouchStart);
       main.removeEventListener('touchmove',   onTouchMove);
       main.removeEventListener('touchend',    onTouchEnd);
