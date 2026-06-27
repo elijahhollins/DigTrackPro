@@ -1,5 +1,5 @@
 import React, { useState, useReducer, useRef, useCallback, useEffect } from 'react';
-import { Plus, X, ChevronLeft, ChevronRight, Clock, Calendar, Pencil, Trash2, Briefcase, Users, Wrench, GripHorizontal, RotateCcw, Search, Upload } from 'lucide-react';
+import { Plus, X, ChevronLeft, ChevronRight, Clock, Calendar, CalendarDays, Pencil, Trash2, Briefcase, Users, Wrench, GripHorizontal, RotateCcw, Search, Upload, MoreHorizontal } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient.ts';
 import { scheduleService } from '../../services/scheduleService.ts';
 import ScheduleImportModal, { type ScheduleImportRow } from './ScheduleImportModal.tsx';
@@ -1901,7 +1901,7 @@ export default function Scheduler({
   const [employeeList,  setEmployeeList]  = useState<SchedulerEmployee[]>([]);
   const [equipmentList, setEquipmentList] = useState<SchedulerEquipment[]>([]);
   const [blocks, dispatch] = useReducer(reducer, initialBlocks);
-  const [view, setView]    = useState<'week' | 'month'>('week');
+  const [view, setView]    = useState<'day' | 'week' | 'month'>('week');
   const [viewOffset, setViewOffset] = useState(0); // days from default start
 
   // Skip weekends: durations count working days (Mon–Fri) and blocks never start
@@ -2113,11 +2113,17 @@ export default function Scheduler({
       .catch(err => console.error('[Scheduler] Failed to load equipment:', err));
   }, [companyId]);
 
-  const dayWidth  = view === 'week' ? 60 : 24;
-  const totalDays = view === 'week' ? 28 : 90;
+  // Per-view geometry. Day view uses wide, roomy columns over a short horizon so
+  // each day is legible; week is the everyday planning span; month is the wide
+  // overview. `leadDays` keeps today near the left edge of the initial window.
+  const dayWidth  = view === 'day' ? 132 : view === 'week' ? 60 : 24;
+  const totalDays = view === 'day' ? 14  : view === 'week' ? 28 : 90;
+  const leadDays  = view === 'day' ? 2   : 7;
+  // How far prev/next steps the window for each view.
+  const navStep   = view === 'day' ? 7   : view === 'week' ? 14 : 30;
 
-  // View window: start 7 days before today + navigation offset
-  const viewStart = addDays(addDays(todayISO, -7), viewOffset);
+  // View window: start `leadDays` before today + navigation offset
+  const viewStart = addDays(addDays(todayISO, -leadDays), viewOffset);
   const days = Array.from({ length: totalDays }, (_, i) => addDays(viewStart, i));
   const todayOffset = diffDays(todayISO, viewStart) * dayWidth;
   const totalGridWidth = totalDays * dayWidth;
@@ -2165,6 +2171,27 @@ export default function Scheduler({
   const [showImportModal,   setShowImportModal]   = useState(false);
   const [showManageCrews,   setShowManageCrews]   = useState(false);
   const [showManageJobs,    setShowManageJobs]    = useState(false);
+
+  // Toolbar popovers: jump-to-date mini calendar & the mobile overflow menu.
+  const [showDatePicker,    setShowDatePicker]    = useState(false);
+  const [showOverflow,      setShowOverflow]      = useState(false);
+  const datePickerRef = useRef<HTMLDivElement>(null);
+  const overflowRef   = useRef<HTMLDivElement>(null);
+
+  // Close the date picker / overflow popovers when clicking outside of them.
+  useEffect(() => {
+    if (!showDatePicker && !showOverflow) return;
+    const handler = (e: MouseEvent) => {
+      if (showDatePicker && datePickerRef.current && !datePickerRef.current.contains(e.target as Node)) {
+        setShowDatePicker(false);
+      }
+      if (showOverflow && overflowRef.current && !overflowRef.current.contains(e.target as Node)) {
+        setShowOverflow(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showDatePicker, showOverflow]);
 
   // Equipment tray & block-equipment modal
   const [showEquipTray,    setShowEquipTray]    = useState(false);
@@ -2406,6 +2433,35 @@ export default function Scheduler({
     const id = requestAnimationFrame(scrollToToday);
     return () => cancelAnimationFrame(id);
   }, [view, focusTodayNonce, scrollToToday]);
+
+  // ── Jump to an arbitrary date ───────────────────────────────────────────────
+  // Shift the window so the chosen date lands at the lead-in position (just
+  // inside the left edge), then scroll horizontally to bring it into view. We
+  // stash the target so the scroll runs after the offset-driven re-render.
+  const jumpTargetRef = useRef<string | null>(null);
+  const [jumpNonce, setJumpNonce] = useState(0);
+  const viewStartRefForJump = useRef(viewStart);
+  viewStartRefForJump.current = viewStart;
+  const jumpToDate = useCallback((iso: string) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
+    setViewOffset(diffDays(iso, todayISO));
+    jumpTargetRef.current = iso;
+    setShowDatePicker(false);
+    setJumpNonce(n => n + 1);
+  }, []);
+
+  useEffect(() => {
+    const target = jumpTargetRef.current;
+    if (!target) return;
+    const id = requestAnimationFrame(() => {
+      const el = scrollRef.current;
+      if (!el) return;
+      const off = diffDays(target, viewStartRefForJump.current) * dayWidthRef.current;
+      el.scrollLeft = Math.max(0, off - dayWidthRef.current);
+      jumpTargetRef.current = null;
+    });
+    return () => cancelAnimationFrame(id);
+  }, [jumpNonce]);
 
   useEffect(() => {
     if (!touchGhostPos) return; // nothing being dragged
@@ -2669,7 +2725,7 @@ export default function Scheduler({
     <div className="flex flex-col bg-white select-none rounded-2xl border border-slate-200 overflow-hidden shadow-sm" style={{ height: 'calc(100svh - 220px)', minHeight: '420px' }}>
       {/* ─── Toolbar ─── */}
       <div
-        className="flex items-center gap-x-3 gap-y-2.5 px-5 py-3.5 shrink-0 flex-wrap"
+        className="flex items-center gap-x-2.5 gap-y-2.5 px-4 sm:px-5 py-3 sm:py-3.5 shrink-0 flex-wrap"
         style={{
           background: 'linear-gradient(120deg, #0a142d 0%, #11244f 100%)',
           borderBottom: '1px solid rgba(255,255,255,0.08)',
@@ -2687,59 +2743,109 @@ export default function Scheduler({
           >
             <Calendar className="w-[18px] h-[18px] text-white" />
           </div>
-          <div className="leading-tight">
+          <div className="leading-tight hidden sm:block">
             <h2 className="font-display text-white font-bold text-[15px] tracking-tight">Dispatch Board</h2>
             <p className="text-[10px] text-slate-400 font-medium">Crew &amp; job scheduling</p>
           </div>
         </div>
 
-        {/* View toggle — segmented control */}
-        <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-black/25 border border-white/10">
-          {(['week', 'month'] as const).map(v => (
+        {/* ── Navigation group: view toggle · prev/Today/next · jump · range ── */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* View toggle — segmented control (Day · Week · Month) */}
+          <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-black/25 border border-white/10">
+            {(['day', 'week', 'month'] as const).map(v => (
+              <button
+                key={v}
+                onClick={() => { setView(v); }}
+                aria-pressed={view === v}
+                className={`px-3 sm:px-3.5 py-1.5 text-xs font-semibold capitalize rounded-md transition-all ${
+                  view === v
+                    ? 'bg-brand text-white shadow-sm'
+                    : 'text-slate-300 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+
+          {/* Navigation cluster — prev · Today · next · jump-to-date */}
+          <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-black/25 border border-white/10">
             <button
-              key={v}
-              onClick={() => setView(v)}
-              className={`px-3.5 py-1.5 text-xs font-semibold capitalize rounded-md transition-all ${
-                view === v
-                  ? 'bg-brand text-white shadow-sm'
-                  : 'text-slate-300 hover:text-white hover:bg-white/5'
-              }`}
+              onClick={() => setViewOffset(v => v - navStep)}
+              aria-label="Previous period"
+              className="w-7 h-7 flex items-center justify-center rounded-md text-slate-300 hover:bg-white/10 hover:text-white transition-colors"
             >
-              {v}
+              <ChevronLeft className="w-4 h-4" />
             </button>
-          ))}
+            <button
+              onClick={() => { setViewOffset(0); setFocusTodayNonce(n => n + 1); }}
+              className="px-3 py-1 text-xs font-semibold text-slate-200 hover:bg-white/10 hover:text-white rounded-md transition-colors"
+            >
+              Today
+            </button>
+            <button
+              onClick={() => setViewOffset(v => v + navStep)}
+              aria-label="Next period"
+              className="w-7 h-7 flex items-center justify-center rounded-md text-slate-300 hover:bg-white/10 hover:text-white transition-colors"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+            {/* Jump-to-date popover trigger */}
+            <div ref={datePickerRef} className="relative">
+              <button
+                onClick={() => setShowDatePicker(o => !o)}
+                aria-label="Jump to a specific date"
+                aria-expanded={showDatePicker}
+                title="Jump to date"
+                className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors ${
+                  showDatePicker
+                    ? 'bg-brand text-white'
+                    : 'text-slate-300 hover:bg-white/10 hover:text-white'
+                }`}
+              >
+                <CalendarDays className="w-4 h-4" />
+              </button>
+              {showDatePicker && (
+                <div
+                  className="absolute left-0 top-full mt-2 z-50 w-60 rounded-xl bg-white shadow-2xl border border-slate-200 p-3"
+                  onMouseDown={e => e.stopPropagation()}
+                >
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1.5">Jump to date</p>
+                  <input
+                    type="date"
+                    autoFocus
+                    defaultValue={todayISO}
+                    onChange={e => { if (e.target.value) jumpToDate(e.target.value); }}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/10 bg-white"
+                  />
+                  <div className="flex gap-1.5 mt-2">
+                    <button
+                      onClick={() => jumpToDate(todayISO)}
+                      className="flex-1 py-1.5 text-xs font-semibold rounded-lg bg-brand/10 text-brand hover:bg-brand/20 transition-colors"
+                    >
+                      Today
+                    </button>
+                    <button
+                      onClick={() => setShowDatePicker(false)}
+                      className="px-3 py-1.5 text-xs font-medium rounded-lg text-slate-500 hover:bg-slate-100 transition-colors"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Visible date range — reflects the window of the active view */}
+          <span className="hidden md:inline-flex items-center px-2.5 py-1 rounded-md bg-white/5 text-slate-300 text-xs font-medium tabular-nums">
+            {fmtShort(viewStart)} – {fmtShort(addDays(viewStart, totalDays - 1))}
+          </span>
         </div>
 
-        {/* Navigation cluster */}
-        <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-black/25 border border-white/10">
-          <button
-            onClick={() => setViewOffset(v => v - (view === 'week' ? 14 : 30))}
-            aria-label="Previous"
-            className="w-7 h-7 flex items-center justify-center rounded-md text-slate-300 hover:bg-white/10 hover:text-white transition-colors"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => { setViewOffset(0); setFocusTodayNonce(n => n + 1); }}
-            className="px-3 py-1 text-xs font-semibold text-slate-200 hover:bg-white/10 hover:text-white rounded-md transition-colors"
-          >
-            Today
-          </button>
-          <button
-            onClick={() => setViewOffset(v => v + (view === 'week' ? 14 : 30))}
-            aria-label="Next"
-            className="w-7 h-7 flex items-center justify-center rounded-md text-slate-300 hover:bg-white/10 hover:text-white transition-colors"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Visible date range */}
-        <span className="hidden sm:inline-flex items-center px-2.5 py-1 rounded-md bg-white/5 text-slate-300 text-xs font-medium tabular-nums">
-          {fmtShort(viewStart)} – {fmtShort(addDays(viewStart, totalDays - 1))}
-        </span>
-
-        <div className="ml-auto flex items-center gap-2">
+        {/* ── Action group ── */}
+        <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
           {/* Skip-weekends toggle — when on, jobs span Mon–Fri and auto-skip Sat/Sun */}
           <button
             onClick={() => setSkipWeekends(s => !s)}
@@ -2748,14 +2854,14 @@ export default function Scheduler({
             title={skipWeekends
               ? 'Weekends skipped — jobs are scheduled Monday–Friday. Click to allow weekend work.'
               : 'Weekends included — jobs can run any day. Click to skip weekends.'}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all border ${
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded-lg transition-all border ${
               skipWeekends
                 ? 'bg-white/10 hover:bg-white/20 text-slate-200 border-white/10'
                 : 'bg-amber-400 text-slate-900 border-amber-300 shadow-sm'
             }`}
           >
             <Calendar className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">{skipWeekends ? 'Mon–Fri' : '7-Day'}</span>
+            <span className="hidden lg:inline">{skipWeekends ? 'Mon–Fri' : '7-Day'}</span>
           </button>
           {/* Edit mode toggle */}
           <button
@@ -2763,13 +2869,13 @@ export default function Scheduler({
             aria-pressed={editMode}
             aria-label={editMode ? 'Exit edit mode' : 'Enter edit mode to drag blocks'}
             title={editMode ? 'Exit edit mode' : 'Edit: drag blocks to reschedule'}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all border ${
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded-lg transition-all border ${
               editMode
                 ? 'bg-amber-400 text-slate-900 border-amber-300 shadow-sm'
                 : 'bg-white/10 hover:bg-white/20 text-slate-200 border-white/10'
             }`}
           >
-            <Pencil className="w-3.5 h-3.5" /><span className="hidden sm:inline">{editMode ? 'Editing' : 'Edit'}</span>
+            <Pencil className="w-3.5 h-3.5" /><span className="hidden lg:inline">{editMode ? 'Editing' : 'Edit'}</span>
           </button>
           {/* Undo button — visible only in edit mode */}
           {editMode && (
@@ -2778,63 +2884,118 @@ export default function Scheduler({
               disabled={!canUndo}
               aria-label="Undo last action"
               title="Undo last action (Ctrl+Z)"
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors border ${
+              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors border ${
                 canUndo
                   ? 'bg-white/10 hover:bg-white/20 text-slate-200 border-white/10'
                   : 'bg-white/5 text-slate-600 border-white/5 cursor-not-allowed'
               }`}
             >
-              <RotateCcw className="w-3.5 h-3.5" /><span className="hidden sm:inline"> Undo</span>
+              <RotateCcw className="w-3.5 h-3.5" /><span className="hidden lg:inline"> Undo</span>
             </button>
           )}
 
-          {/* Divider */}
-          {isAdmin && <span className="w-px h-5 bg-white/10 mx-0.5" aria-hidden="true" />}
+          {/* Divider before secondary/admin actions */}
+          <span className="hidden md:inline-block w-px h-5 bg-white/10 mx-0.5" aria-hidden="true" />
 
+          {/* Secondary / admin actions — shown inline on wide screens (md+),
+              collapsed into the overflow menu on narrow screens. */}
           {isAdmin && (
-            <>
-              <button
-                onClick={() => setShowManageCrews(true)}
-                title="Manage crews"
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-slate-200 text-xs font-semibold rounded-lg transition-colors border border-white/10"
-              >
-                <Users className="w-3.5 h-3.5" /><span className="hidden sm:inline"> Crews</span>
-              </button>
-              <button
-                onClick={() => setShowManageJobs(true)}
-                title="Manage jobs"
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-slate-200 text-xs font-semibold rounded-lg transition-colors border border-white/10"
-              >
-                <Briefcase className="w-3.5 h-3.5" /><span className="hidden sm:inline"> Jobs</span>
-              </button>
-            </>
+            <button
+              onClick={() => setShowManageCrews(true)}
+              title="Manage crews"
+              className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-slate-200 text-xs font-semibold rounded-lg transition-colors border border-white/10"
+            >
+              <Users className="w-3.5 h-3.5" /><span className="hidden lg:inline"> Crews</span>
+            </button>
+          )}
+          {isAdmin && (
+            <button
+              onClick={() => setShowManageJobs(true)}
+              title="Manage jobs"
+              className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-slate-200 text-xs font-semibold rounded-lg transition-colors border border-white/10"
+            >
+              <Briefcase className="w-3.5 h-3.5" /><span className="hidden lg:inline"> Jobs</span>
+            </button>
           )}
           <button
             onClick={() => setShowEquipTray(t => !t)}
             aria-pressed={showEquipTray}
             aria-label="Toggle equipment tray"
             title="Toggle equipment tray"
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors border ${
+            className={`hidden md:flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors border ${
               showEquipTray
                 ? 'bg-amber-500 text-white border-amber-400 shadow-sm'
                 : 'bg-white/10 hover:bg-white/20 text-slate-200 border-white/10'
             }`}
           >
-            <Wrench className="w-3.5 h-3.5" /><span className="hidden sm:inline"> Equipment</span>
+            <Wrench className="w-3.5 h-3.5" /><span className="hidden lg:inline"> Equipment</span>
           </button>
           <button
             onClick={() => setShowImportModal(true)}
             aria-label="Import schedule from spreadsheet"
             title="Import schedule from a CSV or spreadsheet"
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-slate-200 text-xs font-semibold rounded-lg transition-colors border border-white/10"
+            className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-slate-200 text-xs font-semibold rounded-lg transition-colors border border-white/10"
           >
-            <Upload className="w-3.5 h-3.5" /><span className="hidden sm:inline"> Import</span>
+            <Upload className="w-3.5 h-3.5" /><span className="hidden lg:inline"> Import</span>
           </button>
+
+          {/* Overflow menu — collapses secondary actions on narrow (< md) screens */}
+          <div ref={overflowRef} className="relative md:hidden">
+            <button
+              onClick={() => setShowOverflow(o => !o)}
+              aria-label="More actions"
+              aria-expanded={showOverflow}
+              title="More"
+              className={`flex items-center justify-center w-8 h-8 rounded-lg transition-colors border ${
+                showOverflow
+                  ? 'bg-white/20 text-white border-white/20'
+                  : 'bg-white/10 hover:bg-white/20 text-slate-200 border-white/10'
+              }`}
+            >
+              <MoreHorizontal className="w-4 h-4" />
+            </button>
+            {showOverflow && (
+              <div
+                className="absolute right-0 top-full mt-2 z-50 w-52 rounded-xl bg-white shadow-2xl border border-slate-200 py-1.5"
+                onMouseDown={e => e.stopPropagation()}
+              >
+                <button
+                  onClick={() => { setShowEquipTray(t => !t); setShowOverflow(false); }}
+                  className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-slate-700 hover:bg-brand/10 hover:text-brand transition-colors"
+                >
+                  <Wrench className="w-4 h-4 shrink-0" /> {showEquipTray ? 'Hide Equipment' : 'Equipment'}
+                </button>
+                {isAdmin && (
+                  <button
+                    onClick={() => { setShowManageCrews(true); setShowOverflow(false); }}
+                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-slate-700 hover:bg-brand/10 hover:text-brand transition-colors"
+                  >
+                    <Users className="w-4 h-4 shrink-0" /> Manage Crews
+                  </button>
+                )}
+                {isAdmin && (
+                  <button
+                    onClick={() => { setShowManageJobs(true); setShowOverflow(false); }}
+                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-slate-700 hover:bg-brand/10 hover:text-brand transition-colors"
+                  >
+                    <Briefcase className="w-4 h-4 shrink-0" /> Manage Jobs
+                  </button>
+                )}
+                <button
+                  onClick={() => { setShowImportModal(true); setShowOverflow(false); }}
+                  className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-slate-700 hover:bg-brand/10 hover:text-brand transition-colors"
+                >
+                  <Upload className="w-4 h-4 shrink-0" /> Import Schedule
+                </button>
+              </div>
+            )}
+          </div>
+
           <button
             onClick={() => setShowAddModal(true)}
             aria-label="Add job"
             title="Add job"
-            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-brand hover:opacity-90 text-white text-xs font-semibold rounded-lg transition-all shadow-brand/20 hover:-translate-y-px"
+            className="flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 bg-brand hover:opacity-90 text-white text-xs font-semibold rounded-lg transition-all shadow-brand/20 hover:-translate-y-px"
           >
             <Plus className="w-3.5 h-3.5" /><span className="hidden sm:inline"> Add Job</span>
           </button>
@@ -2928,7 +3089,8 @@ export default function Scheduler({
                 const d = parseDate(day);
                 const isToday   = day === todayISO;
                 const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-                const showLabel = view === 'week' || i % 3 === 0;
+                const showLabel = view !== 'month' || i % 3 === 0;
+                const isDayView = view === 'day';
                 return (
                   <div
                     key={day}
@@ -2944,8 +3106,8 @@ export default function Scheduler({
                   >
                     {showLabel && (
                       <>
-                        <span style={{ fontSize: 9, color: isToday ? 'var(--brand-primary)' : isWeekend ? '#b6c0cf' : '#94a3b8', fontWeight: isToday ? 700 : 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                          {d.toLocaleDateString('en-US', { weekday: 'narrow' })}
+                        <span style={{ fontSize: isDayView ? 10 : 9, color: isToday ? 'var(--brand-primary)' : isWeekend ? '#b6c0cf' : '#94a3b8', fontWeight: isToday ? 700 : 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                          {d.toLocaleDateString('en-US', { weekday: isDayView ? 'short' : 'narrow' })}
                         </span>
                         {isToday ? (
                           <span
