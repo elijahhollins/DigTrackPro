@@ -776,7 +776,7 @@ const PageLayer = React.memo(function PageLayer(props: PageLayerProps) {
     <div
       data-page={pageNum}
       ref={containerCb}
-      className={`relative shadow-2xl rounded-lg overflow-hidden shrink-0 bg-slate-800/40 ${toolCursor}`}
+      className={`relative shadow-2xl rounded-lg overflow-hidden shrink-0 ${toolCursor}`}
       style={{ width: w || '100%', height: h || undefined, touchAction: 'none' }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -784,6 +784,22 @@ const PageLayer = React.memo(function PageLayer(props: PageLayerProps) {
       onPointerCancel={onPointerCancel}
       onDoubleClick={onDoubleClick}
     >
+      {/* Loading placeholder. Sits BEHIND the canvas: when the PDF bitmap is painted
+          it is opaque white and fully covers this layer; while the page is not yet
+          rendered the canvas is empty/transparent and this shows through. Needs no
+          render state — the canvas paint hides it for free. Kept static (no per-page
+          animation) so a document with hundreds of pages has no idle GPU/battery cost. */}
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gradient-to-b from-slate-800/40 to-slate-800/25 pointer-events-none select-none">
+        <svg className="w-8 h-8 text-slate-600/70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+        {w > 0 && h > 0 && (
+          <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">
+            Page {pageNum}
+          </span>
+        )}
+      </div>
+
       {/* Canvas is absolutely positioned and stretched to the container so the
           reserved page height is independent of whether the bitmap is painted. */}
       <canvas
