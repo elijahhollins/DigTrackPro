@@ -4,6 +4,7 @@ import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { PdfAnnotation, JobPrint, User, UserRole } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
+import { buildMarkedUpPdf } from './pdfExport.tsx';
 
 // Use workerSrc (URL) so pdfjs manages its own Worker lifecycle.
 // This is the standard approach: avoids shared-worker bad-state after errors
@@ -14,7 +15,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 // Types & constants
 // ─────────────────────────────────────────────────────────────
 
-type ToolType =
+export type ToolType =
   | 'select' | 'pan'
   | 'pen' | 'highlighter'
   | 'text' | 'callout' | 'stamp'
@@ -34,7 +35,7 @@ const STAMP_COLORS: Record<StampType, string> = {
   'VOID':          '#6b7280',
 };
 
-interface AnyAnnotationData extends Record<string, unknown> {
+export interface AnyAnnotationData extends Record<string, unknown> {
   points?:    Array<{ x: number; y: number; pressure?: number }>;
   x?:         number;
   y?:         number;
@@ -47,7 +48,7 @@ interface AnyAnnotationData extends Record<string, unknown> {
   rotation?:  number;  // rotation in degrees (clockwise, 0 = no rotation)
 }
 
-interface ScaleInfo {
+export interface ScaleInfo {
   unitsPerNormDist: number;  // real units per canonical normalized distance
   aspectRatio: number;       // canvas W/H (fixed for PDF page)
   unit: string;
@@ -420,7 +421,7 @@ const renderAnnotationContent = (
 
 // Wraps renderAnnotationContent with an SVG rotation transform when the
 // annotation's data.rotation field is set.
-const renderAnnotationSvg = (
+export const renderAnnotationSvg = (
   ann: { toolType: ToolType; color: string; strokeWidth: number; data: AnyAnnotationData },
   w: number, h: number, key: string,
   scaleInfo?: ScaleInfo | null,
@@ -1119,6 +1120,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   const [annLoadErr, setAnnLoadErr]     = useState<string | null>(null);
   const [actionErr, setActionErr]       = useState<string | null>(null);
   const [isSaving, setIsSaving]         = useState(false);
+  const [exportProgress, setExportProgress] = useState<number | null>(null); // 0–1 while exporting, else null
   const [showLog, setShowLog]           = useState(false);
   const [isLoadingPdf, setIsLoadingPdf] = useState(true);
   const [pdfError, setPdfError]         = useState<string | null>(null);
@@ -1137,6 +1139,9 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   // Per-page DOM refs (continuous-scroll mode renders every page at once).
   const pageCanvasRefs    = useRef<Map<number, HTMLCanvasElement>>(new Map());
   const pageContainerRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  // The lazy-render IntersectionObserver, held in a ref so pages can be observed the
+  // moment they mount (not only when the observer effect runs).
+  const pageObserverRef = useRef<IntersectionObserver | null>(null);
   // The page the current pointer gesture is acting on — resolved at pointer-down
   // from the target page container's data-page attribute. Drives getCoords, new
   // annotation placement, and which page renders live drawing previews.
@@ -1145,10 +1150,13 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   const textFieldRef  = useRef<HTMLInputElement>(null);
   const scaleInputRef = useRef<HTMLInputElement>(null);
   const pdfDocRef     = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
+  // Raw bytes of the source PDF, kept for exporting a flattened/marked-up copy.
+  const pdfBytesRef = useRef<ArrayBuffer | null>(null);
   // Active pdf.js render tasks keyed by page number, so re-renders can cancel cleanly.
   const renderTasksRef = useRef<Map<number, pdfjsLib.RenderTask>>(new Map());
-  // Zoom level at which each page's canvas was last painted (to skip redundant renders).
-  const renderedZoomRef = useRef<Map<number, number>>(new Map());
+  // Render signature (zoom + column width) at which each page's canvas was last
+  // painted, so redundant re-renders are skipped but stale-resolution ones are not.
+  const renderedZoomRef = useRef<Map<number, string>>(new Map());
   // Pages currently intersecting the viewport (plus the observer's prerender buffer).
   const visiblePagesRef = useRef<Set<number>>(new Set());
   // Scroll position as a fraction of scrollable height, kept current so zoom can restore it.
@@ -1264,6 +1272,9 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
         return;
       }
       try {
+        // Keep an independent copy of the raw bytes for export — pdf.js may transfer
+        // (detach) the buffer it is handed to its worker.
+        pdfBytesRef.current = buffer.slice(0);
         const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
         if (!cancelled) {
           pdfDocRef.current = pdf;
@@ -1296,7 +1307,11 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     const canvas = pageCanvasRefs.current.get(pageNum);
     if (!pdf || !canvas) return;
     const zoom = zoomRef.current;
-    if (!force && renderedZoomRef.current.get(pageNum) === zoom) return;
+    const avail = (availWidthRef.current || (mainRef.current?.clientWidth ?? window.innerWidth) - 48);
+    // Cache key includes width so a column-width change (rotation, resize) re-rasterizes
+    // even at the same zoom level, never leaving a stale-resolution bitmap.
+    const sig = `${zoom}:${Math.round(avail)}`;
+    if (!force && renderedZoomRef.current.get(pageNum) === sig) return;
     const prev = renderTasksRef.current.get(pageNum);
     if (prev) { prev.cancel(); renderTasksRef.current.delete(pageNum); }
     try {
@@ -1310,7 +1325,6 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
         next[pageNum - 1] = { width: base.width, height: base.height };
         return next;
       });
-      const avail = (availWidthRef.current || (mainRef.current?.clientWidth ?? window.innerWidth) - 48);
       // Render at the device pixel ratio so pages are crisp on Retina/mobile screens.
       // The CSS size stays the display size (canvas is stretched to its container), while
       // the bitmap is denser. Cap the longest side so high zoom can't allocate a huge
@@ -1329,7 +1343,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       renderTasksRef.current.set(pageNum, task);
       await task.promise;
       renderTasksRef.current.delete(pageNum);
-      renderedZoomRef.current.set(pageNum, zoom);
+      renderedZoomRef.current.set(pageNum, sig);
     } catch { /* cancelled */ }
   }, []);
 
@@ -1367,8 +1381,9 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
         else { visiblePagesRef.current.delete(p); clearPage(p); }
       }
     }, { root: main, rootMargin: '1200px 0px 1200px 0px', threshold: 0 });
+    pageObserverRef.current = io;
     pageContainerRefs.current.forEach(el => io.observe(el));
-    return () => io.disconnect();
+    return () => { io.disconnect(); pageObserverRef.current = null; };
   }, [isLoadingPdf, numPages, renderPage, clearPage]);
 
   // Re-render the currently visible pages when zoom or column width changes.
@@ -1419,13 +1434,14 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       const sh = main.scrollHeight - main.clientHeight;
       scrollRatioRef.current = sh > 0 ? main.scrollTop / sh : 0;
 
-      // Walk cumulative page heights (container p-4 = 16px padding, gap-4 = 16px gap)
-      // to find the page under the viewport centre without forcing layout per page.
-      const PAD = 16, GAP = 16;
+      // Walk cumulative page heights (gap-4 = 16px between pages) to find the page under
+      // the viewport centre without forcing layout per page. Seed the starting offset
+      // from the page column's actual position so error banners above it don't skew it.
+      const GAP = 16;
       const colW = Math.min(availWidthRef.current || 0, 1400) * zoomRef.current;
       const dims = pageDimsRef.current;
       const center = main.scrollTop + main.clientHeight / 2;
-      let top = PAD, best = 1;
+      let top = zoomLayerRef.current ? zoomLayerRef.current.offsetTop : 16, best = 1;
       for (let i = 0; i < dims.length; i++) {
         const dim = dims[i];
         const hgt = dim && colW > 0 ? colW * (dim.height / dim.width) : 0;
@@ -1477,7 +1493,14 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   // Stable ref-registration callbacks so memoized PageLayers never re-render from
   // receiving a fresh ref function each render.
   const registerContainer = useCallback((p: number, el: HTMLDivElement | null) => {
-    if (el) pageContainerRefs.current.set(p, el); else pageContainerRefs.current.delete(p);
+    if (el) {
+      pageContainerRefs.current.set(p, el);
+      pageObserverRef.current?.observe(el); // observe immediately if the observer exists
+    } else {
+      const prev = pageContainerRefs.current.get(p);
+      if (prev) pageObserverRef.current?.unobserve(prev);
+      pageContainerRefs.current.delete(p);
+    }
   }, []);
   const registerCanvas = useCallback((p: number, el: HTMLCanvasElement | null) => {
     if (el) pageCanvasRefs.current.set(p, el); else pageCanvasRefs.current.delete(p);
@@ -1624,6 +1647,41 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     }
     setIsSaving(false);
   }, [pendingAnnotations]);
+
+  // Download a flattened copy of the PDF with all current markups burned in.
+  const handleExport = useCallback(async () => {
+    const bytes = pdfBytesRef.current;
+    if (!bytes || exportProgress !== null) return;
+    const marks = [...annotationsRef.current, ...pendingAnnotationsRef.current]
+      .filter(a => (a.toolType as string) !== 'scale');
+    if (marks.length === 0) {
+      setActionErr('No markups to export yet — add some annotations first.');
+      return;
+    }
+    setExportProgress(0);
+    try {
+      const out = await buildMarkedUpPdf({
+        pdfBytes: bytes,
+        annotations: marks,
+        scaleInfo,
+        onProgress: (f) => setExportProgress(f),
+      });
+      // pdf-lib returns a Uint8Array; copy into a fresh buffer so Blob gets a clean ArrayBuffer.
+      const blob = new Blob([out.slice()], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const base = print.fileName.replace(/\.pdf$/i, '');
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${base} (marked up).pdf`;
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => { document.body.removeChild(link); URL.revokeObjectURL(url); }, 1000);
+    } catch (e: unknown) {
+      setActionErr('Export failed: ' + (e instanceof Error ? e.message : 'unknown error'));
+    } finally {
+      setExportProgress(null);
+    }
+  }, [exportProgress, scaleInfo, print.fileName]);
 
   const duplicateAnnotation = useCallback(() => {
     const selId = selectedAnnIdRef.current;
@@ -1945,6 +2003,17 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       activeTouchCountRef.current = e.touches.length;
       // A finger lifting out of a two-finger gesture commits the zoom.
       if (isPinchRef.current && e.touches.length < 2) finalizePinch();
+      // After a pinch leaves exactly one finger down, hand off to scrolling so that
+      // finger isn't "dead" until lifted and re-touched.
+      if (e.touches.length === 1) {
+        const isNavTool = currentToolRef.current === 'pan' || currentToolRef.current === 'select';
+        if (isNavTool && drawingPtrRef.current === null) {
+          panning = true;
+          startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+          startSL = main.scrollLeft; startST = main.scrollTop;
+          lastX = startX; lastY = startY; lastT = performance.now(); vx = 0; vy = 0;
+        }
+      }
       if (e.touches.length === 0) {
         const t = e.changedTouches[0];
         const now = performance.now();
@@ -2187,7 +2256,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     } else if (currentTool !== 'stamp' && currentTool !== 'select' && currentTool !== 'text') {
       setPreviewData({ x1: drawStart.x, y1: drawStart.y, x2: coords.x, y2: coords.y });
     }
-  }, [currentTool, isDrawing, drawStart, getCoords, zoomLevel, annotations, pendingAnnotations]);
+  }, [currentTool, isDrawing, drawStart, getCoords, annotations, pendingAnnotations]);
 
   const handlePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     touchPtsRef.current.delete(e.pointerId);
@@ -2580,6 +2649,26 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
           {pendingAnnotations.length > 0 ? `Save (${pendingAnnotations.length})` : 'Save'}
         </button>
 
+        {/* Download marked-up PDF */}
+        <button onClick={handleExport}
+          disabled={isLoadingPdf || !!pdfError || exportProgress !== null}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shrink-0 min-h-[44px] bg-brand text-slate-900 hover:brightness-110 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+          title="Download a copy of this PDF with the markups burned in">
+          {exportProgress !== null ? (
+            <>
+              <span className="w-3.5 h-3.5 border-2 border-slate-900/40 border-t-slate-900 rounded-full animate-spin" />
+              {Math.round(exportProgress * 100)}%
+            </>
+          ) : (
+            <>
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Download
+            </>
+          )}
+        </button>
+
         {scaleInfo && (
           <div className="flex items-center gap-1 shrink-0">
             <button
@@ -2942,7 +3031,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       )}
 
       {/* ── Canvas area ── */}
-      <div ref={mainRef} onScroll={handleScroll} className="flex-1 min-h-0 overflow-auto flex flex-col items-center p-4 gap-4">
+      <div ref={mainRef} onScroll={handleScroll} className="relative flex-1 min-h-0 overflow-auto flex flex-col items-center p-4 gap-4">
 
         {annLoadErr && (
           <div className="w-full max-w-3xl flex items-center gap-3 px-4 py-3 bg-amber-500/10 border border-amber-500/30 rounded-xl shrink-0">
