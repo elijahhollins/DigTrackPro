@@ -1,7 +1,8 @@
 import React, { useState, useReducer, useRef, useCallback, useEffect } from 'react';
-import { Plus, X, ChevronLeft, ChevronRight, Clock, Calendar, Pencil, Trash2, Briefcase, Users, Wrench, GripHorizontal, RotateCcw, Search } from 'lucide-react';
+import { Plus, X, ChevronLeft, ChevronRight, Clock, Calendar, Pencil, Trash2, Briefcase, Users, Wrench, GripHorizontal, RotateCcw, Search, Upload } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient.ts';
 import { scheduleService } from '../../services/scheduleService.ts';
+import ScheduleImportModal, { type ScheduleImportRow } from './ScheduleImportModal.tsx';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -126,29 +127,120 @@ const fmtLong = (iso: string): string =>
 
 const todayISO = toISO(new Date());
 
-/** Returns true when two schedule intervals [aStart, aStart+aDays) and [bStart, bStart+bDays) overlap. */
+// ═══════════════════════════════════════════════════════════════════════════════
+// WEEKEND-AWARE SCHEDULING HELPERS
+// ═══════════════════════════════════════════════════════════════════════════════
+// When "skip weekends" is enabled, durations count working days (Mon–Fri) only
+// and blocks never start on a Saturday or Sunday. Every helper accepts a `skip`
+// flag and degrades to plain calendar math when it's false, so both modes share
+// one code path through the reducer and render logic.
+
+const isWeekendDate = (d: Date): boolean => d.getDay() === 0 || d.getDay() === 6;
+
+/** Snap an ISO date forward to the next weekday (Monday) when it lands on a weekend. */
+const snapToWeekday = (iso: string): string => {
+  const d = parseDate(iso);
+  while (isWeekendDate(d)) d.setDate(d.getDate() + 1);
+  return toISO(d);
+};
+
+/** Date of the n-th working day of a span, counting `start` as day 1 (start is snapped to a weekday). */
+const nthWorkingDay = (start: string, n: number): string => {
+  const d = parseDate(start);
+  while (isWeekendDate(d)) d.setDate(d.getDate() + 1);
+  let count = 1;
+  while (count < n) {
+    d.setDate(d.getDate() + 1);
+    if (!isWeekendDate(d)) count++;
+  }
+  return toISO(d);
+};
+
+/** Count the working days in the inclusive calendar range [start, end]. */
+const countWorkingDays = (start: string, end: string): number => {
+  if (end < start) return 0;
+  const d = parseDate(start);
+  const last = parseDate(end);
+  let count = 0;
+  while (d <= last) {
+    if (!isWeekendDate(d)) count++;
+    d.setDate(d.getDate() + 1);
+  }
+  return count;
+};
+
+/** Number of calendar columns a block occupies on the grid (spans weekends when skipping). */
+const blockSpanDays = (start: string, durationDays: number, skip: boolean): number =>
+  skip ? diffDays(nthWorkingDay(start, durationDays), start) + 1 : durationDays;
+
+/**
+ * Break a block into the contiguous runs of working days it covers, expressed as
+ * calendar-column offsets from `start`. When weekend-skipping is off (or a block
+ * never touches a weekend) this is a single run spanning the whole block. When a
+ * block carries through a weekend it yields one run per work stretch so the bar
+ * can be drawn with the weekend columns left empty.
+ */
+const workingDayRuns = (
+  start: string, durationDays: number, skip: boolean,
+): { offsetDays: number; lengthDays: number }[] => {
+  if (!skip) return [{ offsetDays: 0, lengthDays: durationDays }];
+  const totalCols = diffDays(nthWorkingDay(start, durationDays), start) + 1;
+  const runs: { offsetDays: number; lengthDays: number }[] = [];
+  let runStart = -1;
+  for (let i = 0; i < totalCols; i++) {
+    const weekend = isWeekendDate(parseDate(addDays(start, i)));
+    if (!weekend && runStart === -1) {
+      runStart = i;
+    } else if (weekend && runStart !== -1) {
+      runs.push({ offsetDays: runStart, lengthDays: i - runStart });
+      runStart = -1;
+    }
+  }
+  if (runStart !== -1) runs.push({ offsetDays: runStart, lengthDays: totalCols - runStart });
+  return runs.length > 0 ? runs : [{ offsetDays: 0, lengthDays: Math.max(1, totalCols) }];
+};
+
+/** First calendar day after a block ends (its next available start), weekday-snapped when skipping. */
+const blockEndExclusive = (start: string, durationDays: number, skip: boolean): string =>
+  skip ? snapToWeekday(addDays(nthWorkingDay(start, durationDays), 1)) : addDays(start, durationDays);
+
+/** Shift an ISO date forward by `n` working days (or calendar days when not skipping). */
+const shiftSchedDays = (start: string, n: number, skip: boolean): string => {
+  if (!skip || n <= 0) return addDays(start, n);
+  const d = parseDate(start);
+  let remaining = n;
+  while (remaining > 0) {
+    d.setDate(d.getDate() + 1);
+    if (!isWeekendDate(d)) remaining--;
+  }
+  return toISO(d);
+};
+
+/** Returns true when two schedule intervals overlap, accounting for weekend skipping. */
 const blocksOverlap = (
   aStart: string, aDays: number,
   bStart: string, bDays: number,
+  skip: boolean,
 ): boolean => {
-  const aEnd = addDays(aStart, aDays);
-  const bEnd = addDays(bStart, bDays);
+  const aEnd = blockEndExclusive(aStart, aDays, skip);
+  const bEnd = blockEndExclusive(bStart, bDays, skip);
   return aStart < bEnd && bStart < aEnd;
 };
 
-/** Returns blocks of the same crew that overlap with [startDate, startDate+durationDays), excluding excludeId. */
+/** Returns blocks of the same crew that overlap with the given interval, excluding excludeId. */
 const findOverlapConflicts = (
   blocks: ScheduleBlock[],
   crewId: string,
   startDate: string,
   durationDays: number,
+  skip: boolean,
   excludeId?: string,
 ): ScheduleBlock[] =>
   blocks.filter(
     b =>
       b.crewId === crewId &&
       b.id !== excludeId &&
-      blocksOverlap(startDate, durationDays, b.startDate, b.durationDays),
+      blocksOverlap(startDate, durationDays, b.startDate, b.durationDays, skip),
   );
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -172,12 +264,13 @@ const MOCK_BLOCK_IDS = new Set(INITIAL_BLOCKS.map(b => b.id));
 // REDUCER
 // ═══════════════════════════════════════════════════════════════════════════════
 
-type Action =
+type BaseAction =
   | { type: 'MOVE_BLOCK';         id: string; crewId: string; startDate: string }
   | { type: 'MOVE_BLOCK_PUSH';    id: string; crewId: string; startDate: string; shiftDays: number }
   | { type: 'INSERT_DELAY';       blockId: string; days: number }
   | { type: 'EXTEND_JOB';         blockId: string; days: number }
   | { type: 'ADD_BLOCK';          block: ScheduleBlock }
+  | { type: 'ADD_BLOCKS';         blocks: ScheduleBlock[] }
   | { type: 'ADD_BLOCK_PUSH';     block: ScheduleBlock; shiftDays: number }
   | { type: 'DELETE_BLOCK';       id: string }
   | { type: 'REPLACE_ALL';        blocks: ScheduleBlock[] }
@@ -185,17 +278,22 @@ type Action =
   | { type: 'UNASSIGN_EQUIPMENT'; blockId: string; equipmentId: string }
   | { type: 'SHIFT_CREW';         crewId: string; fromDate: string; days: number };
 
+// `skipWeekends` is injected at dispatch time so the pure reducer can do
+// weekday-aware date math without reading component state directly.
+type Action = BaseAction & { skipWeekends?: boolean };
+
 /** Push all blocks for a crew that start on or after `fromDate` forward by `shiftDays`. */
 function shiftAfter(
   blocks: ScheduleBlock[],
   crewId: string,
   fromDate: string,
   shiftDays: number,
+  skip: boolean,
   excludeId?: string,
 ): ScheduleBlock[] {
   return blocks.map(b => {
     if (b.crewId === crewId && b.id !== excludeId && b.startDate >= fromDate) {
-      return { ...b, startDate: addDays(b.startDate, shiftDays) };
+      return { ...b, startDate: shiftSchedDays(b.startDate, shiftDays, skip) };
     }
     return b;
   });
@@ -212,9 +310,10 @@ function pushConflictingForward(
   crewId: string,
   newStart: string,
   newDuration: number,
+  skip: boolean,
   excludeId?: string,
 ): ScheduleBlock[] {
-  const newEnd = addDays(newStart, newDuration);
+  const newEnd = blockEndExclusive(newStart, newDuration, skip);
 
   const crewBlocks = blocks
     .filter(b => b.crewId === crewId && b.id !== excludeId)
@@ -225,8 +324,9 @@ function pushConflictingForward(
 
   for (const b of crewBlocks) {
     if (b.startDate >= newStart && b.startDate < pushBoundary) {
-      updates.set(b.id, pushBoundary);
-      pushBoundary = addDays(pushBoundary, b.durationDays);
+      const placed = skip ? snapToWeekday(pushBoundary) : pushBoundary;
+      updates.set(b.id, placed);
+      pushBoundary = blockEndExclusive(placed, b.durationDays, skip);
     }
   }
 
@@ -237,6 +337,7 @@ function pushConflictingForward(
 }
 
 function reducer(state: ScheduleBlock[], action: Action): ScheduleBlock[] {
+  const skip = action.skipWeekends ?? false;
   switch (action.type) {
     case 'MOVE_BLOCK':
       return state.map(b =>
@@ -253,7 +354,7 @@ function reducer(state: ScheduleBlock[], action: Action): ScheduleBlock[] {
           ? { ...b, crewId: action.crewId, startDate: action.startDate }
           : b,
       );
-      return pushConflictingForward(moved, action.crewId, action.startDate, action.shiftDays, action.id);
+      return pushConflictingForward(moved, action.crewId, action.startDate, action.shiftDays, skip, action.id);
     }
 
     case 'INSERT_DELAY': {
@@ -269,31 +370,34 @@ function reducer(state: ScheduleBlock[], action: Action): ScheduleBlock[] {
         extended: false,
       };
       // Shift the target job AND every subsequent crew block forward by `days`
-      const shifted = shiftAfter(state, job.crewId, job.startDate, action.days);
+      const shifted = shiftAfter(state, job.crewId, job.startDate, action.days, skip);
       return [...shifted, delay];
     }
 
     case 'EXTEND_JOB': {
       const job = state.find(b => b.id === action.blockId);
       if (!job || job.type !== 'job') return state;
-      const oldEnd = addDays(job.startDate, job.durationDays);
+      const oldEnd = blockEndExclusive(job.startDate, job.durationDays, skip);
       const withExtended = state.map(b =>
         b.id === action.blockId
           ? { ...b, durationDays: b.durationDays + action.days, extended: true }
           : b,
       );
       // Shift blocks that begin at or after the job's original end date
-      return shiftAfter(withExtended, job.crewId, oldEnd, action.days, action.blockId);
+      return shiftAfter(withExtended, job.crewId, oldEnd, action.days, skip, action.blockId);
     }
 
     case 'ADD_BLOCK':
       return [...state, action.block];
 
+    case 'ADD_BLOCKS':
+      return [...state, ...action.blocks];
+
     case 'ADD_BLOCK_PUSH': {
       // Push only crew blocks that actually overlap with the new block
       // (cascading as needed), then insert the new block.
       const shifted = pushConflictingForward(
-        state, action.block.crewId, action.block.startDate, action.block.durationDays,
+        state, action.block.crewId, action.block.startDate, action.block.durationDays, skip,
       );
       return [...shifted, action.block];
     }
@@ -321,7 +425,7 @@ function reducer(state: ScheduleBlock[], action: Action): ScheduleBlock[] {
     case 'SHIFT_CREW':
       return state.map(b =>
         b.crewId === action.crewId && b.startDate >= action.fromDate
-          ? { ...b, startDate: addDays(b.startDate, action.days) }
+          ? { ...b, startDate: shiftSchedDays(b.startDate, action.days, skip) }
           : b,
       );
 
@@ -524,9 +628,11 @@ interface TooltipState {
   y: number;
 }
 
-const BlockTooltip = ({ tip }: { tip: TooltipState }) => {
+const BlockTooltip = ({ tip, skipWeekends }: { tip: TooltipState; skipWeekends: boolean }) => {
   const { block, job, crew } = tip;
-  const endDate = addDays(block.startDate, block.durationDays - 1);
+  const endDate = skipWeekends
+    ? nthWorkingDay(block.startDate, block.durationDays)
+    : addDays(block.startDate, block.durationDays - 1);
   return (
     <div
       className="fixed z-50 pointer-events-none"
@@ -640,10 +746,12 @@ interface DayPromptState {
 
 const DayPromptModal = ({
   state,
+  skipWeekends,
   onConfirm,
   onClose,
 }: {
   state: DayPromptState;
+  skipWeekends: boolean;
   onConfirm: (days: number) => void;
   onClose: () => void;
 }) => {
@@ -670,17 +778,21 @@ const DayPromptModal = ({
         <h3 className="text-base font-bold text-slate-900 mb-1">{title}</h3>
         <p className="text-xs text-slate-500 mb-4">{description}</p>
         <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1.5">
-          Number of Days
+          {skipWeekends ? 'Number of Working Days' : 'Number of Days'}
         </label>
         <select
           value={days}
           onChange={e => setDays(parseInt(e.target.value))}
-          className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/10 mb-4 bg-white"
+          className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/10 mb-1.5 bg-white"
         >
           {Array.from({ length: 30 }, (_, i) => i + 1).map(d => (
             <option key={d} value={d}>{d} day{d !== 1 ? 's' : ''}</option>
           ))}
         </select>
+        {skipWeekends && (
+          <p className="text-[11px] text-slate-400 mb-4">Counted in working days — weekends are skipped.</p>
+        )}
+        {!skipWeekends && <div className="mb-4" />}
         <div className="flex gap-3">
           <button
             onClick={onClose}
@@ -1146,11 +1258,13 @@ const ManageJobsModal = ({
 const AddBlockModal = ({
   crews,
   jobs,
+  skipWeekends,
   onAdd,
   onClose,
 }: {
   crews: Crew[];
   jobs: JobOption[];
+  skipWeekends: boolean;
   onAdd: (block: ScheduleBlock) => void;
   onClose: () => void;
 }) => {
@@ -1389,7 +1503,7 @@ const AddBlockModal = ({
 
             <div style={{ width: 110 }}>
               <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1.5">
-                Duration (days)
+                {skipWeekends ? 'Working days' : 'Duration (days)'}
               </label>
               <select
                 value={durationDays}
@@ -1403,6 +1517,32 @@ const AddBlockModal = ({
               </select>
             </div>
           </div>
+
+          {/* Schedule preview — makes clear the duration is counted in working
+              days (Mon–Fri) and shows where the job lands with weekends skipped. */}
+          {/^\d{4}-\d{2}-\d{2}$/.test(startDate) && durationDays >= 1 && (() => {
+            const effStart = skipWeekends ? snapToWeekday(startDate) : startDate;
+            const endISO   = skipWeekends
+              ? nthWorkingDay(effStart, durationDays)
+              : addDays(startDate, durationDays - 1);
+            return (
+              <p className="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
+                {skipWeekends ? (
+                  <>
+                    <span className="font-semibold text-slate-700">{durationDays} working day{durationDays !== 1 ? 's' : ''}</span>
+                    {' · '}weekends skipped
+                    <br />
+                    {effStart !== startDate && (
+                      <span className="text-amber-600">Starts {fmtLong(effStart)} (moved off weekend)<br /></span>
+                    )}
+                    Ends <span className="font-semibold text-slate-700">{fmtLong(endISO)}</span>
+                  </>
+                ) : (
+                  <>Ends <span className="font-semibold text-slate-700">{fmtLong(endISO)}</span></>
+                )}
+              </p>
+            );
+          })()}
 
           {selectedJob && (
             <p className="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
@@ -1462,6 +1602,8 @@ interface JobBlockProps {
   onTouchStart?: (e: React.TouchEvent) => void;
   onResizeStart?: (e: React.MouseEvent) => void;
   onResizeTouchStart?: (e: React.TouchEvent) => void;
+  /** Visual segments (px offsets relative to the block's left). Multiple when a job carries through a weekend. */
+  segments?: { left: number; width: number }[];
 }
 
 const JobBlock = ({
@@ -1471,11 +1613,23 @@ const JobBlock = ({
   onDragStart, onDragEnd, onContextMenu,
   onMouseEnter, onMouseMove, onMouseLeave, onTouchStart,
   onResizeStart, onResizeTouchStart,
+  segments,
 }: JobBlockProps) => {
   const isDelay   = block.type === 'delay';
   const bgColor   = isDelay ? '#64748b' : color;
-  const blockW    = Math.max(width - BLOCK_MARGIN * 2, 24);
   const blockH    = ROW_HEIGHT - BLOCK_MARGIN * 2;
+
+  // Each segment is a contiguous run of working days. A block that carries
+  // through a weekend has more than one, drawn with the weekend columns left
+  // empty so the bar visually skips the weekend. Falls back to a single bar.
+  const segs = segments && segments.length > 0
+    ? segments
+    : [{ left: BLOCK_MARGIN, width: Math.max(width - BLOCK_MARGIN * 2, 24) }];
+  const lastIdx = segs.length - 1;
+
+  const fillImage = isDelay
+    ? 'repeating-linear-gradient(45deg, transparent, transparent 7px, rgba(255,255,255,0.10) 7px, rgba(255,255,255,0.10) 14px)'
+    : 'linear-gradient(160deg, rgba(255,255,255,0.20) 0%, rgba(255,255,255,0.05) 42%, rgba(0,0,0,0.14) 100%)';
 
   return (
     <div
@@ -1512,187 +1666,203 @@ const JobBlock = ({
       }}
       style={{
         position: 'absolute',
-        left: left + BLOCK_MARGIN,
-        top: BLOCK_MARGIN,
-        width: blockW,
-        height: blockH,
-        backgroundColor: bgColor,
-        backgroundImage: isDelay
-          ? 'repeating-linear-gradient(45deg, transparent, transparent 7px, rgba(255,255,255,0.10) 7px, rgba(255,255,255,0.10) 14px)'
-          : 'linear-gradient(160deg, rgba(255,255,255,0.20) 0%, rgba(255,255,255,0.05) 42%, rgba(0,0,0,0.14) 100%)',
+        left,
+        top: 0,
+        width,
+        height: ROW_HEIGHT,
         opacity: isDragging ? 0.4 : 1,
-        borderRadius: 10,
         cursor: editMode ? 'grab' : 'default',
         userSelect: 'none',
         touchAction: editMode ? 'none' : 'auto',
-        overflow: 'hidden',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        padding: '0 10px 0 13px',
-        boxSizing: 'border-box',
-        boxShadow: isEquipDragOver
-          ? '0 0 0 2px #fff, 0 0 0 4px var(--brand-primary, #3b82f6)'
-          : isDragging
-            ? 'none'
-            : 'inset 0 1px 0 rgba(255,255,255,0.22), 0 1px 2px rgba(15,23,42,0.20), 0 4px 10px rgba(15,23,42,0.12)',
         transform: isDragging ? 'scale(0.98)' : undefined,
-        transition: 'opacity 0.12s, box-shadow 0.12s, transform 0.12s',
+        transition: 'opacity 0.12s, transform 0.12s',
         zIndex: 5,
       }}
     >
-      {/* Left accent strip — adds visual structure / a "tab" feel */}
-      <div
-        style={{
-          position: 'absolute', left: 0, top: 0, bottom: 0, width: 4,
-          background: isDelay
-            ? 'rgba(255,255,255,0.35)'
-            : 'linear-gradient(180deg, rgba(255,255,255,0.65), rgba(255,255,255,0.25))',
-          pointerEvents: 'none',
-        }}
-      />
-      {/* Extended dashed border */}
-      {block.extended && !isDelay && (
-        <div
-          style={{
-            position: 'absolute', inset: 0, borderRadius: 10,
-            border: '2px dashed rgba(251,191,36,0.85)',
-            pointerEvents: 'none',
-          }}
-        />
-      )}
+      {segs.map((seg, i) => {
+        const isFirst = i === 0;
+        const isLast  = i === lastIdx;
+        return (
+          <div
+            key={i}
+            style={{
+              position: 'absolute',
+              left: seg.left,
+              top: BLOCK_MARGIN,
+              width: seg.width,
+              height: blockH,
+              backgroundColor: bgColor,
+              backgroundImage: fillImage,
+              borderRadius: 10,
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
+              padding: '0 10px 0 13px',
+              boxSizing: 'border-box',
+              boxShadow: isEquipDragOver
+                ? '0 0 0 2px #fff, 0 0 0 4px var(--brand-primary, #3b82f6)'
+                : isDragging
+                  ? 'none'
+                  : 'inset 0 1px 0 rgba(255,255,255,0.22), 0 1px 2px rgba(15,23,42,0.20), 0 4px 10px rgba(15,23,42,0.12)',
+            }}
+          >
+            {/* Left accent strip — adds visual structure / a "tab" feel */}
+            <div
+              style={{
+                position: 'absolute', left: 0, top: 0, bottom: 0, width: 4,
+                background: isDelay
+                  ? 'rgba(255,255,255,0.35)'
+                  : 'linear-gradient(180deg, rgba(255,255,255,0.65), rgba(255,255,255,0.25))',
+                pointerEvents: 'none',
+              }}
+            />
+            {/* Extended dashed border (every segment, so the whole job reads as extended) */}
+            {block.extended && !isDelay && (
+              <div
+                style={{
+                  position: 'absolute', inset: 0, borderRadius: 10,
+                  border: '2px dashed rgba(251,191,36,0.85)',
+                  pointerEvents: 'none',
+                }}
+              />
+            )}
 
-      {/* Extended corner badge */}
-      {block.extended && !isDelay && (
-        <div
-          title="Extended"
-          style={{
-            position: 'absolute', top: 0, right: 0,
-            width: 0, height: 0,
-            borderStyle: 'solid',
-            borderWidth: '0 16px 16px 0',
-            borderColor: `transparent #fbbf24 transparent transparent`,
-          }}
-        />
-      )}
+            {/* Extended corner badge — on the final segment (the job's end) */}
+            {block.extended && !isDelay && isLast && (
+              <div
+                title="Extended"
+                style={{
+                  position: 'absolute', top: 0, right: 0,
+                  width: 0, height: 0,
+                  borderStyle: 'solid',
+                  borderWidth: '0 16px 16px 0',
+                  borderColor: `transparent #fbbf24 transparent transparent`,
+                }}
+              />
+            )}
 
-      {/* Edit mode drag handle — visible on top-left of block in edit mode */}
-      {editMode && (
-        <div
-          style={{
-            position: 'absolute', top: 3, left: 3,
-            color: 'rgba(255,255,255,0.65)',
-            pointerEvents: 'none',
-            lineHeight: 1,
-          }}
-        >
-          <GripHorizontal style={{ width: 10, height: 10 }} />
-        </div>
-      )}
+            {/* Edit mode drag handle — top-left of the first segment */}
+            {editMode && isFirst && (
+              <div
+                style={{
+                  position: 'absolute', top: 3, left: 3,
+                  color: 'rgba(255,255,255,0.65)',
+                  pointerEvents: 'none',
+                  lineHeight: 1,
+                }}
+              >
+                <GripHorizontal style={{ width: 10, height: 10 }} />
+              </div>
+            )}
 
-      {/* Resize handle — visible on right edge in edit mode for job blocks */}
-      {editMode && !isDelay && (
-        <div
-          onMouseDown={e => { e.stopPropagation(); e.preventDefault(); onResizeStart?.(e); }}
-          onTouchStart={e => { e.stopPropagation(); e.preventDefault(); onResizeTouchStart?.(e); }}
-          title="Drag to extend job duration"
-          style={{
-            position: 'absolute',
-            right: 0, top: 0,
-            width: 10, height: '100%',
-            cursor: 'col-resize',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 3,
-            zIndex: 15,
-          }}
-        >
-          <div style={{ width: 2, height: 6, background: 'rgba(255,255,255,0.55)', borderRadius: 1 }} />
-          <div style={{ width: 2, height: 6, background: 'rgba(255,255,255,0.55)', borderRadius: 1 }} />
-          <div style={{ width: 2, height: 6, background: 'rgba(255,255,255,0.55)', borderRadius: 1 }} />
-        </div>
-      )}
+            {/* Resize handle — right edge of the final segment for job blocks */}
+            {editMode && !isDelay && isLast && (
+              <div
+                onMouseDown={e => { e.stopPropagation(); e.preventDefault(); onResizeStart?.(e); }}
+                onTouchStart={e => { e.stopPropagation(); e.preventDefault(); onResizeTouchStart?.(e); }}
+                title="Drag to extend job duration"
+                style={{
+                  position: 'absolute',
+                  right: 0, top: 0,
+                  width: 10, height: '100%',
+                  cursor: 'col-resize',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 3,
+                  zIndex: 15,
+                }}
+              >
+                <div style={{ width: 2, height: 6, background: 'rgba(255,255,255,0.55)', borderRadius: 1 }} />
+                <div style={{ width: 2, height: 6, background: 'rgba(255,255,255,0.55)', borderRadius: 1 }} />
+                <div style={{ width: 2, height: 6, background: 'rgba(255,255,255,0.55)', borderRadius: 1 }} />
+              </div>
+            )}
 
-      {/* Admin delete button — visible on block for mobile/touch accessibility */}
-      {isAdmin && onDelete && (
-        <button
-          onClick={e => { e.stopPropagation(); e.preventDefault(); onDelete(); }}
-          onMouseDown={e => e.stopPropagation()}
-          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); onDelete(); } }}
-          title="Delete block"
-          aria-label="Delete block"
-          style={{
-            position: 'absolute',
-            top: 3,
-            right: 3,
-            width: 16,
-            height: 16,
-            borderRadius: '50%',
-            backgroundColor: 'rgba(0,0,0,0.35)',
-            border: 'none',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 0,
-            zIndex: 10,
-            lineHeight: 1,
-            color: '#fff',
-            fontSize: 10,
-            fontWeight: 700,
-          }}
-        >
-          ×
-        </button>
-      )}
+            {/* Admin delete button — top-right of the first segment */}
+            {isAdmin && onDelete && isFirst && (
+              <button
+                onClick={e => { e.stopPropagation(); e.preventDefault(); onDelete(); }}
+                onMouseDown={e => e.stopPropagation()}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); onDelete(); } }}
+                title="Delete block"
+                aria-label="Delete block"
+                style={{
+                  position: 'absolute',
+                  top: 3,
+                  right: 3,
+                  width: 16,
+                  height: 16,
+                  borderRadius: '50%',
+                  backgroundColor: 'rgba(0,0,0,0.35)',
+                  border: 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: 0,
+                  zIndex: 10,
+                  lineHeight: 1,
+                  color: '#fff',
+                  fontSize: 10,
+                  fontWeight: 700,
+                }}
+              >
+                ×
+              </button>
+            )}
 
-      {/* Equipment badge — bottom-left; clickable to open equipment modal */}
-      {!isDelay && (equipmentCount ?? 0) > 0 && onEquipmentClick && (
-        <button
-          onClick={e => { e.stopPropagation(); e.preventDefault(); onEquipmentClick(); }}
-          onMouseDown={e => e.stopPropagation()}
-          title={`${equipmentCount} piece${equipmentCount !== 1 ? 's' : ''} of equipment on site — click to manage`}
-          aria-label={`${equipmentCount} equipment assigned — click to manage`}
-          style={{
-            position: 'absolute',
-            bottom: 3,
-            left: 4,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 2,
-            background: 'rgba(0,0,0,0.35)',
-            border: 'none',
-            borderRadius: 4,
-            padding: '1px 4px',
-            cursor: 'pointer',
-            zIndex: 10,
-            color: '#fff',
-            fontSize: 9,
-            fontWeight: 700,
-            lineHeight: 1.4,
-          }}
-        >
-          <Wrench style={{ width: 8, height: 8, flexShrink: 0 }} aria-hidden="true" />
-          {equipmentCount}
-        </button>
-      )}
+            {/* Equipment badge — bottom-left of the first segment; opens equipment modal */}
+            {!isDelay && (equipmentCount ?? 0) > 0 && onEquipmentClick && isFirst && (
+              <button
+                onClick={e => { e.stopPropagation(); e.preventDefault(); onEquipmentClick(); }}
+                onMouseDown={e => e.stopPropagation()}
+                title={`${equipmentCount} piece${equipmentCount !== 1 ? 's' : ''} of equipment on site — click to manage`}
+                aria-label={`${equipmentCount} equipment assigned — click to manage`}
+                style={{
+                  position: 'absolute',
+                  bottom: 3,
+                  left: 4,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 2,
+                  background: 'rgba(0,0,0,0.35)',
+                  border: 'none',
+                  borderRadius: 4,
+                  padding: '1px 4px',
+                  cursor: 'pointer',
+                  zIndex: 10,
+                  color: '#fff',
+                  fontSize: 9,
+                  fontWeight: 700,
+                  lineHeight: 1.4,
+                }}
+              >
+                <Wrench style={{ width: 8, height: 8, flexShrink: 0 }} aria-hidden="true" />
+                {equipmentCount}
+              </button>
+            )}
 
-      {/* Label */}
-      <div style={{ color: '#fff', fontSize: 11.5, fontWeight: 700, lineHeight: 1.2, letterSpacing: '0.01em', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', textShadow: '0 1px 2px rgba(0,0,0,0.28)' }}>
-        {block.jobNumber}
-      </div>
-      {!isDelay && job && blockW > 64 && (
-        <div style={{ color: 'rgba(255,255,255,0.82)', fontSize: 9.5, marginTop: 2, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', textShadow: '0 1px 1px rgba(0,0,0,0.2)' }}>
-          {job.location}
-        </div>
-      )}
-      {blockW > 40 && (
-        <div style={{ display: 'inline-flex', alignItems: 'center', alignSelf: 'flex-start', marginTop: 4, padding: '1px 6px', borderRadius: 999, background: 'rgba(255,255,255,0.20)', color: 'rgba(255,255,255,0.95)', fontSize: 9, fontWeight: 600, lineHeight: 1.3, backdropFilter: 'blur(2px)' }}>
-          {block.durationDays}d
-        </div>
-      )}
+            {/* Labels — shown on every segment so each piece of a block that
+                carries through a weekend still identifies its job. */}
+            <div style={{ color: '#fff', fontSize: 11.5, fontWeight: 700, lineHeight: 1.2, letterSpacing: '0.01em', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', textShadow: '0 1px 2px rgba(0,0,0,0.28)' }}>
+              {block.jobNumber}
+            </div>
+            {!isDelay && job && seg.width > 64 && (
+              <div style={{ color: 'rgba(255,255,255,0.82)', fontSize: 9.5, marginTop: 2, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', textShadow: '0 1px 1px rgba(0,0,0,0.2)' }}>
+                {job.location}
+              </div>
+            )}
+            {seg.width > 40 && (
+              <div style={{ display: 'inline-flex', alignItems: 'center', alignSelf: 'flex-start', marginTop: 4, padding: '1px 6px', borderRadius: 999, background: 'rgba(255,255,255,0.20)', color: 'rgba(255,255,255,0.95)', fontSize: 9, fontWeight: 600, lineHeight: 1.3, backdropFilter: 'blur(2px)' }}>
+                {block.durationDays}d
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 };
@@ -1726,6 +1896,20 @@ export default function Scheduler({
   const [blocks, dispatch] = useReducer(reducer, initialBlocks);
   const [view, setView]    = useState<'week' | 'month'>('week');
   const [viewOffset, setViewOffset] = useState(0); // days from default start
+
+  // Skip weekends: durations count working days (Mon–Fri) and blocks never start
+  // on a weekend. Defaults on, persisted so the choice survives reloads. Can be
+  // turned off for the occasional weekend crew.
+  const [skipWeekends, setSkipWeekends] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    const saved = window.localStorage.getItem('scheduler-skip-weekends');
+    return saved === null ? true : saved === 'true';
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem('scheduler-skip-weekends', String(skipWeekends)); } catch { /* ignore */ }
+  }, [skipWeekends]);
+  const skipWeekendsRef = useRef(skipWeekends);
+  skipWeekendsRef.current = skipWeekends;
 
   // Guards to avoid saving before the initial Supabase load completes
   const dbLoadedRef = useRef(false);
@@ -1947,6 +2131,7 @@ export default function Scheduler({
     blockId:      string;
     startX:       number;
     origDuration: number;
+    origStart:    string;
     crewId:       string;
   } | null>(null);
 
@@ -1970,6 +2155,7 @@ export default function Scheduler({
   const [dayPrompt,         setDayPrompt]         = useState<DayPromptState | null>(null);
   const [tooltip,           setTooltip]           = useState<TooltipState | null>(null);
   const [showAddModal,      setShowAddModal]      = useState(false);
+  const [showImportModal,   setShowImportModal]   = useState(false);
   const [showManageCrews,   setShowManageCrews]   = useState(false);
   const [showManageJobs,    setShowManageJobs]    = useState(false);
 
@@ -2016,7 +2202,7 @@ export default function Scheduler({
   const dispatchWithHistory = useCallback((action: Action) => {
     undoHistoryRef.current = [...undoHistoryRef.current.slice(-19), blocksRef.current];
     setCanUndo(true);
-    dispatch(action);
+    dispatch({ ...action, skipWeekends: skipWeekendsRef.current });
   }, [dispatch]);
 
   /** Restore the most recent snapshot from undo history. */
@@ -2080,7 +2266,9 @@ export default function Scheduler({
     // Position within the grid area (subtract the fixed crew-label column)
     const xInGrid    = xInContent - CREW_COL_W;
     const dayIndex   = Math.floor(xInGrid / dayWidth);
-    const newStart   = addDays(viewStart, dayIndex - dragOffsetDays);
+    const skip       = skipWeekendsRef.current;
+    let   newStart   = addDays(viewStart, dayIndex - dragOffsetDays);
+    if (skip) newStart = snapToWeekday(newStart);
 
     setDraggingId(null);
 
@@ -2088,7 +2276,7 @@ export default function Scheduler({
     const movingBlock = allBlocks.find(b => b.id === blockId);
     if (!movingBlock) return;
 
-    const conflicts = findOverlapConflicts(allBlocks, crewId, newStart, movingBlock.durationDays, blockId);
+    const conflicts = findOverlapConflicts(allBlocks, crewId, newStart, movingBlock.durationDays, skip, blockId);
     if (conflicts.length > 0) {
       const crew = crewsStateRef.current.find(c => c.id === crewId);
       setPendingMove({
@@ -2189,8 +2377,28 @@ export default function Scheduler({
   // Global touch-move / touch-end listeners while a touch drag is in progress
   const dayWidthRef    = useRef(dayWidth);
   const viewStartRef   = useRef(viewStart);
+  const todayOffsetRef = useRef(todayOffset);
   dayWidthRef.current    = dayWidth;
   viewStartRef.current   = viewStart;
+  todayOffsetRef.current = todayOffset;
+
+  // ── Focus today ───────────────────────────────────────────────────────────
+  // Horizontally scroll so today's column sits just inside the left edge (with a
+  // day of lead-in for context). Past days remain reachable by scrolling left and
+  // future days by scrolling right. Bumping `focusTodayNonce` re-triggers it.
+  const [focusTodayNonce, setFocusTodayNonce] = useState(0);
+  const scrollToToday = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollLeft = Math.max(0, todayOffsetRef.current - dayWidthRef.current);
+  }, []);
+
+  // Run on first paint and whenever the view granularity changes or the user
+  // explicitly asks to jump back to today.
+  useEffect(() => {
+    const id = requestAnimationFrame(scrollToToday);
+    return () => cancelAnimationFrame(id);
+  }, [view, focusTodayNonce, scrollToToday]);
 
   useEffect(() => {
     if (!touchGhostPos) return; // nothing being dragged
@@ -2228,14 +2436,16 @@ export default function Scheduler({
       const xInContent = touch.clientX - containerRect.left + container.scrollLeft;
       const xInGrid    = xInContent - CREW_COL_W;
       const dayIndex   = dw > 0 ? Math.floor(xInGrid / dw) : 0;
-      const newStart   = addDays(viewStartRef.current, dayIndex - drag.offsetDays);
+      const skip       = skipWeekendsRef.current;
+      let   newStart   = addDays(viewStartRef.current, dayIndex - drag.offsetDays);
+      if (skip) newStart = snapToWeekday(newStart);
 
       if (targetCrew) {
         const allBlocks   = blocksRef.current;
         const movingBlock = allBlocks.find(b => b.id === drag.blockId);
         if (movingBlock) {
           const conflicts = findOverlapConflicts(
-            allBlocks, targetCrew.id, newStart, movingBlock.durationDays, drag.blockId,
+            allBlocks, targetCrew.id, newStart, movingBlock.durationDays, skip, drag.blockId,
           );
           if (conflicts.length > 0) {
             setPendingMove({
@@ -2272,6 +2482,7 @@ export default function Scheduler({
       blockId:      block.id,
       startX:       e.clientX,
       origDuration: block.durationDays,
+      origStart:    block.startDate,
       crewId:       block.crewId,
     };
     setResizingId(block.id);
@@ -2286,6 +2497,7 @@ export default function Scheduler({
       blockId:      block.id,
       startX:       touch.clientX,
       origDuration: block.durationDays,
+      origStart:    block.startDate,
       crewId:       block.crewId,
     };
     setResizingId(block.id);
@@ -2295,23 +2507,33 @@ export default function Scheduler({
   useEffect(() => {
     if (!resizingId) return;
 
+    // Convert a pixel drag (in calendar columns) into a working-day duration
+    // delta so that dragging across a weekend doesn't add weekend days when
+    // weekend-skipping is on.
+    const toDurationDelta = (r: NonNullable<typeof resizeRef.current>, cols: number): number => {
+      if (cols <= 0) return 0;
+      if (!skipWeekendsRef.current) return cols;
+      const origLast    = nthWorkingDay(r.origStart, r.origDuration);
+      const targetEnd   = addDays(origLast, cols);
+      const newDuration = countWorkingDays(r.origStart, targetEnd);
+      return Math.max(0, newDuration - r.origDuration);
+    };
+
     const onMouseMove = (e: MouseEvent) => {
       const r = resizeRef.current;
       if (!r || dayWidthRef.current === 0) return;
-      const deltaX    = e.clientX - r.startX;
-      const deltaDays = Math.max(0, Math.round(deltaX / dayWidthRef.current));
-      setResizeDeltaDays(deltaDays);
+      const cols = Math.max(0, Math.round((e.clientX - r.startX) / dayWidthRef.current));
+      setResizeDeltaDays(toDurationDelta(r, cols));
     };
 
     const onMouseUp = (e: MouseEvent) => {
       const r = resizeRef.current;
       if (!r) return;
       const dw = dayWidthRef.current;
-      const deltaDays = dw > 0
-        ? Math.max(0, Math.round((e.clientX - r.startX) / dw))
-        : 0;
-      if (deltaDays > 0) {
-        dispatch({ type: 'EXTEND_JOB', blockId: r.blockId, days: deltaDays });
+      const cols = dw > 0 ? Math.max(0, Math.round((e.clientX - r.startX) / dw)) : 0;
+      const days = toDurationDelta(r, cols);
+      if (days > 0) {
+        dispatch({ type: 'EXTEND_JOB', blockId: r.blockId, days, skipWeekends: skipWeekendsRef.current });
       }
       resizeRef.current = null;
       setResizingId(null);
@@ -2323,9 +2545,8 @@ export default function Scheduler({
       if (!r || dayWidthRef.current === 0) return;
       e.preventDefault();
       const touch = e.touches[0];
-      const deltaX    = touch.clientX - r.startX;
-      const deltaDays = Math.max(0, Math.round(deltaX / dayWidthRef.current));
-      setResizeDeltaDays(deltaDays);
+      const cols = Math.max(0, Math.round((touch.clientX - r.startX) / dayWidthRef.current));
+      setResizeDeltaDays(toDurationDelta(r, cols));
     };
 
     const onTouchEnd = (e: TouchEvent) => {
@@ -2333,11 +2554,10 @@ export default function Scheduler({
       if (!r) return;
       const dw = dayWidthRef.current;
       const touch = e.changedTouches[0];
-      const deltaDays = dw > 0
-        ? Math.max(0, Math.round((touch.clientX - r.startX) / dw))
-        : 0;
-      if (deltaDays > 0) {
-        dispatch({ type: 'EXTEND_JOB', blockId: r.blockId, days: deltaDays });
+      const cols = dw > 0 ? Math.max(0, Math.round((touch.clientX - r.startX) / dw)) : 0;
+      const days = toDurationDelta(r, cols);
+      if (days > 0) {
+        dispatch({ type: 'EXTEND_JOB', blockId: r.blockId, days, skipWeekends: skipWeekendsRef.current });
       }
       resizeRef.current = null;
       setResizingId(null);
@@ -2371,6 +2591,56 @@ export default function Scheduler({
     if (!dayPrompt) return;
     dispatchWithHistory({ type: 'EXTEND_JOB', blockId: dayPrompt.blockId, days });
   };
+
+  // ── Spreadsheet import ───────────────────────────────────────────────────────
+  // Turn parsed rows into schedule blocks, creating any crews and job options
+  // they reference that don't exist yet. Crew/job state updates auto-persist via
+  // the existing save effects, and the block-save effect upserts referenced crews
+  // before blocks so the FK constraint is always satisfied.
+  const handleImport = useCallback((rows: ScheduleImportRow[]) => {
+    const skip = skipWeekendsRef.current;
+
+    // Resolve crews by name (case-insensitive), creating new ones as needed.
+    const crewIdByName = new Map<string, string>(
+      crewsState.map(c => [c.name.trim().toLowerCase(), c.id]),
+    );
+    const newCrews: Crew[] = [];
+    for (const r of rows) {
+      const key = r.crewName.trim().toLowerCase();
+      if (!crewIdByName.has(key)) {
+        const crew: Crew = { id: `crew-${crypto.randomUUID()}`, name: r.crewName.trim(), size: 1, memberIds: [] };
+        crewIdByName.set(key, crew.id);
+        newCrews.push(crew);
+      }
+    }
+
+    // Collect new job options referenced by the import.
+    const existingJobNums = new Set(jobsState.map(j => j.jobNumber.toLowerCase()));
+    const newJobs: JobOption[] = [];
+    const seenNewJobs = new Set<string>();
+    for (const r of rows) {
+      const key = r.jobNumber.toLowerCase();
+      if (!existingJobNums.has(key) && !seenNewJobs.has(key)) {
+        seenNewJobs.add(key);
+        newJobs.push({ jobNumber: r.jobNumber, location: r.location, estimatedDays: r.durationDays });
+      }
+    }
+
+    // Build the blocks, snapping start dates off weekends when that mode is on.
+    const importedBlocks: ScheduleBlock[] = rows.map(r => ({
+      id:           `block-${crypto.randomUUID()}`,
+      crewId:       crewIdByName.get(r.crewName.trim().toLowerCase())!,
+      jobNumber:    r.jobNumber,
+      startDate:    skip ? snapToWeekday(r.startDate) : r.startDate,
+      durationDays: Math.max(1, r.durationDays),
+      type:         'job',
+      extended:     false,
+    }));
+
+    if (newCrews.length > 0) setCrewsState(prev => [...prev, ...newCrews]);
+    if (newJobs.length > 0)   setJobsState(prev => [...prev, ...newJobs]);
+    if (importedBlocks.length > 0) dispatchWithHistory({ type: 'ADD_BLOCKS', blocks: importedBlocks });
+  }, [crewsState, jobsState, dispatchWithHistory]);
 
   // ── Build month-label spans for header ──────────────────────────────────────
 
@@ -2443,7 +2713,7 @@ export default function Scheduler({
             <ChevronLeft className="w-4 h-4" />
           </button>
           <button
-            onClick={() => setViewOffset(0)}
+            onClick={() => { setViewOffset(0); setFocusTodayNonce(n => n + 1); }}
             className="px-3 py-1 text-xs font-semibold text-slate-200 hover:bg-white/10 hover:text-white rounded-md transition-colors"
           >
             Today
@@ -2463,6 +2733,23 @@ export default function Scheduler({
         </span>
 
         <div className="ml-auto flex items-center gap-2">
+          {/* Skip-weekends toggle — when on, jobs span Mon–Fri and auto-skip Sat/Sun */}
+          <button
+            onClick={() => setSkipWeekends(s => !s)}
+            aria-pressed={skipWeekends}
+            aria-label={skipWeekends ? 'Weekends skipped — click to include weekends' : 'Weekends included — click to skip weekends'}
+            title={skipWeekends
+              ? 'Weekends skipped — jobs are scheduled Monday–Friday. Click to allow weekend work.'
+              : 'Weekends included — jobs can run any day. Click to skip weekends.'}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all border ${
+              skipWeekends
+                ? 'bg-white/10 hover:bg-white/20 text-slate-200 border-white/10'
+                : 'bg-amber-400 text-slate-900 border-amber-300 shadow-sm'
+            }`}
+          >
+            <Calendar className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">{skipWeekends ? 'Mon–Fri' : '7-Day'}</span>
+          </button>
           {/* Edit mode toggle */}
           <button
             onClick={() => setEditMode(m => !m)}
@@ -2527,6 +2814,14 @@ export default function Scheduler({
             }`}
           >
             <Wrench className="w-3.5 h-3.5" /><span className="hidden sm:inline"> Equipment</span>
+          </button>
+          <button
+            onClick={() => setShowImportModal(true)}
+            aria-label="Import schedule from spreadsheet"
+            title="Import schedule from a CSV or spreadsheet"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-slate-200 text-xs font-semibold rounded-lg transition-colors border border-white/10"
+          >
+            <Upload className="w-3.5 h-3.5" /><span className="hidden sm:inline"> Import</span>
           </button>
           <button
             onClick={() => setShowAddModal(true)}
@@ -2804,7 +3099,14 @@ export default function Scheduler({
                   {crewBlocks.map(block => {
                     const left  = diffDays(block.startDate, viewStart) * dayWidth;
                     const isResizing = resizingId === block.id;
-                    const width = (block.durationDays + (isResizing ? resizeDeltaDays : 0)) * dayWidth;
+                    const previewDuration = block.durationDays + (isResizing ? resizeDeltaDays : 0);
+                    const width = blockSpanDays(block.startDate, previewDuration, skipWeekends) * dayWidth;
+                    // Split the bar into per-work-stretch segments so a job that
+                    // carries through a weekend renders with the weekend skipped.
+                    const segments = workingDayRuns(block.startDate, previewDuration, skipWeekends).map(run => ({
+                      left:  run.offsetDays * dayWidth + BLOCK_MARGIN,
+                      width: Math.max(run.lengthDays * dayWidth - BLOCK_MARGIN * 2, 16),
+                    }));
                     if (left + width < 0 || left > totalGridWidth) return null;
                     const job = jobsState.find(j => j.jobNumber === block.jobNumber);
                     const eqCount = (block.equipmentIds ?? []).length;
@@ -2816,6 +3118,7 @@ export default function Scheduler({
                         job={job}
                         left={left}
                         width={width}
+                        segments={segments}
                         color={color}
                         isDragging={draggingId === block.id}
                         isAdmin={isAdmin}
@@ -2858,7 +3161,7 @@ export default function Scheduler({
       </div>
 
       {/* ─── Overlays ─── */}
-      {tooltip && <BlockTooltip tip={tooltip} />}
+      {tooltip && <BlockTooltip tip={tooltip} skipWeekends={skipWeekends} />}
 
       {/* Touch drag ghost */}
       {touchGhostPos && touchDragRef.current && (
@@ -2935,6 +3238,7 @@ export default function Scheduler({
       {dayPrompt && (
         <DayPromptModal
           state={dayPrompt}
+          skipWeekends={skipWeekends}
           onConfirm={
             dayPrompt.action === 'extend'
               ? handleExtendConfirm
@@ -2988,9 +3292,13 @@ export default function Scheduler({
         <AddBlockModal
           crews={crewsState}
           jobs={jobsState}
-          onAdd={block => {
+          skipWeekends={skipWeekends}
+          onAdd={rawBlock => {
+            const block = skipWeekends
+              ? { ...rawBlock, startDate: snapToWeekday(rawBlock.startDate) }
+              : rawBlock;
             const conflicts = findOverlapConflicts(
-              blocks, block.crewId, block.startDate, block.durationDays,
+              blocks, block.crewId, block.startDate, block.durationDays, skipWeekends,
             );
             if (conflicts.length > 0) {
               const crew = crewsState.find(c => c.id === block.crewId);
@@ -3006,6 +3314,15 @@ export default function Scheduler({
             }
           }}
           onClose={() => setShowAddModal(false)}
+        />
+      )}
+
+      {showImportModal && (
+        <ScheduleImportModal
+          crews={crewsState}
+          jobs={jobsState}
+          onImport={handleImport}
+          onClose={() => setShowImportModal(false)}
         />
       )}
 
