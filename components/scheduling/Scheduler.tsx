@@ -1625,7 +1625,6 @@ const JobBlock = ({
   const segs = segments && segments.length > 0
     ? segments
     : [{ left: BLOCK_MARGIN, width: Math.max(width - BLOCK_MARGIN * 2, 24) }];
-  const firstW  = segs[0].width;          // governs which labels fit
   const lastIdx = segs.length - 1;
 
   const fillImage = isDelay
@@ -1846,23 +1845,20 @@ const JobBlock = ({
               </button>
             )}
 
-            {/* Labels — first segment only */}
-            {isFirst && (
-              <>
-                <div style={{ color: '#fff', fontSize: 11.5, fontWeight: 700, lineHeight: 1.2, letterSpacing: '0.01em', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', textShadow: '0 1px 2px rgba(0,0,0,0.28)' }}>
-                  {block.jobNumber}
-                </div>
-                {!isDelay && job && firstW > 64 && (
-                  <div style={{ color: 'rgba(255,255,255,0.82)', fontSize: 9.5, marginTop: 2, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', textShadow: '0 1px 1px rgba(0,0,0,0.2)' }}>
-                    {job.location}
-                  </div>
-                )}
-                {firstW > 40 && (
-                  <div style={{ display: 'inline-flex', alignItems: 'center', alignSelf: 'flex-start', marginTop: 4, padding: '1px 6px', borderRadius: 999, background: 'rgba(255,255,255,0.20)', color: 'rgba(255,255,255,0.95)', fontSize: 9, fontWeight: 600, lineHeight: 1.3, backdropFilter: 'blur(2px)' }}>
-                    {block.durationDays}d
-                  </div>
-                )}
-              </>
+            {/* Labels — shown on every segment so each piece of a block that
+                carries through a weekend still identifies its job. */}
+            <div style={{ color: '#fff', fontSize: 11.5, fontWeight: 700, lineHeight: 1.2, letterSpacing: '0.01em', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', textShadow: '0 1px 2px rgba(0,0,0,0.28)' }}>
+              {block.jobNumber}
+            </div>
+            {!isDelay && job && seg.width > 64 && (
+              <div style={{ color: 'rgba(255,255,255,0.82)', fontSize: 9.5, marginTop: 2, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', textShadow: '0 1px 1px rgba(0,0,0,0.2)' }}>
+                {job.location}
+              </div>
+            )}
+            {seg.width > 40 && (
+              <div style={{ display: 'inline-flex', alignItems: 'center', alignSelf: 'flex-start', marginTop: 4, padding: '1px 6px', borderRadius: 999, background: 'rgba(255,255,255,0.20)', color: 'rgba(255,255,255,0.95)', fontSize: 9, fontWeight: 600, lineHeight: 1.3, backdropFilter: 'blur(2px)' }}>
+                {block.durationDays}d
+              </div>
             )}
           </div>
         );
