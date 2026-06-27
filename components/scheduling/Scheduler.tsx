@@ -173,6 +173,33 @@ const countWorkingDays = (start: string, end: string): number => {
 const blockSpanDays = (start: string, durationDays: number, skip: boolean): number =>
   skip ? diffDays(nthWorkingDay(start, durationDays), start) + 1 : durationDays;
 
+/**
+ * Break a block into the contiguous runs of working days it covers, expressed as
+ * calendar-column offsets from `start`. When weekend-skipping is off (or a block
+ * never touches a weekend) this is a single run spanning the whole block. When a
+ * block carries through a weekend it yields one run per work stretch so the bar
+ * can be drawn with the weekend columns left empty.
+ */
+const workingDayRuns = (
+  start: string, durationDays: number, skip: boolean,
+): { offsetDays: number; lengthDays: number }[] => {
+  if (!skip) return [{ offsetDays: 0, lengthDays: durationDays }];
+  const totalCols = diffDays(nthWorkingDay(start, durationDays), start) + 1;
+  const runs: { offsetDays: number; lengthDays: number }[] = [];
+  let runStart = -1;
+  for (let i = 0; i < totalCols; i++) {
+    const weekend = isWeekendDate(parseDate(addDays(start, i)));
+    if (!weekend && runStart === -1) {
+      runStart = i;
+    } else if (weekend && runStart !== -1) {
+      runs.push({ offsetDays: runStart, lengthDays: i - runStart });
+      runStart = -1;
+    }
+  }
+  if (runStart !== -1) runs.push({ offsetDays: runStart, lengthDays: totalCols - runStart });
+  return runs.length > 0 ? runs : [{ offsetDays: 0, lengthDays: Math.max(1, totalCols) }];
+};
+
 /** First calendar day after a block ends (its next available start), weekday-snapped when skipping. */
 const blockEndExclusive = (start: string, durationDays: number, skip: boolean): string =>
   skip ? snapToWeekday(addDays(nthWorkingDay(start, durationDays), 1)) : addDays(start, durationDays);
@@ -1541,6 +1568,8 @@ interface JobBlockProps {
   onTouchStart?: (e: React.TouchEvent) => void;
   onResizeStart?: (e: React.MouseEvent) => void;
   onResizeTouchStart?: (e: React.TouchEvent) => void;
+  /** Visual segments (px offsets relative to the block's left). Multiple when a job carries through a weekend. */
+  segments?: { left: number; width: number }[];
 }
 
 const JobBlock = ({
@@ -1550,11 +1579,24 @@ const JobBlock = ({
   onDragStart, onDragEnd, onContextMenu,
   onMouseEnter, onMouseMove, onMouseLeave, onTouchStart,
   onResizeStart, onResizeTouchStart,
+  segments,
 }: JobBlockProps) => {
   const isDelay   = block.type === 'delay';
   const bgColor   = isDelay ? '#64748b' : color;
-  const blockW    = Math.max(width - BLOCK_MARGIN * 2, 24);
   const blockH    = ROW_HEIGHT - BLOCK_MARGIN * 2;
+
+  // Each segment is a contiguous run of working days. A block that carries
+  // through a weekend has more than one, drawn with the weekend columns left
+  // empty so the bar visually skips the weekend. Falls back to a single bar.
+  const segs = segments && segments.length > 0
+    ? segments
+    : [{ left: BLOCK_MARGIN, width: Math.max(width - BLOCK_MARGIN * 2, 24) }];
+  const firstW  = segs[0].width;          // governs which labels fit
+  const lastIdx = segs.length - 1;
+
+  const fillImage = isDelay
+    ? 'repeating-linear-gradient(45deg, transparent, transparent 7px, rgba(255,255,255,0.10) 7px, rgba(255,255,255,0.10) 14px)'
+    : 'linear-gradient(160deg, rgba(255,255,255,0.20) 0%, rgba(255,255,255,0.05) 42%, rgba(0,0,0,0.14) 100%)';
 
   return (
     <div
@@ -1591,187 +1633,206 @@ const JobBlock = ({
       }}
       style={{
         position: 'absolute',
-        left: left + BLOCK_MARGIN,
-        top: BLOCK_MARGIN,
-        width: blockW,
-        height: blockH,
-        backgroundColor: bgColor,
-        backgroundImage: isDelay
-          ? 'repeating-linear-gradient(45deg, transparent, transparent 7px, rgba(255,255,255,0.10) 7px, rgba(255,255,255,0.10) 14px)'
-          : 'linear-gradient(160deg, rgba(255,255,255,0.20) 0%, rgba(255,255,255,0.05) 42%, rgba(0,0,0,0.14) 100%)',
+        left,
+        top: 0,
+        width,
+        height: ROW_HEIGHT,
         opacity: isDragging ? 0.4 : 1,
-        borderRadius: 10,
         cursor: editMode ? 'grab' : 'default',
         userSelect: 'none',
         touchAction: editMode ? 'none' : 'auto',
-        overflow: 'hidden',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        padding: '0 10px 0 13px',
-        boxSizing: 'border-box',
-        boxShadow: isEquipDragOver
-          ? '0 0 0 2px #fff, 0 0 0 4px var(--brand-primary, #3b82f6)'
-          : isDragging
-            ? 'none'
-            : 'inset 0 1px 0 rgba(255,255,255,0.22), 0 1px 2px rgba(15,23,42,0.20), 0 4px 10px rgba(15,23,42,0.12)',
         transform: isDragging ? 'scale(0.98)' : undefined,
-        transition: 'opacity 0.12s, box-shadow 0.12s, transform 0.12s',
+        transition: 'opacity 0.12s, transform 0.12s',
         zIndex: 5,
       }}
     >
-      {/* Left accent strip — adds visual structure / a "tab" feel */}
-      <div
-        style={{
-          position: 'absolute', left: 0, top: 0, bottom: 0, width: 4,
-          background: isDelay
-            ? 'rgba(255,255,255,0.35)'
-            : 'linear-gradient(180deg, rgba(255,255,255,0.65), rgba(255,255,255,0.25))',
-          pointerEvents: 'none',
-        }}
-      />
-      {/* Extended dashed border */}
-      {block.extended && !isDelay && (
-        <div
-          style={{
-            position: 'absolute', inset: 0, borderRadius: 10,
-            border: '2px dashed rgba(251,191,36,0.85)',
-            pointerEvents: 'none',
-          }}
-        />
-      )}
+      {segs.map((seg, i) => {
+        const isFirst = i === 0;
+        const isLast  = i === lastIdx;
+        return (
+          <div
+            key={i}
+            style={{
+              position: 'absolute',
+              left: seg.left,
+              top: BLOCK_MARGIN,
+              width: seg.width,
+              height: blockH,
+              backgroundColor: bgColor,
+              backgroundImage: fillImage,
+              borderRadius: 10,
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
+              padding: '0 10px 0 13px',
+              boxSizing: 'border-box',
+              boxShadow: isEquipDragOver
+                ? '0 0 0 2px #fff, 0 0 0 4px var(--brand-primary, #3b82f6)'
+                : isDragging
+                  ? 'none'
+                  : 'inset 0 1px 0 rgba(255,255,255,0.22), 0 1px 2px rgba(15,23,42,0.20), 0 4px 10px rgba(15,23,42,0.12)',
+            }}
+          >
+            {/* Left accent strip — adds visual structure / a "tab" feel */}
+            <div
+              style={{
+                position: 'absolute', left: 0, top: 0, bottom: 0, width: 4,
+                background: isDelay
+                  ? 'rgba(255,255,255,0.35)'
+                  : 'linear-gradient(180deg, rgba(255,255,255,0.65), rgba(255,255,255,0.25))',
+                pointerEvents: 'none',
+              }}
+            />
+            {/* Extended dashed border (every segment, so the whole job reads as extended) */}
+            {block.extended && !isDelay && (
+              <div
+                style={{
+                  position: 'absolute', inset: 0, borderRadius: 10,
+                  border: '2px dashed rgba(251,191,36,0.85)',
+                  pointerEvents: 'none',
+                }}
+              />
+            )}
 
-      {/* Extended corner badge */}
-      {block.extended && !isDelay && (
-        <div
-          title="Extended"
-          style={{
-            position: 'absolute', top: 0, right: 0,
-            width: 0, height: 0,
-            borderStyle: 'solid',
-            borderWidth: '0 16px 16px 0',
-            borderColor: `transparent #fbbf24 transparent transparent`,
-          }}
-        />
-      )}
+            {/* Extended corner badge — on the final segment (the job's end) */}
+            {block.extended && !isDelay && isLast && (
+              <div
+                title="Extended"
+                style={{
+                  position: 'absolute', top: 0, right: 0,
+                  width: 0, height: 0,
+                  borderStyle: 'solid',
+                  borderWidth: '0 16px 16px 0',
+                  borderColor: `transparent #fbbf24 transparent transparent`,
+                }}
+              />
+            )}
 
-      {/* Edit mode drag handle — visible on top-left of block in edit mode */}
-      {editMode && (
-        <div
-          style={{
-            position: 'absolute', top: 3, left: 3,
-            color: 'rgba(255,255,255,0.65)',
-            pointerEvents: 'none',
-            lineHeight: 1,
-          }}
-        >
-          <GripHorizontal style={{ width: 10, height: 10 }} />
-        </div>
-      )}
+            {/* Edit mode drag handle — top-left of the first segment */}
+            {editMode && isFirst && (
+              <div
+                style={{
+                  position: 'absolute', top: 3, left: 3,
+                  color: 'rgba(255,255,255,0.65)',
+                  pointerEvents: 'none',
+                  lineHeight: 1,
+                }}
+              >
+                <GripHorizontal style={{ width: 10, height: 10 }} />
+              </div>
+            )}
 
-      {/* Resize handle — visible on right edge in edit mode for job blocks */}
-      {editMode && !isDelay && (
-        <div
-          onMouseDown={e => { e.stopPropagation(); e.preventDefault(); onResizeStart?.(e); }}
-          onTouchStart={e => { e.stopPropagation(); e.preventDefault(); onResizeTouchStart?.(e); }}
-          title="Drag to extend job duration"
-          style={{
-            position: 'absolute',
-            right: 0, top: 0,
-            width: 10, height: '100%',
-            cursor: 'col-resize',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 3,
-            zIndex: 15,
-          }}
-        >
-          <div style={{ width: 2, height: 6, background: 'rgba(255,255,255,0.55)', borderRadius: 1 }} />
-          <div style={{ width: 2, height: 6, background: 'rgba(255,255,255,0.55)', borderRadius: 1 }} />
-          <div style={{ width: 2, height: 6, background: 'rgba(255,255,255,0.55)', borderRadius: 1 }} />
-        </div>
-      )}
+            {/* Resize handle — right edge of the final segment for job blocks */}
+            {editMode && !isDelay && isLast && (
+              <div
+                onMouseDown={e => { e.stopPropagation(); e.preventDefault(); onResizeStart?.(e); }}
+                onTouchStart={e => { e.stopPropagation(); e.preventDefault(); onResizeTouchStart?.(e); }}
+                title="Drag to extend job duration"
+                style={{
+                  position: 'absolute',
+                  right: 0, top: 0,
+                  width: 10, height: '100%',
+                  cursor: 'col-resize',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 3,
+                  zIndex: 15,
+                }}
+              >
+                <div style={{ width: 2, height: 6, background: 'rgba(255,255,255,0.55)', borderRadius: 1 }} />
+                <div style={{ width: 2, height: 6, background: 'rgba(255,255,255,0.55)', borderRadius: 1 }} />
+                <div style={{ width: 2, height: 6, background: 'rgba(255,255,255,0.55)', borderRadius: 1 }} />
+              </div>
+            )}
 
-      {/* Admin delete button — visible on block for mobile/touch accessibility */}
-      {isAdmin && onDelete && (
-        <button
-          onClick={e => { e.stopPropagation(); e.preventDefault(); onDelete(); }}
-          onMouseDown={e => e.stopPropagation()}
-          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); onDelete(); } }}
-          title="Delete block"
-          aria-label="Delete block"
-          style={{
-            position: 'absolute',
-            top: 3,
-            right: 3,
-            width: 16,
-            height: 16,
-            borderRadius: '50%',
-            backgroundColor: 'rgba(0,0,0,0.35)',
-            border: 'none',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 0,
-            zIndex: 10,
-            lineHeight: 1,
-            color: '#fff',
-            fontSize: 10,
-            fontWeight: 700,
-          }}
-        >
-          ×
-        </button>
-      )}
+            {/* Admin delete button — top-right of the first segment */}
+            {isAdmin && onDelete && isFirst && (
+              <button
+                onClick={e => { e.stopPropagation(); e.preventDefault(); onDelete(); }}
+                onMouseDown={e => e.stopPropagation()}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); onDelete(); } }}
+                title="Delete block"
+                aria-label="Delete block"
+                style={{
+                  position: 'absolute',
+                  top: 3,
+                  right: 3,
+                  width: 16,
+                  height: 16,
+                  borderRadius: '50%',
+                  backgroundColor: 'rgba(0,0,0,0.35)',
+                  border: 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: 0,
+                  zIndex: 10,
+                  lineHeight: 1,
+                  color: '#fff',
+                  fontSize: 10,
+                  fontWeight: 700,
+                }}
+              >
+                ×
+              </button>
+            )}
 
-      {/* Equipment badge — bottom-left; clickable to open equipment modal */}
-      {!isDelay && (equipmentCount ?? 0) > 0 && onEquipmentClick && (
-        <button
-          onClick={e => { e.stopPropagation(); e.preventDefault(); onEquipmentClick(); }}
-          onMouseDown={e => e.stopPropagation()}
-          title={`${equipmentCount} piece${equipmentCount !== 1 ? 's' : ''} of equipment on site — click to manage`}
-          aria-label={`${equipmentCount} equipment assigned — click to manage`}
-          style={{
-            position: 'absolute',
-            bottom: 3,
-            left: 4,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 2,
-            background: 'rgba(0,0,0,0.35)',
-            border: 'none',
-            borderRadius: 4,
-            padding: '1px 4px',
-            cursor: 'pointer',
-            zIndex: 10,
-            color: '#fff',
-            fontSize: 9,
-            fontWeight: 700,
-            lineHeight: 1.4,
-          }}
-        >
-          <Wrench style={{ width: 8, height: 8, flexShrink: 0 }} aria-hidden="true" />
-          {equipmentCount}
-        </button>
-      )}
+            {/* Equipment badge — bottom-left of the first segment; opens equipment modal */}
+            {!isDelay && (equipmentCount ?? 0) > 0 && onEquipmentClick && isFirst && (
+              <button
+                onClick={e => { e.stopPropagation(); e.preventDefault(); onEquipmentClick(); }}
+                onMouseDown={e => e.stopPropagation()}
+                title={`${equipmentCount} piece${equipmentCount !== 1 ? 's' : ''} of equipment on site — click to manage`}
+                aria-label={`${equipmentCount} equipment assigned — click to manage`}
+                style={{
+                  position: 'absolute',
+                  bottom: 3,
+                  left: 4,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 2,
+                  background: 'rgba(0,0,0,0.35)',
+                  border: 'none',
+                  borderRadius: 4,
+                  padding: '1px 4px',
+                  cursor: 'pointer',
+                  zIndex: 10,
+                  color: '#fff',
+                  fontSize: 9,
+                  fontWeight: 700,
+                  lineHeight: 1.4,
+                }}
+              >
+                <Wrench style={{ width: 8, height: 8, flexShrink: 0 }} aria-hidden="true" />
+                {equipmentCount}
+              </button>
+            )}
 
-      {/* Label */}
-      <div style={{ color: '#fff', fontSize: 11.5, fontWeight: 700, lineHeight: 1.2, letterSpacing: '0.01em', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', textShadow: '0 1px 2px rgba(0,0,0,0.28)' }}>
-        {block.jobNumber}
-      </div>
-      {!isDelay && job && blockW > 64 && (
-        <div style={{ color: 'rgba(255,255,255,0.82)', fontSize: 9.5, marginTop: 2, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', textShadow: '0 1px 1px rgba(0,0,0,0.2)' }}>
-          {job.location}
-        </div>
-      )}
-      {blockW > 40 && (
-        <div style={{ display: 'inline-flex', alignItems: 'center', alignSelf: 'flex-start', marginTop: 4, padding: '1px 6px', borderRadius: 999, background: 'rgba(255,255,255,0.20)', color: 'rgba(255,255,255,0.95)', fontSize: 9, fontWeight: 600, lineHeight: 1.3, backdropFilter: 'blur(2px)' }}>
-          {block.durationDays}d
-        </div>
-      )}
+            {/* Labels — first segment only */}
+            {isFirst && (
+              <>
+                <div style={{ color: '#fff', fontSize: 11.5, fontWeight: 700, lineHeight: 1.2, letterSpacing: '0.01em', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', textShadow: '0 1px 2px rgba(0,0,0,0.28)' }}>
+                  {block.jobNumber}
+                </div>
+                {!isDelay && job && firstW > 64 && (
+                  <div style={{ color: 'rgba(255,255,255,0.82)', fontSize: 9.5, marginTop: 2, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', textShadow: '0 1px 1px rgba(0,0,0,0.2)' }}>
+                    {job.location}
+                  </div>
+                )}
+                {firstW > 40 && (
+                  <div style={{ display: 'inline-flex', alignItems: 'center', alignSelf: 'flex-start', marginTop: 4, padding: '1px 6px', borderRadius: 999, background: 'rgba(255,255,255,0.20)', color: 'rgba(255,255,255,0.95)', fontSize: 9, fontWeight: 600, lineHeight: 1.3, backdropFilter: 'blur(2px)' }}>
+                    {block.durationDays}d
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 };
@@ -3010,6 +3071,12 @@ export default function Scheduler({
                     const isResizing = resizingId === block.id;
                     const previewDuration = block.durationDays + (isResizing ? resizeDeltaDays : 0);
                     const width = blockSpanDays(block.startDate, previewDuration, skipWeekends) * dayWidth;
+                    // Split the bar into per-work-stretch segments so a job that
+                    // carries through a weekend renders with the weekend skipped.
+                    const segments = workingDayRuns(block.startDate, previewDuration, skipWeekends).map(run => ({
+                      left:  run.offsetDays * dayWidth + BLOCK_MARGIN,
+                      width: Math.max(run.lengthDays * dayWidth - BLOCK_MARGIN * 2, 16),
+                    }));
                     if (left + width < 0 || left > totalGridWidth) return null;
                     const job = jobsState.find(j => j.jobNumber === block.jobNumber);
                     const eqCount = (block.equipmentIds ?? []).length;
@@ -3021,6 +3088,7 @@ export default function Scheduler({
                         job={job}
                         left={left}
                         width={width}
+                        segments={segments}
                         color={color}
                         isDragging={draggingId === block.id}
                         isAdmin={isAdmin}
