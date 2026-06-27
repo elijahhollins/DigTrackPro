@@ -1616,7 +1616,7 @@ const JobBlock = ({
   segments,
 }: JobBlockProps) => {
   const isDelay   = block.type === 'delay';
-  const bgColor   = isDelay ? '#64748b' : color;
+  const bgColor   = isDelay ? '#475569' : color;
   const blockH    = ROW_HEIGHT - BLOCK_MARGIN * 2;
 
   // Each segment is a contiguous run of working days. A block that carries
@@ -1627,13 +1627,17 @@ const JobBlock = ({
     : [{ left: BLOCK_MARGIN, width: Math.max(width - BLOCK_MARGIN * 2, 24) }];
   const lastIdx = segs.length - 1;
 
+  // Flatter, more modern fill: a subtle top-to-bottom tonal shift (light sheen
+  // up top, a touch of depth at the base) rather than a heavy 3-stop gradient.
+  // Delay blocks keep a soft diagonal hatch so they read as "no work" at a glance.
   const fillImage = isDelay
-    ? 'repeating-linear-gradient(45deg, transparent, transparent 7px, rgba(255,255,255,0.10) 7px, rgba(255,255,255,0.10) 14px)'
-    : 'linear-gradient(160deg, rgba(255,255,255,0.20) 0%, rgba(255,255,255,0.05) 42%, rgba(0,0,0,0.14) 100%)';
+    ? 'repeating-linear-gradient(45deg, rgba(255,255,255,0.14) 0, rgba(255,255,255,0.14) 1px, transparent 1px, transparent 9px)'
+    : 'linear-gradient(180deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.02) 38%, rgba(0,0,0,0.12) 100%)';
 
   return (
     <div
       data-block-id={block.id}
+      className={`dispatch-block${isDragging ? ' is-dragging' : ''}`}
       draggable={editMode}
       onDragStart={editMode ? onDragStart : undefined}
       onDragEnd={editMode ? onDragEnd : undefined}
@@ -1685,6 +1689,7 @@ const JobBlock = ({
         return (
           <div
             key={i}
+            className="dispatch-seg"
             style={{
               position: 'absolute',
               left: seg.left,
@@ -1693,97 +1698,102 @@ const JobBlock = ({
               height: blockH,
               backgroundColor: bgColor,
               backgroundImage: fillImage,
-              borderRadius: 10,
+              borderRadius: 9,
               overflow: 'hidden',
               display: 'flex',
               flexDirection: 'column',
               justifyContent: 'center',
-              padding: '0 10px 0 13px',
+              padding: '0 9px 0 13px',
               boxSizing: 'border-box',
               boxShadow: isEquipDragOver
                 ? '0 0 0 2px #fff, 0 0 0 4px var(--brand-primary, #3b82f6)'
                 : isDragging
-                  ? 'none'
-                  : 'inset 0 1px 0 rgba(255,255,255,0.22), 0 1px 2px rgba(15,23,42,0.20), 0 4px 10px rgba(15,23,42,0.12)',
+                  ? '0 6px 16px rgba(15,23,42,0.22)'
+                  : 'inset 0 1px 0 rgba(255,255,255,0.20), 0 1px 2px rgba(15,23,42,0.18), 0 3px 8px rgba(15,23,42,0.10)',
             }}
           >
             {/* Left accent strip — adds visual structure / a "tab" feel */}
             <div
               style={{
-                position: 'absolute', left: 0, top: 0, bottom: 0, width: 4,
+                position: 'absolute', left: 0, top: 0, bottom: 0, width: 3.5,
                 background: isDelay
-                  ? 'rgba(255,255,255,0.35)'
-                  : 'linear-gradient(180deg, rgba(255,255,255,0.65), rgba(255,255,255,0.25))',
+                  ? 'rgba(255,255,255,0.30)'
+                  : 'linear-gradient(180deg, rgba(255,255,255,0.70), rgba(255,255,255,0.30))',
                 pointerEvents: 'none',
               }}
             />
-            {/* Extended dashed border (every segment, so the whole job reads as extended) */}
+            {/* Extended treatment: a soft amber inset ring on every segment so the
+                whole job reads as extended, without the heavy dashed look. */}
             {block.extended && !isDelay && (
               <div
                 style={{
-                  position: 'absolute', inset: 0, borderRadius: 10,
-                  border: '2px dashed rgba(251,191,36,0.85)',
+                  position: 'absolute', inset: 1, borderRadius: 8,
+                  border: '1.5px dashed rgba(251,191,36,0.9)',
+                  boxShadow: 'inset 0 0 0 1px rgba(251,191,36,0.18)',
                   pointerEvents: 'none',
                 }}
               />
             )}
 
-            {/* Extended corner badge — on the final segment (the job's end) */}
-            {block.extended && !isDelay && isLast && (
+            {/* Extended pill badge — on the final segment (the job's end) */}
+            {block.extended && !isDelay && isLast && seg.width > 70 && (
               <div
                 title="Extended"
                 style={{
-                  position: 'absolute', top: 0, right: 0,
-                  width: 0, height: 0,
-                  borderStyle: 'solid',
-                  borderWidth: '0 16px 16px 0',
-                  borderColor: `transparent #fbbf24 transparent transparent`,
+                  position: 'absolute', top: 4, right: 4,
+                  display: 'inline-flex', alignItems: 'center', gap: 2,
+                  background: '#fbbf24', color: '#78350f',
+                  fontSize: 8.5, fontWeight: 800, letterSpacing: '0.04em',
+                  borderRadius: 5, padding: '1px 5px', lineHeight: 1.3,
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
                 }}
-              />
+              >
+                EXT
+              </div>
             )}
 
             {/* Edit mode drag handle — top-left of the first segment */}
             {editMode && isFirst && (
               <div
+                className="dispatch-affordance"
                 style={{
-                  position: 'absolute', top: 3, left: 3,
-                  color: 'rgba(255,255,255,0.65)',
+                  position: 'absolute', top: 4, left: 5,
+                  color: 'rgba(255,255,255,0.78)',
                   pointerEvents: 'none',
                   lineHeight: 1,
                 }}
               >
-                <GripHorizontal style={{ width: 10, height: 10 }} />
+                <GripHorizontal style={{ width: 11, height: 11 }} />
               </div>
             )}
 
             {/* Resize handle — right edge of the final segment for job blocks */}
             {editMode && !isDelay && isLast && (
               <div
+                className="dispatch-affordance"
                 onMouseDown={e => { e.stopPropagation(); e.preventDefault(); onResizeStart?.(e); }}
                 onTouchStart={e => { e.stopPropagation(); e.preventDefault(); onResizeTouchStart?.(e); }}
                 title="Drag to extend job duration"
                 style={{
                   position: 'absolute',
                   right: 0, top: 0,
-                  width: 10, height: '100%',
+                  width: 12, height: '100%',
                   cursor: 'col-resize',
                   display: 'flex',
-                  flexDirection: 'column',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: 3,
+                  background: 'linear-gradient(90deg, transparent, rgba(0,0,0,0.14))',
                   zIndex: 15,
                 }}
               >
-                <div style={{ width: 2, height: 6, background: 'rgba(255,255,255,0.55)', borderRadius: 1 }} />
-                <div style={{ width: 2, height: 6, background: 'rgba(255,255,255,0.55)', borderRadius: 1 }} />
-                <div style={{ width: 2, height: 6, background: 'rgba(255,255,255,0.55)', borderRadius: 1 }} />
+                <div style={{ width: 2.5, height: 16, background: 'rgba(255,255,255,0.7)', borderRadius: 2 }} />
               </div>
             )}
 
-            {/* Admin delete button — top-right of the first segment */}
+            {/* Admin delete button — top-right of the first segment, reveal-on-hover */}
             {isAdmin && onDelete && isFirst && (
               <button
+                className="dispatch-affordance"
                 onClick={e => { e.stopPropagation(); e.preventDefault(); onDelete(); }}
                 onMouseDown={e => e.stopPropagation()}
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); onDelete(); } }}
@@ -1791,73 +1801,70 @@ const JobBlock = ({
                 aria-label="Delete block"
                 style={{
                   position: 'absolute',
-                  top: 3,
-                  right: 3,
-                  width: 16,
-                  height: 16,
+                  top: 4,
+                  right: block.extended && !isDelay && isLast && seg.width > 70 ? 36 : 4,
+                  width: 17,
+                  height: 17,
                   borderRadius: '50%',
-                  backgroundColor: 'rgba(0,0,0,0.35)',
-                  border: 'none',
+                  backgroundColor: 'rgba(15,23,42,0.55)',
+                  border: '1px solid rgba(255,255,255,0.25)',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   padding: 0,
-                  zIndex: 10,
+                  zIndex: 12,
                   lineHeight: 1,
                   color: '#fff',
-                  fontSize: 10,
-                  fontWeight: 700,
+                  backdropFilter: 'blur(2px)',
                 }}
               >
-                ×
-              </button>
-            )}
-
-            {/* Equipment badge — bottom-left of the first segment; opens equipment modal */}
-            {!isDelay && (equipmentCount ?? 0) > 0 && onEquipmentClick && isFirst && (
-              <button
-                onClick={e => { e.stopPropagation(); e.preventDefault(); onEquipmentClick(); }}
-                onMouseDown={e => e.stopPropagation()}
-                title={`${equipmentCount} piece${equipmentCount !== 1 ? 's' : ''} of equipment on site — click to manage`}
-                aria-label={`${equipmentCount} equipment assigned — click to manage`}
-                style={{
-                  position: 'absolute',
-                  bottom: 3,
-                  left: 4,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 2,
-                  background: 'rgba(0,0,0,0.35)',
-                  border: 'none',
-                  borderRadius: 4,
-                  padding: '1px 4px',
-                  cursor: 'pointer',
-                  zIndex: 10,
-                  color: '#fff',
-                  fontSize: 9,
-                  fontWeight: 700,
-                  lineHeight: 1.4,
-                }}
-              >
-                <Wrench style={{ width: 8, height: 8, flexShrink: 0 }} aria-hidden="true" />
-                {equipmentCount}
+                <X style={{ width: 10, height: 10 }} aria-hidden="true" />
               </button>
             )}
 
             {/* Labels — shown on every segment so each piece of a block that
                 carries through a weekend still identifies its job. */}
-            <div style={{ color: '#fff', fontSize: 11.5, fontWeight: 700, lineHeight: 1.2, letterSpacing: '0.01em', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', textShadow: '0 1px 2px rgba(0,0,0,0.28)' }}>
+            <div style={{ color: '#fff', fontSize: 11.5, fontWeight: 700, lineHeight: 1.25, letterSpacing: '0.005em', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', textShadow: '0 1px 2px rgba(0,0,0,0.30)' }}>
               {block.jobNumber}
             </div>
-            {!isDelay && job && seg.width > 64 && (
-              <div style={{ color: 'rgba(255,255,255,0.82)', fontSize: 9.5, marginTop: 2, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', textShadow: '0 1px 1px rgba(0,0,0,0.2)' }}>
+            {!isDelay && job && seg.width > 70 && (
+              <div style={{ color: 'rgba(255,255,255,0.85)', fontSize: 9.5, marginTop: 1.5, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', textShadow: '0 1px 1px rgba(0,0,0,0.22)' }}>
                 {job.location}
               </div>
             )}
-            {seg.width > 40 && (
-              <div style={{ display: 'inline-flex', alignItems: 'center', alignSelf: 'flex-start', marginTop: 4, padding: '1px 6px', borderRadius: 999, background: 'rgba(255,255,255,0.20)', color: 'rgba(255,255,255,0.95)', fontSize: 9, fontWeight: 600, lineHeight: 1.3, backdropFilter: 'blur(2px)' }}>
-                {block.durationDays}d
+            {/* Meta row: equipment badge + duration pill share one line so they
+                never overlap, regardless of how narrow the bar gets. */}
+            {seg.width > 36 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4, minWidth: 0 }}>
+                {!isDelay && (equipmentCount ?? 0) > 0 && onEquipmentClick && isFirst && (
+                  <button
+                    onClick={e => { e.stopPropagation(); e.preventDefault(); onEquipmentClick(); }}
+                    onMouseDown={e => e.stopPropagation()}
+                    title={`${equipmentCount} piece${equipmentCount !== 1 ? 's' : ''} of equipment on site — click to manage`}
+                    aria-label={`${equipmentCount} equipment assigned — click to manage`}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 2.5,
+                      background: 'rgba(15,23,42,0.32)',
+                      border: '1px solid rgba(255,255,255,0.18)',
+                      borderRadius: 999,
+                      padding: '1px 6px 1px 5px',
+                      cursor: 'pointer',
+                      zIndex: 10,
+                      color: '#fff',
+                      fontSize: 9,
+                      fontWeight: 700,
+                      lineHeight: 1.4,
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Wrench style={{ width: 8.5, height: 8.5, flexShrink: 0 }} aria-hidden="true" />
+                    {equipmentCount}
+                  </button>
+                )}
+                <span style={{ display: 'inline-flex', alignItems: 'center', padding: '1px 6px', borderRadius: 999, background: 'rgba(255,255,255,0.22)', color: 'rgba(255,255,255,0.97)', fontSize: 9, fontWeight: 700, lineHeight: 1.3, flexShrink: 0 }}>
+                  {block.durationDays}d
+                </span>
               </div>
             )}
           </div>
@@ -2860,10 +2867,11 @@ export default function Scheduler({
             <div
               style={{
                 width: CREW_COL_W, minWidth: CREW_COL_W, height: HEADER_MONTH_H,
-                borderRight: '1px solid #e8edf3',
+                borderRight: '1px solid #e6ebf2',
                 flexShrink: 0,
                 position: 'sticky', left: 0, zIndex: 31,
                 background: '#ffffff',
+                boxShadow: '1px 0 0 rgba(226,232,240,0.6)',
               }}
             />
             <div style={{ position: 'relative', width: totalGridWidth, height: HEADER_MONTH_H }}>
@@ -2876,10 +2884,11 @@ export default function Scheduler({
                     width: ml.span * dayWidth,
                     height: HEADER_MONTH_H,
                     display: 'flex', alignItems: 'center',
-                    paddingLeft: 10, boxSizing: 'border-box',
-                    borderRight: '1px solid #eef2f7',
-                    color: '#64748b',
-                    fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase',
+                    paddingLeft: 12, boxSizing: 'border-box',
+                    borderRight: '1px solid #f1f5f9',
+                    color: '#475569',
+                    fontFamily: "'Space Grotesk', 'Inter', sans-serif",
+                    fontSize: 10.5, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase',
                   }}
                 >
                   {ml.label}
@@ -2894,21 +2903,23 @@ export default function Scheduler({
             style={{
               height: HEADER_DAY_H,
               position: 'sticky', top: HEADER_MONTH_H, zIndex: 30,
-              background: '#f8fafc',
+              background: '#fbfcfe',
               borderBottom: '1px solid #e2e8f0',
             }}
           >
             <div
               style={{
                 width: CREW_COL_W, minWidth: CREW_COL_W, height: HEADER_DAY_H,
-                borderRight: '1px solid #e8edf3',
-                display: 'flex', alignItems: 'center',
+                borderRight: '1px solid #e6ebf2',
+                display: 'flex', alignItems: 'center', gap: 6,
                 paddingLeft: 14, flexShrink: 0,
                 position: 'sticky', left: 0, zIndex: 31,
-                background: '#f8fafc',
+                background: '#fbfcfe',
+                boxShadow: '1px 0 0 rgba(226,232,240,0.6)',
               }}
             >
-              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: '#94a3b8' }}>
+              <Users style={{ width: 12, height: 12, color: '#94a3b8' }} />
+              <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: '#64748b' }}>
                 Crews
               </span>
             </div>
@@ -2925,32 +2936,32 @@ export default function Scheduler({
                       position: 'absolute',
                       left: i * dayWidth, width: dayWidth, height: HEADER_DAY_H,
                       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                      gap: 1,
-                      borderRight: '1px solid #eef2f7',
-                      backgroundColor: isToday ? 'var(--brand-ring)' : isWeekend ? 'rgba(148,163,184,0.06)' : undefined,
+                      gap: 2,
+                      borderRight: isWeekend ? '1px solid #eef2f7' : '1px solid #f1f5f9',
+                      backgroundColor: isToday ? 'var(--brand-ring)' : isWeekend ? 'rgba(148,163,184,0.07)' : undefined,
                       boxSizing: 'border-box',
                     }}
                   >
                     {showLabel && (
                       <>
-                        <span style={{ fontSize: 9, color: isToday ? 'var(--brand-primary)' : isWeekend ? '#cbd5e1' : '#94a3b8', fontWeight: isToday ? 700 : 500, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        <span style={{ fontSize: 9, color: isToday ? 'var(--brand-primary)' : isWeekend ? '#b6c0cf' : '#94a3b8', fontWeight: isToday ? 700 : 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                           {d.toLocaleDateString('en-US', { weekday: 'narrow' })}
                         </span>
                         {isToday ? (
                           <span
                             style={{
                               display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              minWidth: 18, height: 18, padding: '0 5px',
+                              minWidth: 19, height: 19, padding: '0 5px',
                               borderRadius: 999,
                               background: 'var(--brand-primary)',
-                              color: '#fff', fontSize: 10, fontWeight: 700,
+                              color: '#fff', fontSize: 10.5, fontWeight: 700,
                               boxShadow: '0 2px 6px var(--brand-shadow)',
                             }}
                           >
                             {d.getDate()}
                           </span>
                         ) : (
-                          <span style={{ fontSize: 11, color: isWeekend ? '#cbd5e1' : '#475569', fontWeight: 600 }}>
+                          <span style={{ fontSize: 11.5, color: isWeekend ? '#b6c0cf' : '#334155', fontWeight: 600 }}>
                             {d.getDate()}
                           </span>
                         )}
@@ -2974,21 +2985,31 @@ export default function Scheduler({
                   style={{
                     width: CREW_COL_W, minWidth: CREW_COL_W, height: ROW_HEIGHT,
                     position: 'sticky', left: 0, zIndex: 20,
-                    background: ci % 2 === 0 ? '#ffffff' : '#fbfcfe',
-                    borderRight: '1px solid #e8edf3',
+                    background: ci % 2 === 0 ? '#ffffff' : '#fafbfd',
+                    borderRight: '1px solid #e6ebf2',
                     borderBottom: '1px solid #eef2f7',
+                    boxShadow: '1px 0 0 rgba(226,232,240,0.6)',
                     display: 'flex', alignItems: 'center',
-                    padding: '0 10px 0 14px', gap: 10,
+                    padding: '0 10px 0 14px', gap: 11,
                     flexShrink: 0,
                   }}
                 >
+                  {/* Crew color rail — anchors the row to its crew color */}
+                  <div
+                    style={{
+                      position: 'absolute', left: 0, top: 14, bottom: 14, width: 3,
+                      borderRadius: '0 3px 3px 0',
+                      background: color,
+                    }}
+                  />
                   {/* Crew avatar chip */}
                   <div
                     style={{
                       width: 36, height: 36, borderRadius: 10, flexShrink: 0,
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      background: `${color}14`,
-                      border: `1px solid ${color}33`,
+                      background: `linear-gradient(145deg, ${color}1f, ${color}10)`,
+                      border: `1px solid ${color}3d`,
+                      boxShadow: `inset 0 1px 0 rgba(255,255,255,0.5)`,
                       color,
                       fontSize: 14, fontWeight: 700,
                       fontFamily: "'Space Grotesk', 'Inter', sans-serif",
@@ -2997,7 +3018,7 @@ export default function Scheduler({
                     {crew.name.trim().charAt(0).toUpperCase() || '?'}
                   </div>
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ color: '#1e293b', fontSize: 13, fontWeight: 600, lineHeight: 1.2, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+                    <div style={{ color: '#0f172a', fontSize: 13, fontWeight: 600, lineHeight: 1.2, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', letterSpacing: '-0.01em' }}>
                       {crew.name}
                     </div>
                     {(() => {
@@ -3009,7 +3030,7 @@ export default function Scheduler({
                       const workerCount = crew.memberIds.length || crew.size;
                       return (
                         <>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#94a3b8', fontSize: 10, fontWeight: 500, marginTop: 2 }}>
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#64748b', fontSize: 10, fontWeight: 600, marginTop: 3, background: '#f1f5f9', padding: '1px 6px 1px 5px', borderRadius: 999 }}>
                             <Users style={{ width: 10, height: 10, flexShrink: 0 }} />
                             {workerCount} {workerCount === 1 ? 'worker' : 'workers'}
                           </div>
@@ -3034,18 +3055,19 @@ export default function Scheduler({
                     aria-label={`Add delay to ${crew.name}'s schedule`}
                     style={{
                       flexShrink: 0,
-                      width: 24, height: 24,
-                      borderRadius: 7,
-                      background: hoverDelayCrewId === crew.id ? 'rgba(245,158,11,0.14)' : '#f1f5f9',
-                      border: `1px solid ${hoverDelayCrewId === crew.id ? 'rgba(245,158,11,0.4)' : '#e2e8f0'}`,
+                      width: 26, height: 26,
+                      borderRadius: 8,
+                      background: hoverDelayCrewId === crew.id ? 'rgba(245,158,11,0.16)' : '#f4f6f9',
+                      border: `1px solid ${hoverDelayCrewId === crew.id ? 'rgba(245,158,11,0.45)' : '#e6ebf2'}`,
                       cursor: 'pointer',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       color: hoverDelayCrewId === crew.id ? '#d97706' : '#94a3b8',
                       padding: 0,
-                      transition: 'background 0.15s, color 0.15s, border-color 0.15s',
+                      transition: 'background 0.15s, color 0.15s, border-color 0.15s, transform 0.1s',
+                      transform: hoverDelayCrewId === crew.id ? 'scale(1.06)' : undefined,
                     }}
                   >
-                    <Clock style={{ width: 12, height: 12 }} />
+                    <Clock style={{ width: 13, height: 13 }} />
                   </button>
                 </div>
 
@@ -3060,10 +3082,14 @@ export default function Scheduler({
                   onDragOver={editMode ? handleDragOver : undefined}
                   onDrop={editMode ? e => handleDrop(e, crew.id) : undefined}
                 >
-                  {/* Day cells (grid lines + weekend shading + today column) */}
+                  {/* Day cells (grid lines + weekend shading + today column).
+                      Weekend columns get a touch of shade; weekday gridlines are
+                      lighter than week boundaries so the eye reads weeks cleanly. */}
                   {days.map((day, i) => {
-                    const isWeekend = [0, 6].includes(parseDate(day).getDay());
+                    const dow = parseDate(day).getDay();
+                    const isWeekend = dow === 0 || dow === 6;
                     const isToday   = day === todayISO;
+                    const isWeekStart = dow === 1; // Monday — slightly stronger divider
                     return (
                       <div
                         key={day}
@@ -3071,10 +3097,10 @@ export default function Scheduler({
                           position: 'absolute',
                           left: i * dayWidth, top: 0,
                           width: dayWidth, height: ROW_HEIGHT,
-                          borderRight: '1px solid #eef2f7',
+                          borderRight: isWeekStart ? '1px solid #e7edf4' : '1px solid #f3f6fa',
                           backgroundColor: isToday
                             ? 'var(--brand-ring)'
-                            : isWeekend ? 'rgba(148,163,184,0.05)' : undefined,
+                            : isWeekend ? 'rgba(148,163,184,0.055)' : undefined,
                           boxSizing: 'border-box',
                           pointerEvents: 'none',
                         }}
@@ -3082,17 +3108,31 @@ export default function Scheduler({
                     );
                   })}
 
-                  {/* Today line */}
+                  {/* Today line — a slim brand-tinted rule. The pin marker on the
+                      first row keeps it elegant without shouting red across rows. */}
                   {todayOffset >= 0 && todayOffset <= totalGridWidth && (
-                    <div
-                      style={{
-                        position: 'absolute', left: todayOffset,
-                        top: 0, width: 2, height: ROW_HEIGHT,
-                        background: 'linear-gradient(180deg, #f43f5e, #e11d48)',
-                        boxShadow: '0 0 6px rgba(244,63,94,0.5)',
-                        zIndex: 8, pointerEvents: 'none',
-                      }}
-                    />
+                    <>
+                      <div
+                        style={{
+                          position: 'absolute', left: todayOffset - 0.5,
+                          top: 0, width: 2, height: ROW_HEIGHT,
+                          background: 'var(--brand-primary)',
+                          opacity: 0.9,
+                          zIndex: 8, pointerEvents: 'none',
+                        }}
+                      />
+                      {ci === 0 && (
+                        <div
+                          style={{
+                            position: 'absolute', left: todayOffset - 4.5,
+                            top: -3, width: 9, height: 9, borderRadius: '50%',
+                            background: 'var(--brand-primary)',
+                            boxShadow: '0 0 0 2px #fff, 0 1px 4px var(--brand-shadow)',
+                            zIndex: 9, pointerEvents: 'none',
+                          }}
+                        />
+                      )}
+                    </>
                   )}
 
                   {/* Job/Delay blocks */}
@@ -3157,6 +3197,54 @@ export default function Scheduler({
               </div>
             );
           })}
+
+          {/* Empty state — no crews yet. Friendly prompt sits below the headers,
+              pinned within the visible viewport so it reads even when scrolled. */}
+          {crewsState.length === 0 && (
+            <div
+              style={{
+                position: 'sticky', left: 0,
+                width: 'min(100%, 520px)',
+                margin: '0 auto',
+                padding: '52px 24px 64px',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center',
+              }}
+            >
+              <div
+                style={{
+                  width: 56, height: 56, borderRadius: 16,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: 'var(--brand-ring)',
+                  border: '1px solid var(--brand-shadow)',
+                  marginBottom: 16,
+                }}
+              >
+                <Users className="text-brand" style={{ width: 26, height: 26 }} />
+              </div>
+              <h3 className="font-display" style={{ fontSize: 17, fontWeight: 600, color: '#0f172a', margin: 0 }}>
+                No crews on the board yet
+              </h3>
+              <p style={{ fontSize: 13, color: '#64748b', margin: '8px 0 0', maxWidth: 360, lineHeight: 1.5 }}>
+                Add a crew to start scheduling jobs. Each crew gets its own lane on
+                the timeline where you can drag, drop, and extend work.
+              </p>
+              {isAdmin && (
+                <button
+                  onClick={() => setShowManageCrews(true)}
+                  className="bg-brand"
+                  style={{
+                    marginTop: 20,
+                    display: 'inline-flex', alignItems: 'center', gap: 7,
+                    color: '#fff', fontSize: 13, fontWeight: 600,
+                    padding: '9px 18px', borderRadius: 12, border: 'none', cursor: 'pointer',
+                    boxShadow: '0 4px 14px var(--brand-shadow)',
+                  }}
+                >
+                  <Plus style={{ width: 16, height: 16 }} /> Add your first crew
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

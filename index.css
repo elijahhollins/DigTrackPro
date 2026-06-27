@@ -81,3 +81,25 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 /* Table row hover transition */
 tbody tr { transition: background-color 0.12s ease; }
+
+/* ── Dispatch board: job block hover elevation ──
+   Lifts the bar and deepens its shadow on hover for a tactile, modern feel.
+   Scoped to .dispatch-seg so it never affects other absolutely-positioned UI. */
+.dispatch-block:not(.is-dragging):hover .dispatch-seg {
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 2px 4px rgba(15, 23, 42, 0.18),
+    0 8px 18px rgba(15, 23, 42, 0.18) !important;
+}
+.dispatch-block:not(.is-dragging):hover .dispatch-seg::after { opacity: 1; }
+.dispatch-seg {
+  transition: transform 0.13s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.13s ease;
+}
+/* Reveal-on-hover affordances (delete / handles) sit dim until the bar is hovered. */
+.dispatch-block .dispatch-affordance { opacity: 0; transition: opacity 0.12s ease; }
+.dispatch-block:hover .dispatch-affordance,
+.dispatch-block:focus-within .dispatch-affordance { opacity: 1; }
+@media (hover: none) {
+  .dispatch-block .dispatch-affordance { opacity: 1; }
+}
