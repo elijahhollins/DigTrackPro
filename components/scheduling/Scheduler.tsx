@@ -746,10 +746,12 @@ interface DayPromptState {
 
 const DayPromptModal = ({
   state,
+  skipWeekends,
   onConfirm,
   onClose,
 }: {
   state: DayPromptState;
+  skipWeekends: boolean;
   onConfirm: (days: number) => void;
   onClose: () => void;
 }) => {
@@ -776,17 +778,21 @@ const DayPromptModal = ({
         <h3 className="text-base font-bold text-slate-900 mb-1">{title}</h3>
         <p className="text-xs text-slate-500 mb-4">{description}</p>
         <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1.5">
-          Number of Days
+          {skipWeekends ? 'Number of Working Days' : 'Number of Days'}
         </label>
         <select
           value={days}
           onChange={e => setDays(parseInt(e.target.value))}
-          className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/10 mb-4 bg-white"
+          className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/10 mb-1.5 bg-white"
         >
           {Array.from({ length: 30 }, (_, i) => i + 1).map(d => (
             <option key={d} value={d}>{d} day{d !== 1 ? 's' : ''}</option>
           ))}
         </select>
+        {skipWeekends && (
+          <p className="text-[11px] text-slate-400 mb-4">Counted in working days — weekends are skipped.</p>
+        )}
+        {!skipWeekends && <div className="mb-4" />}
         <div className="flex gap-3">
           <button
             onClick={onClose}
@@ -1252,11 +1258,13 @@ const ManageJobsModal = ({
 const AddBlockModal = ({
   crews,
   jobs,
+  skipWeekends,
   onAdd,
   onClose,
 }: {
   crews: Crew[];
   jobs: JobOption[];
+  skipWeekends: boolean;
   onAdd: (block: ScheduleBlock) => void;
   onClose: () => void;
 }) => {
@@ -1495,7 +1503,7 @@ const AddBlockModal = ({
 
             <div style={{ width: 110 }}>
               <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1.5">
-                Duration (days)
+                {skipWeekends ? 'Working days' : 'Duration (days)'}
               </label>
               <select
                 value={durationDays}
@@ -1509,6 +1517,32 @@ const AddBlockModal = ({
               </select>
             </div>
           </div>
+
+          {/* Schedule preview — makes clear the duration is counted in working
+              days (Mon–Fri) and shows where the job lands with weekends skipped. */}
+          {/^\d{4}-\d{2}-\d{2}$/.test(startDate) && durationDays >= 1 && (() => {
+            const effStart = skipWeekends ? snapToWeekday(startDate) : startDate;
+            const endISO   = skipWeekends
+              ? nthWorkingDay(effStart, durationDays)
+              : addDays(startDate, durationDays - 1);
+            return (
+              <p className="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
+                {skipWeekends ? (
+                  <>
+                    <span className="font-semibold text-slate-700">{durationDays} working day{durationDays !== 1 ? 's' : ''}</span>
+                    {' · '}weekends skipped
+                    <br />
+                    {effStart !== startDate && (
+                      <span className="text-amber-600">Starts {fmtLong(effStart)} (moved off weekend)<br /></span>
+                    )}
+                    Ends <span className="font-semibold text-slate-700">{fmtLong(endISO)}</span>
+                  </>
+                ) : (
+                  <>Ends <span className="font-semibold text-slate-700">{fmtLong(endISO)}</span></>
+                )}
+              </p>
+            );
+          })()}
 
           {selectedJob && (
             <p className="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
@@ -3208,6 +3242,7 @@ export default function Scheduler({
       {dayPrompt && (
         <DayPromptModal
           state={dayPrompt}
+          skipWeekends={skipWeekends}
           onConfirm={
             dayPrompt.action === 'extend'
               ? handleExtendConfirm
@@ -3261,6 +3296,7 @@ export default function Scheduler({
         <AddBlockModal
           crews={crewsState}
           jobs={jobsState}
+          skipWeekends={skipWeekends}
           onAdd={rawBlock => {
             const block = skipWeekends
               ? { ...rawBlock, startDate: snapToWeekday(rawBlock.startDate) }
