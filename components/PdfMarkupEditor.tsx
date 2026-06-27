@@ -1414,6 +1414,14 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   useLayoutEffect(() => {
     const main = mainRef.current;
     if (!main) return;
+    // Clear any leftover pinch / double-tap transform now that the new zoom has laid
+    // out. Doing it here (before reading any rects, and before the browser paints)
+    // means the view goes straight from "scaled old layout" to "new layout" with no
+    // intermediate old-zoom frame, and getBoundingClientRect below reads true sizes.
+    const layer = zoomLayerRef.current;
+    if (layer && layer.style.transform) {
+      layer.style.transform = ''; layer.style.transformOrigin = ''; layer.style.willChange = '';
+    }
     const anchor = pendingZoomAnchorRef.current;
     if (anchor) {
       pendingZoomAnchorRef.current = null;
@@ -1862,24 +1870,39 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
 
   // Commit a pinch: turn the transient transform into a real zoom level and queue a
   // focal re-anchor so the point under the fingers stays put after re-layout.
+  // IMPORTANT: we do NOT clear the transform here. If we did, the view would snap
+  // back to the *old* zoom for one frame before the new zoom renders, causing a
+  // visible jump. Instead the transform is left in place and cleared inside the
+  // zoom layout-effect, after the new page sizes are laid out — so the swap from
+  // "scaled old layout" to "new layout" happens in a single paint with no flicker.
+  const clearZoomTransform = useCallback(() => {
+    const layer = zoomLayerRef.current;
+    if (layer) { layer.style.transform = ''; layer.style.transformOrigin = ''; layer.style.willChange = ''; }
+  }, []);
+
   const finalizePinch = useCallback(() => {
     if (!isPinchRef.current) return;
     isPinchRef.current = false;
-    const layer = zoomLayerRef.current;
-    if (layer) { layer.style.transform = ''; layer.style.transformOrigin = ''; layer.style.willChange = ''; }
     const s = pinchScaleRef.current;
     pinchScaleRef.current = 1;
     const anchor = pinchAnchorRef.current;
     pinchAnchorRef.current = null;
-    if (Math.abs(s - 1) < 0.002) return; // negligible change
     const newZoom = Math.max(0.25, Math.min(4.0, (zoomRef.current || 1) * s));
-    if (Math.abs(newZoom - zoomRef.current) < 0.0005) return;
+    // No meaningful change (or clamped to the same level): drop the transient
+    // transform now, since no re-render — and therefore no layout-effect — will run.
+    if (Math.abs(s - 1) < 0.002 || Math.abs(newZoom - zoomRef.current) < 0.0005) {
+      clearZoomTransform();
+      return;
+    }
     if (anchor) {
       const f = pinchCurrentFocalRef.current;
       pendingZoomAnchorRef.current = { pageNum: anchor.pageNum, nx: anchor.nx, ny: anchor.ny, fx: f.x, fy: f.y };
+    } else {
+      // No focal page resolved — clear now and just re-zoom without re-anchoring.
+      clearZoomTransform();
     }
     setZoomLevel(newZoom);
-  }, []);
+  }, [clearZoomTransform]);
 
   // Touch-based pan + pinch for mobile (native touch events: e.touches is authoritative).
   // Single finger over a nav tool scrolls; two fingers pinch-zoom. Pen/mouse drawing is
@@ -1932,7 +1955,8 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
         layer.style.transform = `scale(${1 + (ratio - 1) * ease(t)})`;
         if (t < 1) { momentumId = requestAnimationFrame(step); return; }
         momentumId = 0;
-        layer.style.transform = ''; layer.style.transformOrigin = ''; layer.style.willChange = '';
+        // Leave the transform applied; the zoom layout-effect clears it after the new
+        // size lays out, so there's no one-frame snap back to the old zoom.
         if (anchor) pendingZoomAnchorRef.current = { ...anchor, fx: clientX, fy: clientY };
         setZoomLevel(targetZoom);
       };
