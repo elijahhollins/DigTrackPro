@@ -2286,8 +2286,28 @@ export default function Scheduler({
   // Global touch-move / touch-end listeners while a touch drag is in progress
   const dayWidthRef    = useRef(dayWidth);
   const viewStartRef   = useRef(viewStart);
+  const todayOffsetRef = useRef(todayOffset);
   dayWidthRef.current    = dayWidth;
   viewStartRef.current   = viewStart;
+  todayOffsetRef.current = todayOffset;
+
+  // ── Focus today ───────────────────────────────────────────────────────────
+  // Horizontally scroll so today's column sits just inside the left edge (with a
+  // day of lead-in for context). Past days remain reachable by scrolling left and
+  // future days by scrolling right. Bumping `focusTodayNonce` re-triggers it.
+  const [focusTodayNonce, setFocusTodayNonce] = useState(0);
+  const scrollToToday = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollLeft = Math.max(0, todayOffsetRef.current - dayWidthRef.current);
+  }, []);
+
+  // Run on first paint and whenever the view granularity changes or the user
+  // explicitly asks to jump back to today.
+  useEffect(() => {
+    const id = requestAnimationFrame(scrollToToday);
+    return () => cancelAnimationFrame(id);
+  }, [view, focusTodayNonce, scrollToToday]);
 
   useEffect(() => {
     if (!touchGhostPos) return; // nothing being dragged
@@ -2602,7 +2622,7 @@ export default function Scheduler({
             <ChevronLeft className="w-4 h-4" />
           </button>
           <button
-            onClick={() => setViewOffset(0)}
+            onClick={() => { setViewOffset(0); setFocusTodayNonce(n => n + 1); }}
             className="px-3 py-1 text-xs font-semibold text-slate-200 hover:bg-white/10 hover:text-white rounded-md transition-colors"
           >
             Today
