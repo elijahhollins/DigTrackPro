@@ -1458,10 +1458,12 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       const sh = main.scrollHeight - main.clientHeight;
       scrollRatioRef.current = sh > 0 ? main.scrollTop / sh : 0;
 
-      // Walk cumulative page heights (gap-4 = 16px between pages) to find the page under
-      // the viewport centre without forcing layout per page. Seed the starting offset
-      // from the page column's actual position so error banners above it don't skew it.
-      const GAP = 16;
+      // Walk cumulative page heights to find the page under the viewport centre without
+      // forcing layout per page. Seed the starting offset from the page column's actual
+      // position so error banners above it don't skew it. The inter-page gap scales with
+      // zoom (see the page column's rowGap) so the pinch transform and the committed
+      // layout stay geometrically identical.
+      const GAP = 16 * zoomRef.current;
       const colW = Math.min(availWidthRef.current || 0, 1400) * zoomRef.current;
       const dims = pageDimsRef.current;
       const center = main.scrollTop + main.clientHeight / 2;
@@ -3116,7 +3118,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
         )}
 
         {!isLoadingPdf && !pdfError && (
-          <div ref={zoomLayerRef} className="flex flex-col items-center gap-4 origin-top">
+          <div ref={zoomLayerRef} className="flex flex-col items-center origin-top" style={{ rowGap: `${16 * zoomLevel}px` }}>
           {Array.from({ length: numPages }, (_, i) => {
             const p = i + 1;
             const { width: w, height: h } = getDisplaySize(p);
