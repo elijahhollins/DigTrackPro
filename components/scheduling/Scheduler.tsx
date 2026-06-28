@@ -1584,6 +1584,7 @@ interface JobBlockProps {
   width: number;
   color: string;
   isDragging: boolean;
+  isSettled?: boolean;
   isAdmin?: boolean;
   editMode?: boolean;
   onDelete?: () => void;
@@ -1607,7 +1608,7 @@ interface JobBlockProps {
 }
 
 const JobBlock = ({
-  block, job, left, width, color, isDragging,
+  block, job, left, width, color, isDragging, isSettled,
   isAdmin, editMode, onDelete,
   equipmentCount, isEquipDragOver, onEquipmentDrop, onEquipmentDragOver, onEquipmentDragLeave, onEquipmentClick,
   onDragStart, onDragEnd, onContextMenu,
@@ -1637,7 +1638,7 @@ const JobBlock = ({
   return (
     <div
       data-block-id={block.id}
-      className={`dispatch-block${isDragging ? ' is-dragging' : ''}`}
+      className={`dispatch-block${isDragging ? ' is-dragging' : ''}${isSettled ? ' is-settled' : ''}`}
       draggable={editMode}
       onDragStart={editMode ? onDragStart : undefined}
       onDragEnd={editMode ? onDragEnd : undefined}
@@ -1767,26 +1768,36 @@ const JobBlock = ({
               </div>
             )}
 
-            {/* Resize handle — right edge of the final segment for job blocks */}
+            {/* Resize handle — right edge of the final segment for job blocks.
+                Wider hit area (20px) than its visual width so it's easy to grab;
+                the grip itself stays visually slim. */}
             {editMode && !isDelay && isLast && (
               <div
-                className="dispatch-affordance"
+                className="dispatch-resize-grip"
                 onMouseDown={e => { e.stopPropagation(); e.preventDefault(); onResizeStart?.(e); }}
                 onTouchStart={e => { e.stopPropagation(); e.preventDefault(); onResizeTouchStart?.(e); }}
                 title="Drag to extend job duration"
                 style={{
                   position: 'absolute',
-                  right: 0, top: 0,
-                  width: 12, height: '100%',
+                  right: -4, top: 0,
+                  width: 20, height: '100%',
                   cursor: 'col-resize',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  background: 'linear-gradient(90deg, transparent, rgba(0,0,0,0.14))',
+                  justifyContent: 'flex-end',
+                  paddingRight: 3,
+                  touchAction: 'none',
                   zIndex: 15,
                 }}
               >
-                <div style={{ width: 2.5, height: 16, background: 'rgba(255,255,255,0.7)', borderRadius: 2 }} />
+                <div
+                  className="dispatch-resize-bar"
+                  style={{
+                    width: 4, height: 22, borderRadius: 3,
+                    background: 'rgba(255,255,255,0.82)',
+                    boxShadow: '0 0 0 1px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.18)',
+                  }}
+                />
               </div>
             )}
 
@@ -2137,9 +2148,35 @@ export default function Scheduler({
   const [draggingId,    setDraggingId]    = useState<string | null>(null);
   const [dragOffsetDays, setDragOffsetDays] = useState(0);
 
+  // Live drop preview (desktop + touch). While a block is being dragged we
+  // compute the snapped target crew row + start date and render a translucent
+  // placeholder there so the user sees exactly where the block will land before
+  // releasing. Shape mirrors what the drop handlers ultimately dispatch, and the
+  // snap math (weekday-snap when skipping) stays consistent with handleDrop.
+  const [dragPreview, setDragPreview] = useState<{
+    crewId:       string;
+    startDate:    string;
+    durationDays: number;
+    conflict:     boolean;
+  } | null>(null);
+
+  // Block id that just settled after a drop — drives a brief "settle" pop so the
+  // landing reads as deliberate. Cleared by a short timer.
+  const [settledId, setSettledId] = useState<string | null>(null);
+  const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flagSettled = useCallback((id: string) => {
+    if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
+    setSettledId(id);
+    settleTimerRef.current = setTimeout(() => setSettledId(null), 320);
+  }, []);
+  useEffect(() => () => { if (settleTimerRef.current) clearTimeout(settleTimerRef.current); }, []);
+
   // Resize-drag state (dragging the right edge of a job block to extend it)
   const [resizingId,      setResizingId]      = useState<string | null>(null);
   const [resizeDeltaDays, setResizeDeltaDays] = useState(0);
+  // Live cursor position during a resize drag — anchors the floating duration /
+  // end-date label that previews the new extent.
+  const [resizeCursor, setResizeCursor] = useState<{ x: number; y: number } | null>(null);
   const resizeRef = useRef<{
     blockId:      string;
     startX:       number;
@@ -2281,12 +2318,48 @@ export default function Scheduler({
     e.dataTransfer.setData('application/x-block-id', block.id);
   }, [dayWidth]);
 
-  const handleDragEnd = useCallback(() => setDraggingId(null), []);
+  const handleDragEnd = useCallback(() => {
+    setDraggingId(null);
+    setDragPreview(null);
+  }, []);
 
-  const handleDragOver = useCallback((e: React.DragEvent) => {
+  // Translate a pointer clientX into the snapped start date for the block being
+  // dragged, using the same geometry the drop handlers use so the preview and
+  // the eventual landing agree to the day. Returns null when no drag is active.
+  const computeSnappedStart = useCallback((clientX: number): string | null => {
+    const drag = blocksRef.current.find(b => b.id === draggingId);
+    if (!drag || !scrollRef.current) return null;
+    const container = scrollRef.current;
+    const containerRect = container.getBoundingClientRect();
+    const xInContent = clientX - containerRect.left + container.scrollLeft;
+    const xInGrid    = xInContent - CREW_COL_W;
+    const dayIndex   = Math.floor(xInGrid / dayWidth);
+    const skip       = skipWeekendsRef.current;
+    let   newStart   = addDays(viewStart, dayIndex - dragOffsetDays);
+    if (skip) newStart = snapToWeekday(newStart);
+    return newStart;
+  }, [draggingId, dayWidth, viewStart, dragOffsetDays]);
+
+  // Hovering a crew row while dragging: compute the snapped target and stash it
+  // so the live placeholder + guide render at the exact landing spot.
+  const handleDragOver = useCallback((e: React.DragEvent, crewId: string) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-  }, []);
+    const id = draggingId;
+    if (!id) return;
+    const newStart = computeSnappedStart(e.clientX);
+    if (!newStart) return;
+    const moving = blocksRef.current.find(b => b.id === id);
+    if (!moving) return;
+    const skip = skipWeekendsRef.current;
+    const conflicts = findOverlapConflicts(blocksRef.current, crewId, newStart, moving.durationDays, skip, id);
+    setDragPreview(prev => {
+      if (prev && prev.crewId === crewId && prev.startDate === newStart && prev.conflict === (conflicts.length > 0)) {
+        return prev;
+      }
+      return { crewId, startDate: newStart, durationDays: moving.durationDays, conflict: conflicts.length > 0 };
+    });
+  }, [draggingId, computeSnappedStart]);
 
   const handleDrop = useCallback((e: React.DragEvent, crewId: string) => {
     e.preventDefault();
@@ -2305,6 +2378,7 @@ export default function Scheduler({
     if (skip) newStart = snapToWeekday(newStart);
 
     setDraggingId(null);
+    setDragPreview(null);
 
     const allBlocks   = blocksRef.current;
     const movingBlock = allBlocks.find(b => b.id === blockId);
@@ -2324,8 +2398,9 @@ export default function Scheduler({
       });
     } else {
       dispatchWithHistory({ type: 'MOVE_BLOCK', id: blockId, crewId, startDate: newStart });
+      flagSettled(blockId);
     }
-  }, [dayWidth, viewStart, dragOffsetDays, dispatchWithHistory]);
+  }, [dayWidth, viewStart, dragOffsetDays, dispatchWithHistory, flagSettled]);
 
   // ── Equipment drag handlers ──────────────────────────────────────────────────
 
@@ -2467,10 +2542,36 @@ export default function Scheduler({
     if (!touchGhostPos) return; // nothing being dragged
 
     const handleTouchMove = (e: TouchEvent) => {
-      if (!touchDragRef.current) return;
+      const drag = touchDragRef.current;
+      if (!drag || !scrollRef.current) return;
       e.preventDefault();
       const touch = e.touches[0];
       setTouchGhostPos({ x: touch.clientX, y: touch.clientY });
+
+      // Live target preview for touch — mirror the release math so the
+      // placeholder + guide sit exactly where the block will land.
+      const container = scrollRef.current;
+      const containerRect = container.getBoundingClientRect();
+      const yInView     = touch.clientY - containerRect.top;
+      const crewAreaTop = HEADER_MONTH_H + HEADER_DAY_H;
+      const crewIndex   = Math.floor((yInView - crewAreaTop) / ROW_HEIGHT);
+      const crews       = crewsStateRef.current;
+      const clampedIdx  = Math.min(Math.max(crewIndex, 0), crews.length - 1);
+      const targetCrew  = crews[clampedIdx];
+      const dw = dayWidthRef.current;
+      const xInContent = touch.clientX - containerRect.left + container.scrollLeft;
+      const xInGrid    = xInContent - CREW_COL_W;
+      const dayIndex   = dw > 0 ? Math.floor(xInGrid / dw) : 0;
+      const skip       = skipWeekendsRef.current;
+      let   newStart   = addDays(viewStartRef.current, dayIndex - drag.offsetDays);
+      if (skip) newStart = snapToWeekday(newStart);
+      if (targetCrew) {
+        const moving = blocksRef.current.find(b => b.id === drag.blockId);
+        if (moving) {
+          const conflicts = findOverlapConflicts(blocksRef.current, targetCrew.id, newStart, moving.durationDays, skip, drag.blockId);
+          setDragPreview({ crewId: targetCrew.id, startDate: newStart, durationDays: moving.durationDays, conflict: conflicts.length > 0 });
+        }
+      }
     };
 
     const handleTouchEnd = (e: TouchEvent) => {
@@ -2479,6 +2580,7 @@ export default function Scheduler({
         touchDragRef.current = null;
         setDraggingId(null);
         setTouchGhostPos(null);
+        setDragPreview(null);
         return;
       }
 
@@ -2522,12 +2624,14 @@ export default function Scheduler({
             });
           } else {
             dispatchWithHistory({ type: 'MOVE_BLOCK', id: drag.blockId, crewId: targetCrew.id, startDate: newStart });
+            flagSettled(drag.blockId);
           }
         }
       }
       touchDragRef.current = null;
       setDraggingId(null);
       setTouchGhostPos(null);
+      setDragPreview(null);
     };
 
     window.addEventListener('touchmove', handleTouchMove, { passive: false });
@@ -2536,7 +2640,7 @@ export default function Scheduler({
       window.removeEventListener('touchmove', handleTouchMove);
       window.removeEventListener('touchend', handleTouchEnd);
     };
-  }, [touchGhostPos]);
+  }, [touchGhostPos, dispatchWithHistory, flagSettled]);
 
   // ── Resize-drag handlers (right-edge drag in edit mode) ─────────────────────
 
@@ -2550,6 +2654,7 @@ export default function Scheduler({
     };
     setResizingId(block.id);
     setResizeDeltaDays(0);
+    setResizeCursor({ x: e.clientX, y: e.clientY });
   }, []);
 
   const handleResizeTouchStart = useCallback((e: React.TouchEvent, block: ScheduleBlock) => {
@@ -2565,6 +2670,7 @@ export default function Scheduler({
     };
     setResizingId(block.id);
     setResizeDeltaDays(0);
+    setResizeCursor({ x: touch.clientX, y: touch.clientY });
   }, [editMode]);
 
   useEffect(() => {
@@ -2587,6 +2693,7 @@ export default function Scheduler({
       if (!r || dayWidthRef.current === 0) return;
       const cols = Math.max(0, Math.round((e.clientX - r.startX) / dayWidthRef.current));
       setResizeDeltaDays(toDurationDelta(r, cols));
+      setResizeCursor({ x: e.clientX, y: e.clientY });
     };
 
     const onMouseUp = (e: MouseEvent) => {
@@ -2597,10 +2704,12 @@ export default function Scheduler({
       const days = toDurationDelta(r, cols);
       if (days > 0) {
         dispatch({ type: 'EXTEND_JOB', blockId: r.blockId, days, skipWeekends: skipWeekendsRef.current });
+        flagSettled(r.blockId);
       }
       resizeRef.current = null;
       setResizingId(null);
       setResizeDeltaDays(0);
+      setResizeCursor(null);
     };
 
     const onTouchMove = (e: TouchEvent) => {
@@ -2610,6 +2719,7 @@ export default function Scheduler({
       const touch = e.touches[0];
       const cols = Math.max(0, Math.round((touch.clientX - r.startX) / dayWidthRef.current));
       setResizeDeltaDays(toDurationDelta(r, cols));
+      setResizeCursor({ x: touch.clientX, y: touch.clientY });
     };
 
     const onTouchEnd = (e: TouchEvent) => {
@@ -2621,10 +2731,12 @@ export default function Scheduler({
       const days = toDurationDelta(r, cols);
       if (days > 0) {
         dispatch({ type: 'EXTEND_JOB', blockId: r.blockId, days, skipWeekends: skipWeekendsRef.current });
+        flagSettled(r.blockId);
       }
       resizeRef.current = null;
       setResizingId(null);
       setResizeDeltaDays(0);
+      setResizeCursor(null);
     };
 
     document.addEventListener('mousemove', onMouseMove);
@@ -2637,7 +2749,7 @@ export default function Scheduler({
       document.removeEventListener('touchmove', onTouchMove, { passive: false } as EventListenerOptions);
       document.removeEventListener('touchend',  onTouchEnd);
     };
-  }, [resizingId, dispatch]);
+  }, [resizingId, dispatch, flagSettled]);
 
   // ── Context-menu actions ─────────────────────────────────────────────────────
 
@@ -3140,6 +3252,19 @@ export default function Scheduler({
             const crewBlocks = blocks.filter(b => b.crewId === crew.id);
             const color = crewColorMap.get(crew.id) ?? CREW_COLORS[0];
 
+            // Live drop preview targeting this row (desktop drag or touch drag).
+            // Geometry mirrors the block render below so the placeholder sits
+            // exactly where the dragged block will land — to the day.
+            const preview = dragPreview && dragPreview.crewId === crew.id ? dragPreview : null;
+            const previewLeft = preview ? diffDays(preview.startDate, viewStart) * dayWidth : 0;
+            const previewSegs = preview
+              ? workingDayRuns(preview.startDate, preview.durationDays, skipWeekends).map(run => ({
+                  left:  run.offsetDays * dayWidth + BLOCK_MARGIN,
+                  width: Math.max(run.lengthDays * dayWidth - BLOCK_MARGIN * 2, 16),
+                }))
+              : [];
+            const previewColor = preview?.conflict ? '#e11d48' : color;
+
             return (
               <div key={crew.id} className="flex" style={{ height: ROW_HEIGHT }}>
                 {/* Sticky crew label */}
@@ -3238,10 +3363,15 @@ export default function Scheduler({
                   style={{
                     position: 'relative',
                     width: totalGridWidth, height: ROW_HEIGHT,
-                    background: ci % 2 === 0 ? '#ffffff' : '#fafbfd',
+                    background: preview
+                      ? (preview.conflict
+                          ? 'rgba(225,29,72,0.05)'
+                          : `color-mix(in srgb, ${color} 7%, ${ci % 2 === 0 ? '#ffffff' : '#fafbfd'})`)
+                      : ci % 2 === 0 ? '#ffffff' : '#fafbfd',
                     borderBottom: '1px solid #eef2f7',
+                    transition: 'background 0.12s ease',
                   }}
-                  onDragOver={editMode ? handleDragOver : undefined}
+                  onDragOver={editMode ? e => handleDragOver(e, crew.id) : undefined}
                   onDrop={editMode ? e => handleDrop(e, crew.id) : undefined}
                 >
                   {/* Day cells (grid lines + weekend shading + today column).
@@ -3297,6 +3427,61 @@ export default function Scheduler({
                     </>
                   )}
 
+                  {/* Live drop preview — a translucent placeholder at the snapped
+                      target day, plus a vertical snap guide, so the landing spot
+                      is obvious before release. Drawn under the dragged source. */}
+                  {preview && (
+                    <>
+                      {/* Vertical snap guide at the target start column */}
+                      <div
+                        style={{
+                          position: 'absolute',
+                          left: previewLeft - 1, top: 0,
+                          width: 2, height: ROW_HEIGHT,
+                          background: previewColor,
+                          opacity: 0.55,
+                          zIndex: 6, pointerEvents: 'none',
+                        }}
+                      />
+                      {previewSegs.map((seg, i) => (
+                        <div
+                          key={i}
+                          aria-hidden="true"
+                          style={{
+                            position: 'absolute',
+                            left: previewLeft + seg.left,
+                            top: BLOCK_MARGIN,
+                            width: seg.width,
+                            height: ROW_HEIGHT - BLOCK_MARGIN * 2,
+                            borderRadius: 9,
+                            background: `color-mix(in srgb, ${previewColor} 16%, transparent)`,
+                            border: `2px dashed color-mix(in srgb, ${previewColor} 75%, transparent)`,
+                            boxShadow: `0 0 0 1px color-mix(in srgb, ${previewColor} 18%, transparent)`,
+                            boxSizing: 'border-box',
+                            zIndex: 6,
+                            pointerEvents: 'none',
+                            display: 'flex', alignItems: 'center', justifyContent: 'flex-start',
+                            padding: '0 10px',
+                          }}
+                        >
+                          {i === 0 && seg.width > 54 && (
+                            <span
+                              style={{
+                                fontSize: 10, fontWeight: 800, letterSpacing: '0.02em',
+                                color: previewColor,
+                                background: 'rgba(255,255,255,0.78)',
+                                borderRadius: 6, padding: '1px 6px',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {preview.conflict ? '⚠ ' : ''}{fmtShort(preview.startDate)}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </>
+                  )}
+
                   {/* Job/Delay blocks */}
                   {crewBlocks.map(block => {
                     const left  = diffDays(block.startDate, viewStart) * dayWidth;
@@ -3323,6 +3508,7 @@ export default function Scheduler({
                         segments={segments}
                         color={color}
                         isDragging={draggingId === block.id}
+                        isSettled={settledId === block.id}
                         isAdmin={isAdmin}
                         editMode={editMode}
                         onDelete={() => dispatchWithHistory({ type: 'DELETE_BLOCK', id: block.id })}
@@ -3411,33 +3597,88 @@ export default function Scheduler({
       </div>
 
       {/* ─── Overlays ─── */}
-      {tooltip && <BlockTooltip tip={tooltip} skipWeekends={skipWeekends} />}
+      {tooltip && !draggingId && !resizingId && <BlockTooltip tip={tooltip} skipWeekends={skipWeekends} />}
 
-      {/* Touch drag ghost */}
+      {/* Resize floating label — live new duration + end date near the cursor */}
+      {resizingId && resizeCursor && (() => {
+        const rb = blocks.find(b => b.id === resizingId);
+        if (!rb) return null;
+        const newDuration = rb.durationDays + resizeDeltaDays;
+        const endISO = skipWeekends
+          ? nthWorkingDay(rb.startDate, newDuration)
+          : addDays(rb.startDate, newDuration - 1);
+        return (
+          <div
+            aria-hidden="true"
+            style={{
+              position: 'fixed',
+              left: resizeCursor.x + 16,
+              top:  resizeCursor.y - 44,
+              background: '#0a142d',
+              color: '#fff',
+              borderRadius: 10,
+              padding: '7px 11px',
+              fontSize: 11,
+              fontWeight: 600,
+              pointerEvents: 'none',
+              zIndex: 9999,
+              boxShadow: '0 8px 28px rgba(0,0,0,0.4)',
+              border: '1px solid rgba(255,255,255,0.12)',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <span style={{ color: '#5eead4', fontWeight: 800 }}>
+              {newDuration} {skipWeekends ? 'working ' : ''}day{newDuration !== 1 ? 's' : ''}
+            </span>
+            {resizeDeltaDays > 0 && (
+              <span style={{ color: '#94a3b8', marginLeft: 6 }}>(+{resizeDeltaDays})</span>
+            )}
+            <div style={{ color: '#cbd5e1', marginTop: 2, fontWeight: 500 }}>
+              Ends {fmtLong(endISO)}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Touch drag ghost — a clearer floating chip that follows the finger and
+          shows the snapped target date so the landing reads at a glance. */}
       {touchGhostPos && touchDragRef.current && (
         <div
           aria-hidden="true"
           style={{
             position: 'fixed',
-            left: touchGhostPos.x - 24,
-            top:  touchGhostPos.y - 20,
-            background: touchDragRef.current.color,
+            left: touchGhostPos.x - 30,
+            top:  touchGhostPos.y - 54,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-start',
+            gap: 3,
+            background: dragPreview?.conflict ? '#e11d48' : touchDragRef.current.color,
             color: '#fff',
-            borderRadius: 8,
-            padding: '5px 10px',
-            fontSize: 12,
-            fontWeight: 700,
+            borderRadius: 10,
+            padding: '7px 12px',
+            fontSize: 13,
+            fontWeight: 800,
             pointerEvents: 'none',
             zIndex: 9999,
-            opacity: 0.9,
-            boxShadow: '0 6px 24px rgba(0,0,0,0.4)',
+            opacity: 0.96,
+            boxShadow: '0 10px 30px rgba(0,0,0,0.45)',
+            border: '1.5px solid rgba(255,255,255,0.35)',
             whiteSpace: 'nowrap',
-            maxWidth: 160,
+            maxWidth: 190,
             overflow: 'hidden',
             textOverflow: 'ellipsis',
+            transform: 'scale(1.02)',
           }}
         >
-          {touchDragRef.current.label}
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 166 }}>
+            {touchDragRef.current.label}
+          </span>
+          {dragPreview && (
+            <span style={{ fontSize: 10.5, fontWeight: 600, opacity: 0.95 }}>
+              {dragPreview.conflict ? '⚠ ' : '→ '}{fmtShort(dragPreview.startDate)}
+            </span>
+          )}
         </div>
       )}
 

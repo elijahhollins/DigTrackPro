@@ -103,3 +103,25 @@ tbody tr { transition: background-color 0.12s ease; }
 @media (hover: none) {
   .dispatch-block .dispatch-affordance { opacity: 1; }
 }
+
+/* ── Resize grip: subtle by default, brightens on hover/grab ── */
+.dispatch-resize-grip .dispatch-resize-bar { transition: background 0.12s ease, transform 0.12s ease; }
+.dispatch-block:hover .dispatch-resize-grip .dispatch-resize-bar,
+.dispatch-resize-grip:hover .dispatch-resize-bar {
+  background: #ffffff;
+  transform: scaleX(1.25);
+}
+
+/* ── Drop "settle" pop ── a brief, springy scale when a block lands, so the
+   drop reads as deliberate. Honors reduced-motion preferences. */
+@keyframes dispatch-settle {
+  0%   { transform: scale(1.035); }
+  55%  { transform: scale(0.992); }
+  100% { transform: scale(1); }
+}
+.dispatch-block.is-settled .dispatch-seg {
+  animation: dispatch-settle 0.30s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .dispatch-block.is-settled .dispatch-seg { animation: none; }
+}
