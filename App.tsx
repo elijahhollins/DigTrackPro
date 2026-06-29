@@ -1348,7 +1348,7 @@ const App: React.FC = () => {
         </div>
       )}
       {viewingDocUrl && (
-        <div className="fixed inset-0 bg-black/95 z-[300] flex flex-col items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/95 z-[1000] flex flex-col items-center justify-center p-4">
           <div className="w-full max-w-5xl flex flex-col h-[90vh]">
             <div className="flex justify-end pb-2 shrink-0">
               <button onClick={() => setViewingDocUrl(null)} className="p-2.5 bg-rose-600 text-white rounded-xl hover:bg-rose-500 hover:scale-105 transition-all active:scale-95 min-w-[44px] min-h-[44px] flex items-center justify-center" title="Close">
