@@ -1,5 +1,5 @@
 import React, { useState, useReducer, useRef, useCallback, useEffect } from 'react';
-import { Plus, X, ChevronLeft, ChevronRight, Clock, Calendar, CalendarDays, Pencil, Trash2, Briefcase, Users, Wrench, GripHorizontal, RotateCcw, Search, Upload, MoreHorizontal, AlertTriangle, Activity, MapPin } from 'lucide-react';
+import { Plus, X, ChevronLeft, ChevronRight, Clock, Calendar, Pencil, Trash2, Briefcase, Users, Wrench, GripHorizontal, RotateCcw, Search, Upload, MoreHorizontal, MapPin } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient.ts';
 import { scheduleService } from '../../services/scheduleService.ts';
 import ScheduleImportModal, { type ScheduleImportRow } from './ScheduleImportModal.tsx';
@@ -1909,105 +1909,6 @@ const JobBlock = ({
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// DASHBOARD SUMMARY HEADER  (at-a-glance stats derived read-only from state)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-interface SummaryStat {
-  key: string;
-  label: string;
-  value: number | string;
-  sub?: string;
-  icon: React.ReactNode;
-  accent: string;       // rgb tint base for the icon tile
-  alert?: boolean;
-}
-
-const SummaryHeader = ({
-  stats,
-  rangeLabel,
-  viewLabel,
-}: {
-  stats: SummaryStat[];
-  rangeLabel: string;
-  viewLabel: string;
-}) => (
-  <div
-    className="dispatch-rise shrink-0 px-4 sm:px-5 py-3"
-    style={{
-      background: 'linear-gradient(180deg, rgba(13,22,46,0.0) 0%, rgba(13,22,46,0.0) 100%)',
-      borderBottom: '1px solid rgba(255,255,255,0.07)',
-    }}
-  >
-    <div className="flex items-center gap-2.5 overflow-x-auto no-scrollbar">
-      {/* Leading range pill — the visible window of the active view */}
-      <div
-        className="dispatch-stat shrink-0 flex items-center gap-2.5 rounded-xl pl-2.5 pr-3.5 py-2"
-        style={{ minHeight: 52 }}
-      >
-        <div
-          className="flex items-center justify-center rounded-lg shrink-0"
-          style={{
-            width: 32, height: 32,
-            background: 'linear-gradient(135deg, color-mix(in srgb, var(--brand-primary) 92%, white), var(--brand-primary))',
-            boxShadow: '0 3px 10px var(--brand-shadow)',
-          }}
-        >
-          <CalendarDays className="w-[15px] h-[15px] text-white" />
-        </div>
-        <div className="leading-tight">
-          <div className="text-[9px] font-bold uppercase tracking-[0.16em] text-slate-400">{viewLabel} View</div>
-          <div className="text-[13px] font-bold text-white tabular-nums whitespace-nowrap">{rangeLabel}</div>
-        </div>
-      </div>
-
-      <div className="w-px h-8 bg-white/10 shrink-0 mx-0.5" aria-hidden="true" />
-
-      {stats.map(s => (
-        <div
-          key={s.key}
-          className={`dispatch-stat${s.alert ? ' dispatch-stat-alert' : ''} shrink-0 flex items-center gap-2.5 rounded-xl pl-2.5 pr-4 py-2`}
-          style={{ minHeight: 52 }}
-          title={s.sub}
-        >
-          <div
-            className="flex items-center justify-center rounded-lg shrink-0"
-            style={{
-              width: 32, height: 32,
-              background: s.alert
-                ? 'linear-gradient(135deg, rgba(251,113,133,0.30), rgba(244,63,94,0.18))'
-                : `linear-gradient(135deg, ${s.accent}38, ${s.accent}1a)`,
-              border: s.alert ? '1px solid rgba(251,113,133,0.45)' : `1px solid ${s.accent}3d`,
-              color: s.alert ? '#fda4af' : s.accent,
-            }}
-          >
-            {s.icon}
-          </div>
-          <div className="leading-tight">
-            <div className="flex items-baseline gap-1.5">
-              <span
-                className="font-display tabular-nums"
-                style={{ fontSize: 19, fontWeight: 700, color: s.alert ? '#fecdd3' : '#ffffff', lineHeight: 1 }}
-              >
-                {s.value}
-              </span>
-              {s.sub && (
-                <span className="text-[10px] font-medium text-slate-400 whitespace-nowrap">{s.sub}</span>
-              )}
-            </div>
-            <div
-              className="text-[9.5px] font-bold uppercase tracking-[0.14em] mt-1"
-              style={{ color: s.alert ? '#fda4af' : '#94a3b8' }}
-            >
-              {s.label}
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
-  </div>
-);
-
-// ═══════════════════════════════════════════════════════════════════════════════
 // MAIN SCHEDULER COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -2331,26 +2232,21 @@ export default function Scheduler({
   const [showManageCrews,   setShowManageCrews]   = useState(false);
   const [showManageJobs,    setShowManageJobs]    = useState(false);
 
-  // Toolbar popovers: jump-to-date mini calendar & the mobile overflow menu.
-  const [showDatePicker,    setShowDatePicker]    = useState(false);
+  // Toolbar popover: the mobile overflow menu.
   const [showOverflow,      setShowOverflow]      = useState(false);
-  const datePickerRef = useRef<HTMLDivElement>(null);
   const overflowRef   = useRef<HTMLDivElement>(null);
 
-  // Close the date picker / overflow popovers when clicking outside of them.
+  // Close the overflow popover when clicking outside of it.
   useEffect(() => {
-    if (!showDatePicker && !showOverflow) return;
+    if (!showOverflow) return;
     const handler = (e: MouseEvent) => {
-      if (showDatePicker && datePickerRef.current && !datePickerRef.current.contains(e.target as Node)) {
-        setShowDatePicker(false);
-      }
-      if (showOverflow && overflowRef.current && !overflowRef.current.contains(e.target as Node)) {
+      if (overflowRef.current && !overflowRef.current.contains(e.target as Node)) {
         setShowOverflow(false);
       }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [showDatePicker, showOverflow]);
+  }, [showOverflow]);
 
   // Equipment tray & block-equipment modal
   const [showEquipTray,    setShowEquipTray]    = useState(false);
@@ -2630,35 +2526,6 @@ export default function Scheduler({
     const id = requestAnimationFrame(scrollToToday);
     return () => cancelAnimationFrame(id);
   }, [view, focusTodayNonce, scrollToToday]);
-
-  // ── Jump to an arbitrary date ───────────────────────────────────────────────
-  // Shift the window so the chosen date lands at the lead-in position (just
-  // inside the left edge), then scroll horizontally to bring it into view. We
-  // stash the target so the scroll runs after the offset-driven re-render.
-  const jumpTargetRef = useRef<string | null>(null);
-  const [jumpNonce, setJumpNonce] = useState(0);
-  const viewStartRefForJump = useRef(viewStart);
-  viewStartRefForJump.current = viewStart;
-  const jumpToDate = useCallback((iso: string) => {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
-    setViewOffset(diffDays(iso, todayISO));
-    jumpTargetRef.current = iso;
-    setShowDatePicker(false);
-    setJumpNonce(n => n + 1);
-  }, []);
-
-  useEffect(() => {
-    const target = jumpTargetRef.current;
-    if (!target) return;
-    const id = requestAnimationFrame(() => {
-      const el = scrollRef.current;
-      if (!el) return;
-      const off = diffDays(target, viewStartRefForJump.current) * dayWidthRef.current;
-      el.scrollLeft = Math.max(0, off - dayWidthRef.current);
-      jumpTargetRef.current = null;
-    });
-    return () => cancelAnimationFrame(id);
-  }, [jumpNonce]);
 
   useEffect(() => {
     if (!touchGhostPos) return; // nothing being dragged
@@ -2953,78 +2820,8 @@ export default function Scheduler({
     }
   });
 
-  // ── Derived summary stats (read-only) ───────────────────────────────────────
-  // Computed over the blocks that fall within the currently-visible date window
-  // so the dashboard header reflects exactly what's on screen. Uses the existing
-  // conflict helpers without mutating anything.
+  // Last calendar day of the visible window — used by the per-crew workload meter.
   const windowEndISO = addDays(viewStart, totalDays - 1);
-  const summary = (() => {
-    // A block is "in window" if its span overlaps the visible range at all.
-    const inWindow = blocks.filter(b => {
-      const end = blockEndExclusive(b.startDate, b.durationDays, skipWeekends);
-      return b.startDate <= windowEndISO && end > viewStart;
-    });
-    const jobBlocks = inWindow.filter(b => b.type === 'job');
-
-    const activeJobs = new Set(jobBlocks.map(b => b.jobNumber)).size;
-    const crewsBooked = new Set(inWindow.map(b => b.crewId)).size;
-
-    // Conflicts: count crew lanes that contain at least one overlapping pair in
-    // the window. Pairwise over each crew's blocks via the existing helper.
-    let conflictPairs = 0;
-    for (const crew of crewsState) {
-      const cb = blocks.filter(b => b.crewId === crew.id);
-      for (let i = 0; i < cb.length; i++) {
-        for (let j = i + 1; j < cb.length; j++) {
-          if (blocksOverlap(cb[i].startDate, cb[i].durationDays, cb[j].startDate, cb[j].durationDays, skipWeekends)) {
-            conflictPairs++;
-          }
-        }
-      }
-    }
-
-    const equipDeployed = jobBlocks.reduce((n, b) => n + (b.equipmentIds?.length ?? 0), 0);
-
-    return { activeJobs, crewsBooked, conflictPairs, equipDeployed };
-  })();
-
-  const summaryStats: SummaryStat[] = [
-    {
-      key: 'jobs',
-      label: 'Active Jobs',
-      value: summary.activeJobs,
-      sub: 'in view',
-      icon: <Briefcase className="w-[15px] h-[15px]" />,
-      accent: '#60a5fa',
-    },
-    {
-      key: 'crews',
-      label: 'Crews Booked',
-      value: `${summary.crewsBooked}`,
-      sub: `of ${crewsState.length}`,
-      icon: <Users className="w-[15px] h-[15px]" />,
-      accent: '#34d399',
-    },
-    {
-      key: 'conflicts',
-      label: 'Conflicts',
-      value: summary.conflictPairs,
-      sub: summary.conflictPairs === 0 ? 'all clear' : 'overlapping',
-      icon: summary.conflictPairs > 0
-        ? <AlertTriangle className="w-[15px] h-[15px]" />
-        : <Activity className="w-[15px] h-[15px]" />,
-      accent: '#a78bfa',
-      alert: summary.conflictPairs > 0,
-    },
-    {
-      key: 'equip',
-      label: 'Equipment',
-      value: summary.equipDeployed,
-      sub: 'deployed',
-      icon: <Wrench className="w-[15px] h-[15px]" />,
-      accent: '#fbbf24',
-    },
-  ];
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
@@ -3074,7 +2871,7 @@ export default function Scheduler({
             ))}
           </div>
 
-          {/* Navigation cluster — prev · Today · next · jump-to-date */}
+          {/* Navigation cluster — prev · Today · next */}
           <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-black/25 border border-white/10">
             <button
               onClick={() => setViewOffset(v => v - navStep)}
@@ -3096,51 +2893,6 @@ export default function Scheduler({
             >
               <ChevronRight className="w-4 h-4" />
             </button>
-            {/* Jump-to-date popover trigger */}
-            <div ref={datePickerRef} className="relative">
-              <button
-                onClick={() => setShowDatePicker(o => !o)}
-                aria-label="Jump to a specific date"
-                aria-expanded={showDatePicker}
-                title="Jump to date"
-                className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors ${
-                  showDatePicker
-                    ? 'bg-brand text-white'
-                    : 'text-slate-300 hover:bg-white/10 hover:text-white'
-                }`}
-              >
-                <CalendarDays className="w-4 h-4" />
-              </button>
-              {showDatePicker && (
-                <div
-                  className="absolute left-0 top-full mt-2 z-50 w-60 rounded-xl bg-white shadow-2xl border border-slate-200 p-3"
-                  onMouseDown={e => e.stopPropagation()}
-                >
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1.5">Jump to date</p>
-                  <input
-                    type="date"
-                    autoFocus
-                    defaultValue={todayISO}
-                    onChange={e => { if (e.target.value) jumpToDate(e.target.value); }}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand/10 bg-white"
-                  />
-                  <div className="flex gap-1.5 mt-2">
-                    <button
-                      onClick={() => jumpToDate(todayISO)}
-                      className="flex-1 py-1.5 text-xs font-semibold rounded-lg bg-brand/10 text-brand hover:bg-brand/20 transition-colors"
-                    >
-                      Today
-                    </button>
-                    <button
-                      onClick={() => setShowDatePicker(false)}
-                      className="px-3 py-1.5 text-xs font-medium rounded-lg text-slate-500 hover:bg-slate-100 transition-colors"
-                    >
-                      Close
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
           </div>
 
           {/* Visible date range — reflects the window of the active view */}
@@ -3306,13 +3058,6 @@ export default function Scheduler({
           </button>
         </div>
       </div>
-
-      {/* ─── Dashboard summary band ─── */}
-      <SummaryHeader
-        stats={summaryStats}
-        rangeLabel={`${fmtShort(viewStart)} – ${fmtShort(windowEndISO)}`}
-        viewLabel={view}
-      />
 
       {/* ─── Equipment Tray ─── */}
       {showEquipTray && (
