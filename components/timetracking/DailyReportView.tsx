@@ -309,6 +309,13 @@ export default function DailyReportView({
       : <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600"><Clock size={11} /> Draft</span>
   );
 
+  // Drafts stay private to their author; everyone else (admins included) sees a
+  // report only once it has been submitted. Mirrors the SELECT RLS policy.
+  const visibleReports = useMemo(
+    () => reports.filter(r => r.status === 'submitted' || r.preparedById === sessionUser.id),
+    [reports, sessionUser.id],
+  );
+
   // ── List view ──────────────────────────────────────────────────────────────
   if (mode === 'list') {
     return (
@@ -322,14 +329,18 @@ export default function DailyReportView({
           </button>
         </div>
 
-        {reports.length === 0 ? (
+        {visibleReports.length === 0 ? (
           <div className={`rounded-xl border p-8 text-center ${card}`}>
             <FileText size={32} className="mx-auto mb-3 text-slate-400" />
-            <p className="text-sm text-slate-500">No daily reports yet. Tap <b>New report</b> to log today's progress.</p>
+            <p className="text-sm text-slate-500">
+              {isAdmin
+                ? 'No submitted daily reports yet. Foremen’s drafts appear here once finalized.'
+                : 'No daily reports yet. Tap '}{!isAdmin && <b>New report</b>}{!isAdmin && ' to log today’s progress.'}
+            </p>
           </div>
         ) : (
           <ul className="space-y-2">
-            {reports.map(r => {
+            {visibleReports.map(r => {
               const editable = isAdmin || (r.preparedById === sessionUser.id && r.status === 'draft');
               return (
                 <li key={r.id} className={`rounded-xl border p-4 flex items-center justify-between gap-3 ${card}`}>
