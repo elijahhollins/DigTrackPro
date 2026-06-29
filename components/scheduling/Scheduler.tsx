@@ -1,5 +1,5 @@
 import React, { useState, useReducer, useRef, useCallback, useEffect } from 'react';
-import { Plus, X, ChevronLeft, ChevronRight, Clock, Calendar, CalendarDays, Pencil, Trash2, Briefcase, Users, Wrench, GripHorizontal, RotateCcw, Search, Upload, MoreHorizontal } from 'lucide-react';
+import { Plus, X, ChevronLeft, ChevronRight, Clock, Calendar, CalendarDays, Pencil, Trash2, Briefcase, Users, Wrench, GripHorizontal, RotateCcw, Search, Upload, MoreHorizontal, AlertTriangle, Activity, MapPin } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient.ts';
 import { scheduleService } from '../../services/scheduleService.ts';
 import ScheduleImportModal, { type ScheduleImportRow } from './ScheduleImportModal.tsx';
@@ -1617,8 +1617,16 @@ const JobBlock = ({
   segments,
 }: JobBlockProps) => {
   const isDelay   = block.type === 'delay';
-  const bgColor   = isDelay ? '#475569' : color;
+  const bgColor   = isDelay ? '#334155' : color;
   const blockH    = ROW_HEIGHT - BLOCK_MARGIN * 2;
+
+  // Lightweight status from calendar dates (no scheduling logic — display only).
+  const status = (() => {
+    const endExclusive = addDays(block.startDate, block.durationDays); // inclusive-ish; display only
+    if (todayISO >= block.startDate && todayISO < endExclusive) return { label: 'In progress', dot: '#bbf7d0' };
+    if (block.startDate > todayISO) return { label: 'Upcoming', dot: 'rgba(255,255,255,0.85)' };
+    return { label: 'Completed', dot: 'rgba(255,255,255,0.45)' };
+  })();
 
   // Each segment is a contiguous run of working days. A block that carries
   // through a weekend has more than one, drawn with the weekend columns left
@@ -1628,12 +1636,12 @@ const JobBlock = ({
     : [{ left: BLOCK_MARGIN, width: Math.max(width - BLOCK_MARGIN * 2, 24) }];
   const lastIdx = segs.length - 1;
 
-  // Flatter, more modern fill: a subtle top-to-bottom tonal shift (light sheen
-  // up top, a touch of depth at the base) rather than a heavy 3-stop gradient.
+  // Confident "job card" fill: a directional gradient that deepens the crew
+  // color toward the bottom-right for depth, with a crisp light edge up top.
   // Delay blocks keep a soft diagonal hatch so they read as "no work" at a glance.
   const fillImage = isDelay
-    ? 'repeating-linear-gradient(45deg, rgba(255,255,255,0.14) 0, rgba(255,255,255,0.14) 1px, transparent 1px, transparent 9px)'
-    : 'linear-gradient(180deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.02) 38%, rgba(0,0,0,0.12) 100%)';
+    ? 'repeating-linear-gradient(45deg, rgba(255,255,255,0.12) 0, rgba(255,255,255,0.12) 1px, transparent 1px, transparent 9px)'
+    : `linear-gradient(135deg, color-mix(in srgb, ${color} 86%, white) 0%, ${color} 46%, color-mix(in srgb, ${color} 80%, black) 100%)`;
 
   return (
     <div
@@ -1699,27 +1707,28 @@ const JobBlock = ({
               height: blockH,
               backgroundColor: bgColor,
               backgroundImage: fillImage,
-              borderRadius: 9,
+              borderRadius: 11,
               overflow: 'hidden',
               display: 'flex',
               flexDirection: 'column',
               justifyContent: 'center',
-              padding: '0 9px 0 13px',
+              padding: '0 9px 0 16px',
               boxSizing: 'border-box',
               boxShadow: isEquipDragOver
                 ? '0 0 0 2px #fff, 0 0 0 4px var(--brand-primary, #3b82f6)'
                 : isDragging
-                  ? '0 6px 16px rgba(15,23,42,0.22)'
-                  : 'inset 0 1px 0 rgba(255,255,255,0.20), 0 1px 2px rgba(15,23,42,0.18), 0 3px 8px rgba(15,23,42,0.10)',
+                  ? '0 10px 24px rgba(15,23,42,0.30)'
+                  : `inset 0 1px 0 rgba(255,255,255,0.28), 0 1px 1px rgba(15,23,42,0.10), 0 4px 10px ${isDelay ? 'rgba(15,23,42,0.12)' : `color-mix(in srgb, ${color} 35%, transparent)`}`,
             }}
           >
-            {/* Left accent strip — adds visual structure / a "tab" feel */}
+            {/* Left identity tab — a bold light rail anchoring the card to its crew */}
             <div
               style={{
-                position: 'absolute', left: 0, top: 0, bottom: 0, width: 3.5,
+                position: 'absolute', left: 0, top: 0, bottom: 0, width: 5,
                 background: isDelay
-                  ? 'rgba(255,255,255,0.30)'
-                  : 'linear-gradient(180deg, rgba(255,255,255,0.70), rgba(255,255,255,0.30))',
+                  ? 'rgba(255,255,255,0.32)'
+                  : 'linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.55))',
+                boxShadow: 'inset -1px 0 2px rgba(0,0,0,0.10)',
                 pointerEvents: 'none',
               }}
             />
@@ -1836,12 +1845,26 @@ const JobBlock = ({
 
             {/* Labels — shown on every segment so each piece of a block that
                 carries through a weekend still identifies its job. */}
-            <div style={{ color: '#fff', fontSize: 11.5, fontWeight: 700, lineHeight: 1.25, letterSpacing: '0.005em', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', textShadow: '0 1px 2px rgba(0,0,0,0.30)' }}>
-              {block.jobNumber}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+              {/* Status dot — at-a-glance state from dates (first segment only) */}
+              {!isDelay && isFirst && seg.width > 44 && (
+                <span
+                  title={status.label}
+                  style={{
+                    flexShrink: 0, width: 7, height: 7, borderRadius: '50%',
+                    background: status.dot,
+                    boxShadow: `0 0 0 2px rgba(255,255,255,0.45)`,
+                  }}
+                />
+              )}
+              <span style={{ color: '#fff', fontSize: 12, fontWeight: 800, lineHeight: 1.2, letterSpacing: '0.01em', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', textShadow: '0 1px 2px rgba(0,0,0,0.32)', fontFamily: "'Space Grotesk', 'Inter', sans-serif" }}>
+                {block.jobNumber}
+              </span>
             </div>
             {!isDelay && job && seg.width > 70 && (
-              <div style={{ color: 'rgba(255,255,255,0.85)', fontSize: 9.5, marginTop: 1.5, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', textShadow: '0 1px 1px rgba(0,0,0,0.22)' }}>
-                {job.location}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 3, color: 'rgba(255,255,255,0.88)', fontSize: 9.5, marginTop: 2, overflow: 'hidden', whiteSpace: 'nowrap', textShadow: '0 1px 1px rgba(0,0,0,0.22)' }}>
+                <MapPin style={{ width: 9, height: 9, flexShrink: 0, opacity: 0.85 }} />
+                <span style={{ overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{job.location}</span>
               </div>
             )}
             {/* Meta row: equipment badge + duration pill share one line so they
@@ -1884,6 +1907,105 @@ const JobBlock = ({
     </div>
   );
 };
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DASHBOARD SUMMARY HEADER  (at-a-glance stats derived read-only from state)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+interface SummaryStat {
+  key: string;
+  label: string;
+  value: number | string;
+  sub?: string;
+  icon: React.ReactNode;
+  accent: string;       // rgb tint base for the icon tile
+  alert?: boolean;
+}
+
+const SummaryHeader = ({
+  stats,
+  rangeLabel,
+  viewLabel,
+}: {
+  stats: SummaryStat[];
+  rangeLabel: string;
+  viewLabel: string;
+}) => (
+  <div
+    className="dispatch-rise shrink-0 px-4 sm:px-5 py-3"
+    style={{
+      background: 'linear-gradient(180deg, rgba(13,22,46,0.0) 0%, rgba(13,22,46,0.0) 100%)',
+      borderBottom: '1px solid rgba(255,255,255,0.07)',
+    }}
+  >
+    <div className="flex items-center gap-2.5 overflow-x-auto no-scrollbar">
+      {/* Leading range pill — the visible window of the active view */}
+      <div
+        className="dispatch-stat shrink-0 flex items-center gap-2.5 rounded-xl pl-2.5 pr-3.5 py-2"
+        style={{ minHeight: 52 }}
+      >
+        <div
+          className="flex items-center justify-center rounded-lg shrink-0"
+          style={{
+            width: 32, height: 32,
+            background: 'linear-gradient(135deg, color-mix(in srgb, var(--brand-primary) 92%, white), var(--brand-primary))',
+            boxShadow: '0 3px 10px var(--brand-shadow)',
+          }}
+        >
+          <CalendarDays className="w-[15px] h-[15px] text-white" />
+        </div>
+        <div className="leading-tight">
+          <div className="text-[9px] font-bold uppercase tracking-[0.16em] text-slate-400">{viewLabel} View</div>
+          <div className="text-[13px] font-bold text-white tabular-nums whitespace-nowrap">{rangeLabel}</div>
+        </div>
+      </div>
+
+      <div className="w-px h-8 bg-white/10 shrink-0 mx-0.5" aria-hidden="true" />
+
+      {stats.map(s => (
+        <div
+          key={s.key}
+          className={`dispatch-stat${s.alert ? ' dispatch-stat-alert' : ''} shrink-0 flex items-center gap-2.5 rounded-xl pl-2.5 pr-4 py-2`}
+          style={{ minHeight: 52 }}
+          title={s.sub}
+        >
+          <div
+            className="flex items-center justify-center rounded-lg shrink-0"
+            style={{
+              width: 32, height: 32,
+              background: s.alert
+                ? 'linear-gradient(135deg, rgba(251,113,133,0.30), rgba(244,63,94,0.18))'
+                : `linear-gradient(135deg, ${s.accent}38, ${s.accent}1a)`,
+              border: s.alert ? '1px solid rgba(251,113,133,0.45)' : `1px solid ${s.accent}3d`,
+              color: s.alert ? '#fda4af' : s.accent,
+            }}
+          >
+            {s.icon}
+          </div>
+          <div className="leading-tight">
+            <div className="flex items-baseline gap-1.5">
+              <span
+                className="font-display tabular-nums"
+                style={{ fontSize: 19, fontWeight: 700, color: s.alert ? '#fecdd3' : '#ffffff', lineHeight: 1 }}
+              >
+                {s.value}
+              </span>
+              {s.sub && (
+                <span className="text-[10px] font-medium text-slate-400 whitespace-nowrap">{s.sub}</span>
+              )}
+            </div>
+            <div
+              className="text-[9.5px] font-bold uppercase tracking-[0.14em] mt-1"
+              style={{ color: s.alert ? '#fda4af' : '#94a3b8' }}
+            >
+              {s.label}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+);
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN SCHEDULER COMPONENT
@@ -2831,17 +2953,88 @@ export default function Scheduler({
     }
   });
 
+  // ── Derived summary stats (read-only) ───────────────────────────────────────
+  // Computed over the blocks that fall within the currently-visible date window
+  // so the dashboard header reflects exactly what's on screen. Uses the existing
+  // conflict helpers without mutating anything.
+  const windowEndISO = addDays(viewStart, totalDays - 1);
+  const summary = (() => {
+    // A block is "in window" if its span overlaps the visible range at all.
+    const inWindow = blocks.filter(b => {
+      const end = blockEndExclusive(b.startDate, b.durationDays, skipWeekends);
+      return b.startDate <= windowEndISO && end > viewStart;
+    });
+    const jobBlocks = inWindow.filter(b => b.type === 'job');
+
+    const activeJobs = new Set(jobBlocks.map(b => b.jobNumber)).size;
+    const crewsBooked = new Set(inWindow.map(b => b.crewId)).size;
+
+    // Conflicts: count crew lanes that contain at least one overlapping pair in
+    // the window. Pairwise over each crew's blocks via the existing helper.
+    let conflictPairs = 0;
+    for (const crew of crewsState) {
+      const cb = blocks.filter(b => b.crewId === crew.id);
+      for (let i = 0; i < cb.length; i++) {
+        for (let j = i + 1; j < cb.length; j++) {
+          if (blocksOverlap(cb[i].startDate, cb[i].durationDays, cb[j].startDate, cb[j].durationDays, skipWeekends)) {
+            conflictPairs++;
+          }
+        }
+      }
+    }
+
+    const equipDeployed = jobBlocks.reduce((n, b) => n + (b.equipmentIds?.length ?? 0), 0);
+
+    return { activeJobs, crewsBooked, conflictPairs, equipDeployed };
+  })();
+
+  const summaryStats: SummaryStat[] = [
+    {
+      key: 'jobs',
+      label: 'Active Jobs',
+      value: summary.activeJobs,
+      sub: 'in view',
+      icon: <Briefcase className="w-[15px] h-[15px]" />,
+      accent: '#60a5fa',
+    },
+    {
+      key: 'crews',
+      label: 'Crews Booked',
+      value: `${summary.crewsBooked}`,
+      sub: `of ${crewsState.length}`,
+      icon: <Users className="w-[15px] h-[15px]" />,
+      accent: '#34d399',
+    },
+    {
+      key: 'conflicts',
+      label: 'Conflicts',
+      value: summary.conflictPairs,
+      sub: summary.conflictPairs === 0 ? 'all clear' : 'overlapping',
+      icon: summary.conflictPairs > 0
+        ? <AlertTriangle className="w-[15px] h-[15px]" />
+        : <Activity className="w-[15px] h-[15px]" />,
+      accent: '#a78bfa',
+      alert: summary.conflictPairs > 0,
+    },
+    {
+      key: 'equip',
+      label: 'Equipment',
+      value: summary.equipDeployed,
+      sub: 'deployed',
+      icon: <Wrench className="w-[15px] h-[15px]" />,
+      accent: '#fbbf24',
+    },
+  ];
+
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col bg-white select-none rounded-2xl border border-slate-200 overflow-hidden shadow-sm" style={{ height: 'calc(100svh - 220px)', minHeight: '420px' }}>
+    <div className="dispatch-shell flex flex-col select-none rounded-2xl overflow-hidden" style={{ height: 'calc(100svh - 220px)', minHeight: '420px', boxShadow: '0 18px 48px -12px rgba(11,19,38,0.45), 0 4px 12px rgba(11,19,38,0.18)', border: '1px solid rgba(255,255,255,0.06)' }}>
       {/* ─── Toolbar ─── */}
       <div
-        className="flex items-center gap-x-2.5 gap-y-2.5 px-4 sm:px-5 py-3 sm:py-3.5 shrink-0 flex-wrap"
+        className="flex items-center gap-x-2.5 gap-y-2.5 px-4 sm:px-5 pt-3.5 sm:pt-4 pb-3 shrink-0 flex-wrap"
         style={{
-          background: 'linear-gradient(120deg, #0a142d 0%, #11244f 100%)',
-          borderBottom: '1px solid rgba(255,255,255,0.08)',
-          boxShadow: 'inset 0 -1px 0 rgba(255,255,255,0.04)',
+          background: 'transparent',
         }}
       >
         {/* Branded title block */}
@@ -3114,6 +3307,13 @@ export default function Scheduler({
         </div>
       </div>
 
+      {/* ─── Dashboard summary band ─── */}
+      <SummaryHeader
+        stats={summaryStats}
+        rangeLabel={`${fmtShort(viewStart)} – ${fmtShort(windowEndISO)}`}
+        viewLabel={view}
+      />
+
       {/* ─── Equipment Tray ─── */}
       {showEquipTray && (
         <EquipmentTray
@@ -3124,7 +3324,16 @@ export default function Scheduler({
           editMode={editMode}
         />
       )}
-      <div ref={scrollRef} className="flex-1 overflow-auto" style={{ minHeight: 0 }}>
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-auto"
+        style={{
+          minHeight: 0,
+          background: '#e7edf6',
+          borderTop: '1px solid rgba(255,255,255,0.06)',
+          boxShadow: 'inset 0 8px 18px -12px rgba(11,19,38,0.5)',
+        }}
+      >
         <div style={{ minWidth: CREW_COL_W + totalGridWidth }}>
 
           {/* Month header */}
@@ -3133,18 +3342,18 @@ export default function Scheduler({
             style={{
               height: HEADER_MONTH_H,
               position: 'sticky', top: 0, zIndex: 30,
-              background: '#ffffff',
-              borderBottom: '1px solid #eef2f7',
+              background: 'linear-gradient(180deg, #f4f7fc 0%, #eef2f8 100%)',
+              borderBottom: '1px solid #dde5f0',
             }}
           >
             <div
               style={{
                 width: CREW_COL_W, minWidth: CREW_COL_W, height: HEADER_MONTH_H,
-                borderRight: '1px solid #e6ebf2',
+                borderRight: '1px solid #d8e0ec',
                 flexShrink: 0,
                 position: 'sticky', left: 0, zIndex: 31,
-                background: '#ffffff',
-                boxShadow: '1px 0 0 rgba(226,232,240,0.6)',
+                background: 'linear-gradient(180deg, #f4f7fc 0%, #eef2f8 100%)',
+                boxShadow: '1px 0 0 rgba(203,213,225,0.7)',
               }}
             />
             <div style={{ position: 'relative', width: totalGridWidth, height: HEADER_MONTH_H }}>
@@ -3176,24 +3385,32 @@ export default function Scheduler({
             style={{
               height: HEADER_DAY_H,
               position: 'sticky', top: HEADER_MONTH_H, zIndex: 30,
-              background: '#fbfcfe',
-              borderBottom: '1px solid #e2e8f0',
+              background: 'linear-gradient(180deg, #ffffff 0%, #f6f8fc 100%)',
+              borderBottom: '1px solid #d8e0ec',
             }}
           >
             <div
               style={{
                 width: CREW_COL_W, minWidth: CREW_COL_W, height: HEADER_DAY_H,
-                borderRight: '1px solid #e6ebf2',
-                display: 'flex', alignItems: 'center', gap: 6,
+                borderRight: '1px solid #d8e0ec',
+                display: 'flex', alignItems: 'center', gap: 7,
                 paddingLeft: 14, flexShrink: 0,
                 position: 'sticky', left: 0, zIndex: 31,
-                background: '#fbfcfe',
-                boxShadow: '1px 0 0 rgba(226,232,240,0.6)',
+                background: 'linear-gradient(180deg, #ffffff 0%, #f6f8fc 100%)',
+                boxShadow: '1px 0 0 rgba(203,213,225,0.7)',
               }}
             >
-              <Users style={{ width: 12, height: 12, color: '#94a3b8' }} />
-              <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: '#64748b' }}>
-                Crews
+              <span
+                style={{
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  width: 18, height: 18, borderRadius: 6,
+                  background: 'var(--brand-ring)', color: 'var(--brand-primary)',
+                }}
+              >
+                <Users style={{ width: 11, height: 11 }} />
+              </span>
+              <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.16em', textTransform: 'uppercase', color: '#475569' }}>
+                Roster
               </span>
             </div>
             <div style={{ position: 'relative', width: totalGridWidth, height: HEADER_DAY_H }}>
@@ -3252,6 +3469,21 @@ export default function Scheduler({
             const crewBlocks = blocks.filter(b => b.crewId === crew.id);
             const color = crewColorMap.get(crew.id) ?? CREW_COLORS[0];
 
+            // Workload: fraction of working days in the visible window this crew
+            // is booked across its job blocks (clamped, read-only).
+            const workWindowDays = countWorkingDays(viewStart, windowEndISO) || totalDays;
+            const bookedDays = crewBlocks.reduce((sum, b) => {
+              if (b.type !== 'job') return sum;
+              const s = b.startDate < viewStart ? viewStart : b.startDate;
+              const endExcl = blockEndExclusive(b.startDate, b.durationDays, skipWeekends);
+              const eIncl = addDays(endExcl, -1);
+              const e = eIncl > windowEndISO ? windowEndISO : eIncl;
+              if (e < s) return sum;
+              return sum + countWorkingDays(s, e);
+            }, 0);
+            const workloadPct = Math.min(100, Math.round((bookedDays / Math.max(1, workWindowDays)) * 100));
+            const workloadColor = workloadPct >= 90 ? '#e11d48' : workloadPct >= 60 ? color : workloadPct > 0 ? color : '#cbd5e1';
+
             // Live drop preview targeting this row (desktop drag or touch drag).
             // Geometry mirrors the block render below so the placeholder sits
             // exactly where the dragged block will land — to the day.
@@ -3265,73 +3497,85 @@ export default function Scheduler({
               : [];
             const previewColor = preview?.conflict ? '#e11d48' : color;
 
+            const memberNames = crew.memberIds.length > 0 && employeeList.length > 0
+              ? crew.memberIds
+                  .map(id => employeeList.find(e => e.id === id)?.name)
+                  .filter(Boolean) as string[]
+              : [];
+            const workerCount = crew.memberIds.length || crew.size;
+
             return (
-              <div key={crew.id} className="flex" style={{ height: ROW_HEIGHT }}>
-                {/* Sticky crew label */}
+              <div key={crew.id} className="dispatch-lane flex" style={{ height: ROW_HEIGHT }}>
+                {/* Sticky crew roster cell — designed identity card */}
                 <div
+                  className="dispatch-lane-cell"
                   style={{
                     width: CREW_COL_W, minWidth: CREW_COL_W, height: ROW_HEIGHT,
                     position: 'sticky', left: 0, zIndex: 20,
-                    background: ci % 2 === 0 ? '#ffffff' : '#fafbfd',
-                    borderRight: '1px solid #e6ebf2',
-                    borderBottom: '1px solid #eef2f7',
-                    boxShadow: '1px 0 0 rgba(226,232,240,0.6)',
+                    background: `linear-gradient(90deg, ${color}1f 0%, ${color}0d 36%, ${ci % 2 === 0 ? '#ffffff' : '#f8fafd'} 78%), ${ci % 2 === 0 ? '#ffffff' : '#f8fafd'}`,
+                    borderRight: '1px solid #d8e0ec',
+                    borderBottom: '1px solid #e3e9f2',
+                    boxShadow: '1px 0 0 rgba(203,213,225,0.7)',
                     display: 'flex', alignItems: 'center',
-                    padding: '0 10px 0 14px', gap: 11,
+                    padding: '0 9px 0 16px', gap: 10,
                     flexShrink: 0,
                   }}
                 >
-                  {/* Crew color rail — anchors the row to its crew color */}
+                  {/* Bold crew color identity band */}
                   <div
                     style={{
-                      position: 'absolute', left: 0, top: 14, bottom: 14, width: 3,
-                      borderRadius: '0 3px 3px 0',
-                      background: color,
+                      position: 'absolute', left: 0, top: 0, bottom: 0, width: 5,
+                      background: `linear-gradient(180deg, ${color}, color-mix(in srgb, ${color} 78%, black))`,
+                      boxShadow: `2px 0 8px ${color}40`,
                     }}
                   />
-                  {/* Crew avatar chip */}
+                  {/* Crew avatar — solid color identity */}
                   <div
                     style={{
-                      width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+                      width: 38, height: 38, borderRadius: 11, flexShrink: 0,
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      background: `linear-gradient(145deg, ${color}1f, ${color}10)`,
-                      border: `1px solid ${color}3d`,
-                      boxShadow: `inset 0 1px 0 rgba(255,255,255,0.5)`,
-                      color,
-                      fontSize: 14, fontWeight: 700,
+                      background: `linear-gradient(145deg, ${color}, color-mix(in srgb, ${color} 72%, black))`,
+                      boxShadow: `0 3px 8px ${color}55, inset 0 1px 0 rgba(255,255,255,0.35)`,
+                      color: '#fff',
+                      fontSize: 15, fontWeight: 800,
                       fontFamily: "'Space Grotesk', 'Inter', sans-serif",
+                      letterSpacing: '0.02em',
                     }}
                   >
                     {crew.name.trim().charAt(0).toUpperCase() || '?'}
                   </div>
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ color: '#0f172a', fontSize: 13, fontWeight: 600, lineHeight: 1.2, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', letterSpacing: '-0.01em' }}>
-                      {crew.name}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                      <span style={{ color: '#0f172a', fontSize: 13, fontWeight: 700, lineHeight: 1.15, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', letterSpacing: '-0.01em', fontFamily: "'Space Grotesk', 'Inter', sans-serif" }}>
+                        {crew.name}
+                      </span>
                     </div>
-                    {(() => {
-                      const memberNames = crew.memberIds.length > 0 && employeeList.length > 0
-                        ? crew.memberIds
-                            .map(id => employeeList.find(e => e.id === id)?.name)
-                            .filter(Boolean) as string[]
-                        : [];
-                      const workerCount = crew.memberIds.length || crew.size;
-                      return (
-                        <>
-                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#64748b', fontSize: 10, fontWeight: 600, marginTop: 3, background: '#f1f5f9', padding: '1px 6px 1px 5px', borderRadius: 999 }}>
-                            <Users style={{ width: 10, height: 10, flexShrink: 0 }} />
-                            {workerCount} {workerCount === 1 ? 'worker' : 'workers'}
-                          </div>
-                          {memberNames.length > 0 && (
-                            <div
-                              style={{ color: '#94a3b8', fontSize: 9, marginTop: 1, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}
-                              title={memberNames.join(', ')}
-                            >
-                              {memberNames.slice(0, 2).join(', ')}{memberNames.length > 2 ? ` +${memberNames.length - 2}` : ''}
-                            </div>
-                          )}
-                        </>
-                      );
-                    })()}
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#64748b', fontSize: 9.5, fontWeight: 600, marginTop: 2 }}>
+                      <Users style={{ width: 9.5, height: 9.5, flexShrink: 0 }} />
+                      {workerCount} {workerCount === 1 ? 'worker' : 'workers'}
+                      {memberNames.length > 0 && (
+                        <span style={{ color: '#94a3b8', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', maxWidth: 56 }} title={memberNames.join(', ')}>
+                          · {memberNames[0].split(' ')[0]}{memberNames.length > 1 ? ` +${memberNames.length - 1}` : ''}
+                        </span>
+                      )}
+                    </div>
+                    {/* Workload meter — how booked this crew is in the window */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 5 }}>
+                      <div style={{ position: 'relative', flex: 1, height: 5, borderRadius: 999, background: '#e2e8f0', overflow: 'hidden', minWidth: 0 }}>
+                        <div
+                          className="dispatch-meter-fill"
+                          style={{
+                            position: 'absolute', left: 0, top: 0, bottom: 0,
+                            width: `${workloadPct}%`,
+                            borderRadius: 999,
+                            background: `linear-gradient(90deg, ${workloadColor}, color-mix(in srgb, ${workloadColor} 70%, white))`,
+                          }}
+                        />
+                      </div>
+                      <span style={{ fontSize: 9, fontWeight: 800, color: workloadPct >= 90 ? '#e11d48' : '#64748b', fontVariantNumeric: 'tabular-nums', minWidth: 24, textAlign: 'right' }}>
+                        {workloadPct}%
+                      </span>
+                    </div>
                   </div>
                   {/* Per-crew delay button */}
                   <button
@@ -3344,8 +3588,8 @@ export default function Scheduler({
                       flexShrink: 0,
                       width: 26, height: 26,
                       borderRadius: 8,
-                      background: hoverDelayCrewId === crew.id ? 'rgba(245,158,11,0.16)' : '#f4f6f9',
-                      border: `1px solid ${hoverDelayCrewId === crew.id ? 'rgba(245,158,11,0.45)' : '#e6ebf2'}`,
+                      background: hoverDelayCrewId === crew.id ? 'rgba(245,158,11,0.16)' : 'rgba(255,255,255,0.7)',
+                      border: `1px solid ${hoverDelayCrewId === crew.id ? 'rgba(245,158,11,0.45)' : '#dce3ee'}`,
                       cursor: 'pointer',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       color: hoverDelayCrewId === crew.id ? '#d97706' : '#94a3b8',
@@ -3365,10 +3609,12 @@ export default function Scheduler({
                     width: totalGridWidth, height: ROW_HEIGHT,
                     background: preview
                       ? (preview.conflict
-                          ? 'rgba(225,29,72,0.05)'
-                          : `color-mix(in srgb, ${color} 7%, ${ci % 2 === 0 ? '#ffffff' : '#fafbfd'})`)
-                      : ci % 2 === 0 ? '#ffffff' : '#fafbfd',
-                    borderBottom: '1px solid #eef2f7',
+                          ? 'rgba(225,29,72,0.06)'
+                          : `color-mix(in srgb, ${color} 9%, ${ci % 2 === 0 ? '#ffffff' : '#f6f8fc'})`)
+                      : ci % 2 === 0
+                        ? `linear-gradient(90deg, ${color}07 0%, #ffffff 22%)`
+                        : `linear-gradient(90deg, ${color}09 0%, #f6f8fc 22%)`,
+                    borderBottom: '1px solid #e3e9f2',
                     transition: 'background 0.12s ease',
                   }}
                   onDragOver={editMode ? e => handleDragOver(e, crew.id) : undefined}
@@ -3389,10 +3635,10 @@ export default function Scheduler({
                           position: 'absolute',
                           left: i * dayWidth, top: 0,
                           width: dayWidth, height: ROW_HEIGHT,
-                          borderRight: isWeekStart ? '1px solid #e7edf4' : '1px solid #f3f6fa',
+                          borderRight: isWeekStart ? '1px solid #d4ddea' : '1px solid #e6ecf5',
                           backgroundColor: isToday
                             ? 'var(--brand-ring)'
-                            : isWeekend ? 'rgba(148,163,184,0.055)' : undefined,
+                            : isWeekend ? 'rgba(100,116,139,0.07)' : undefined,
                           boxSizing: 'border-box',
                           pointerEvents: 'none',
                         }}
