@@ -498,7 +498,7 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
       )}
 
       <div className={`rounded-[2.5rem] overflow-hidden border shadow-2xl ${isDarkMode ? 'border-white/5 shadow-black/40' : 'border-slate-200 shadow-slate-200/50'}`}
-           style={{ height: 'calc(100vh - 20rem)' }}>
+           style={{ height: 'calc(100vh - 20rem)', isolation: 'isolate' }}>
         <div ref={mapDivRef} style={{ width: '100%', height: '100%' }} />
       </div>
 
