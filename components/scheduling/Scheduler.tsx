@@ -1,7 +1,6 @@
 import React, { useState, useReducer, useRef, useCallback, useEffect } from 'react';
-import { Plus, X, ChevronLeft, ChevronRight, Clock, Calendar, Pencil, Trash2, Briefcase, Users, Wrench, GripHorizontal, RotateCcw, Search, Upload, MoreHorizontal, MapPin } from 'lucide-react';
+import { Plus, X, ChevronLeft, ChevronRight, Clock, Calendar, Pencil, Trash2, Users, GripHorizontal, RotateCcw, Search, Upload, MoreHorizontal, MapPin } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient.ts';
-import { scheduleService } from '../../services/scheduleService.ts';
 import ScheduleImportModal, { type ScheduleImportRow } from './ScheduleImportModal.tsx';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -12,12 +11,6 @@ export interface SchedulerEmployee {
   id: number;
   name: string;
   role?: string;
-}
-
-export interface SchedulerEquipment {
-  id: string;
-  name: string;
-  hourly_rate?: number;
 }
 
 export interface Crew {
@@ -41,7 +34,6 @@ export interface ScheduleBlock {
   durationDays: number;
   type: 'job' | 'delay';
   extended: boolean;
-  equipmentIds?: string[];  // IDs of equipment assigned to be on site
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -82,14 +74,6 @@ export const MOCK_JOBS: JobOption[] = [
   { jobNumber: 'J-1003', location: '789 Pine Rd, Capital City', estimatedDays: 7 },
   { jobNumber: 'J-1004', location: '321 Elm St, Shelbyville',   estimatedDays: 4 },
   { jobNumber: 'J-1005', location: '654 Maple Dr, Springfield', estimatedDays: 6 },
-];
-
-export const MOCK_EQUIPMENT: SchedulerEquipment[] = [
-  { id: 'mock-1', name: 'Excavator',      hourly_rate: 150 },
-  { id: 'mock-2', name: 'Dump Truck',     hourly_rate: 80  },
-  { id: 'mock-3', name: 'Skid Steer',     hourly_rate: 70  },
-  { id: 'mock-4', name: 'Concrete Mixer', hourly_rate: 45  },
-  { id: 'mock-5', name: 'Compactor',      hourly_rate: 35  },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -274,8 +258,6 @@ type BaseAction =
   | { type: 'ADD_BLOCK_PUSH';     block: ScheduleBlock; shiftDays: number }
   | { type: 'DELETE_BLOCK';       id: string }
   | { type: 'REPLACE_ALL';        blocks: ScheduleBlock[] }
-  | { type: 'ASSIGN_EQUIPMENT';   blockId: string; equipmentId: string }
-  | { type: 'UNASSIGN_EQUIPMENT'; blockId: string; equipmentId: string }
   | { type: 'SHIFT_CREW';         crewId: string; fromDate: string; days: number };
 
 // `skipWeekends` is injected at dispatch time so the pure reducer can do
@@ -408,20 +390,6 @@ function reducer(state: ScheduleBlock[], action: Action): ScheduleBlock[] {
     case 'REPLACE_ALL':
       return action.blocks;
 
-    case 'ASSIGN_EQUIPMENT':
-      return state.map(b =>
-        b.id === action.blockId
-          ? { ...b, equipmentIds: [...new Set([...(b.equipmentIds ?? []), action.equipmentId])] }
-          : b,
-      );
-
-    case 'UNASSIGN_EQUIPMENT':
-      return state.map(b =>
-        b.id === action.blockId
-          ? { ...b, equipmentIds: (b.equipmentIds ?? []).filter(id => id !== action.equipmentId) }
-          : b,
-      );
-
     case 'SHIFT_CREW':
       return state.map(b =>
         b.crewId === action.crewId && b.startDate >= action.fromDate
@@ -433,130 +401,6 @@ function reducer(state: ScheduleBlock[], action: Action): ScheduleBlock[] {
       return state;
   }
 }
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// BLOCK EQUIPMENT MODAL  (view & manage equipment assigned to a specific block)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-const BlockEquipmentModal = ({
-  block,
-  job,
-  crew,
-  equipmentList,
-  onAssign,
-  onUnassign,
-  onClose,
-}: {
-  block: ScheduleBlock;
-  job: JobOption | undefined;
-  crew: Crew | undefined;
-  equipmentList: SchedulerEquipment[];
-  onAssign: (equipmentId: string) => void;
-  onUnassign: (equipmentId: string) => void;
-  onClose: () => void;
-}) => {
-  const assigned  = block.equipmentIds ?? [];
-  const available = equipmentList.filter(eq => !assigned.includes(eq.id));
-
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="equip-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
-    >
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col" style={{ maxHeight: '80vh' }}>
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-          <div>
-            <h3 id="equip-modal-title" className="text-base font-bold text-slate-900">Equipment on Site</h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {block.jobNumber}{job ? ` · ${job.location}` : ''}{crew ? ` · ${crew.name}` : ''}
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="overflow-y-auto flex-1 p-4 space-y-4">
-          {/* Assigned equipment */}
-          <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-              Assigned ({assigned.length})
-            </p>
-            {assigned.length === 0 ? (
-              <p className="text-sm text-slate-400 italic">No equipment assigned yet — drag from the tray or add below.</p>
-            ) : (
-              <ul className="space-y-1.5">
-                {assigned.map(id => {
-                  const eq = equipmentList.find(e => e.id === id);
-                  return (
-                    <li key={id} className="flex items-center justify-between rounded-lg bg-brand/10 px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        <Wrench className="w-3.5 h-3.5 text-brand shrink-0" />
-                        <span className="text-sm font-medium text-slate-800">{eq?.name ?? `Equipment #${id}`}</span>
-                        {eq?.hourly_rate !== undefined && (
-                          <span className="text-xs text-slate-400">${eq.hourly_rate}/hr</span>
-                        )}
-                      </div>
-                      <button
-                        onClick={() => onUnassign(id)}
-                        className="w-6 h-6 flex items-center justify-center rounded-full text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors"
-                        title="Remove"
-                        aria-label={`Remove ${eq?.name ?? `equipment ${id}`}`}
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-
-          {/* Add more equipment */}
-          {available.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Add Equipment</p>
-              <ul className="space-y-1.5">
-                {available.map(eq => (
-                  <li key={eq.id}>
-                    <button
-                      onClick={() => onAssign(eq.id)}
-                      className="w-full flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 hover:border-brand/25 hover:bg-brand/10 transition-colors"
-                    >
-                      <div className="flex items-center gap-2">
-                        <Wrench className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        <span className="text-sm text-slate-700">{eq.name}</span>
-                        {eq.hourly_rate !== undefined && (
-                          <span className="text-xs text-slate-400">${eq.hourly_rate}/hr</span>
-                        )}
-                      </div>
-                      <Plus className="w-4 h-4 text-brand" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-
-        <div className="px-5 py-4 border-t border-slate-100">
-          <button
-            onClick={onClose}
-            className="w-full py-2.5 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-700 transition-colors"
-          >
-            Done
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TOOLTIP
@@ -1058,142 +902,6 @@ const ManageCrewsModal = ({
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// MANAGE JOBS MODAL  (admin only)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-const ManageJobsModal = ({
-  jobs,
-  onUpdate,
-  onClose,
-}: {
-  jobs: JobOption[];
-  onUpdate: (jobs: JobOption[]) => void;
-  onClose: () => void;
-}) => {
-  const blank: JobOption = { jobNumber: '', location: '', estimatedDays: 1 };
-  const [local, setLocal]           = useState<JobOption[]>(jobs);
-  const [editingNum, setEditNum]    = useState<string | null>(null);
-  const [editJob, setEditJob]       = useState<JobOption>(blank);
-  const [newJob, setNewJob]         = useState<JobOption>(blank);
-  const [dupError, setDupError]     = useState('');
-
-  const startEdit = (j: JobOption) => { setEditNum(j.jobNumber); setEditJob({ ...j }); };
-  const cancelEdit = () => setEditNum(null);
-  const saveEdit = () => {
-    if (!editingNum || !editJob.jobNumber.trim()) return;
-    const newNum = editJob.jobNumber.trim();
-    // Guard against renaming to a job number already used by a different entry
-    if (newNum !== editingNum && local.some(j => j.jobNumber === newNum)) {
-      setDupError('Job number already exists');
-      return;
-    }
-    setDupError('');
-    setLocal(prev => prev.map(j => j.jobNumber === editingNum ? { ...editJob, jobNumber: newNum, location: editJob.location.trim() } : j));
-    setEditNum(null);
-  };
-  const deleteJob = (num: string) => setLocal(prev => prev.filter(j => j.jobNumber !== num));
-  const addJob = () => {
-    if (!newJob.jobNumber.trim() || !newJob.location.trim()) return;
-    if (local.some(j => j.jobNumber === newJob.jobNumber.trim())) { setDupError('Job number already exists'); return; }
-    setDupError('');
-    setLocal(prev => [...prev, { jobNumber: newJob.jobNumber.trim(), location: newJob.location.trim(), estimatedDays: 1 }]);
-    setNewJob(blank);
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col" style={{ maxHeight: '85vh' }}>
-        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-slate-100 shrink-0">
-          <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-            <Briefcase className="w-5 h-5 text-brand" />
-            Manage Jobs
-          </h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors"><X className="w-5 h-5" /></button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-2">
-          {local.length === 0 && (
-            <p className="text-center text-slate-400 text-sm py-6 italic">No jobs yet. Add one below.</p>
-          )}
-          {local.map(j => {
-            if (editingNum === j.jobNumber) {
-              return (
-                <div key={j.jobNumber} className="p-3 bg-brand/10 rounded-xl border border-brand/20 space-y-2">
-                  <div className="flex gap-2">
-                    <input
-                      autoFocus
-                      value={editJob.jobNumber}
-                      onChange={e => setEditJob(p => ({ ...p, jobNumber: e.target.value }))}
-                      className="w-28 border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/10"
-                      placeholder="Job #"
-                    />
-                    <input
-                      value={editJob.location}
-                      onChange={e => setEditJob(p => ({ ...p, location: e.target.value }))}
-                      className="flex-1 border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/10 min-w-0"
-                      placeholder="Location"
-                    />
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={saveEdit} className="flex-1 py-1.5 bg-brand text-white text-xs font-semibold rounded-lg hover:opacity-90 transition-colors">Save</button>
-                    <button onClick={cancelEdit} className="px-4 py-1.5 border border-slate-200 text-slate-600 text-xs rounded-lg hover:bg-slate-50 transition-colors">Cancel</button>
-                  </div>
-                </div>
-              );
-            }
-            return (
-              <div key={j.jobNumber} className="flex items-center gap-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-brand bg-brand/10 px-2 py-0.5 rounded border border-brand/20">{j.jobNumber}</span>
-                  </div>
-                  <div className="text-sm text-slate-700 truncate mt-0.5">{j.location}</div>
-                </div>
-                <button onClick={() => startEdit(j)} title="Edit" className="p-1.5 text-slate-400 hover:text-brand transition-colors"><Pencil className="w-3.5 h-3.5" /></button>
-                <button onClick={() => deleteJob(j.jobNumber)} title="Delete" className="p-1.5 text-slate-400 hover:text-red-500 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="px-6 pb-5 pt-3 border-t border-slate-100 space-y-3 shrink-0">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Add New Job</p>
-          {dupError && <p className="text-xs text-red-500">{dupError}</p>}
-          <div className="flex gap-2">
-            <input
-              value={newJob.jobNumber}
-              onChange={e => { setDupError(''); setNewJob(p => ({ ...p, jobNumber: e.target.value })); }}
-              className="w-28 border border-slate-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/10"
-              placeholder="Job #"
-            />
-            <input
-              value={newJob.location}
-              onChange={e => setNewJob(p => ({ ...p, location: e.target.value }))}
-              onKeyDown={e => e.key === 'Enter' && addJob()}
-              className="flex-1 border border-slate-200 rounded-lg px-2.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/10 min-w-0"
-              placeholder="Location"
-            />
-            <button
-              onClick={addJob}
-              disabled={!newJob.jobNumber.trim() || !newJob.location.trim()}
-              className="px-3 py-2 bg-brand hover:opacity-90 text-white rounded-lg transition-colors disabled:opacity-40"
-            >
-              <Plus className="w-4 h-4" />
-            </button>
-          </div>
-          <button
-            onClick={() => { onUpdate(local); onClose(); }}
-            className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-semibold transition-colors"
-          >
-            Save Changes
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ═══════════════════════════════════════════════════════════════════════════════
 // ADD BLOCK MODAL
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1530,12 +1238,6 @@ interface JobBlockProps {
   isAdmin?: boolean;
   editMode?: boolean;
   onDelete?: () => void;
-  equipmentCount?: number;
-  isEquipDragOver?: boolean;
-  onEquipmentDrop?: (equipmentId: string) => void;
-  onEquipmentDragOver?: () => void;
-  onEquipmentDragLeave?: () => void;
-  onEquipmentClick?: () => void;
   onDragStart: (e: React.DragEvent) => void;
   onDragEnd: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
@@ -1552,7 +1254,6 @@ interface JobBlockProps {
 const JobBlock = ({
   block, job, left, width, color, isDragging, isSettled,
   isAdmin, editMode, onDelete,
-  equipmentCount, isEquipDragOver, onEquipmentDrop, onEquipmentDragOver, onEquipmentDragLeave, onEquipmentClick,
   onDragStart, onDragEnd, onContextMenu,
   onMouseEnter, onMouseMove, onMouseLeave, onTouchStart,
   onResizeStart, onResizeTouchStart,
@@ -1597,28 +1298,6 @@ const JobBlock = ({
       onMouseMove={onMouseMove}
       onMouseLeave={onMouseLeave}
       onTouchStart={editMode ? onTouchStart : undefined}
-      onDragOver={e => {
-        if (e.dataTransfer.types.includes('application/x-equip-id')) {
-          e.preventDefault();
-          e.stopPropagation();
-          e.dataTransfer.dropEffect = 'copy';
-          onEquipmentDragOver?.();
-        }
-      }}
-      onDragLeave={e => {
-        if (e.dataTransfer.types.includes('application/x-equip-id')) {
-          onEquipmentDragLeave?.();
-        }
-      }}
-      onDrop={e => {
-        const equipId = e.dataTransfer.getData('application/x-equip-id');
-        if (equipId) {
-          e.stopPropagation();
-          e.preventDefault();
-          onEquipmentDrop?.(equipId);
-          onEquipmentDragLeave?.();
-        }
-      }}
       style={{
         position: 'absolute',
         left,
@@ -1656,11 +1335,9 @@ const JobBlock = ({
               justifyContent: 'center',
               padding: '0 9px 0 16px',
               boxSizing: 'border-box',
-              boxShadow: isEquipDragOver
-                ? '0 0 0 2px #fff, 0 0 0 4px var(--brand-primary, #3b82f6)'
-                : isDragging
-                  ? '0 10px 24px rgba(15,23,42,0.30)'
-                  : `inset 0 1px 0 rgba(255,255,255,0.28), 0 1px 1px rgba(15,23,42,0.10), 0 4px 10px ${isDelay ? 'rgba(15,23,42,0.12)' : `color-mix(in srgb, ${color} 35%, transparent)`}`,
+              boxShadow: isDragging
+                ? '0 10px 24px rgba(15,23,42,0.30)'
+                : `inset 0 1px 0 rgba(255,255,255,0.28), 0 1px 1px rgba(15,23,42,0.10), 0 4px 10px ${isDelay ? 'rgba(15,23,42,0.12)' : `color-mix(in srgb, ${color} 35%, transparent)`}`,
             }}
           >
             {/* Left identity tab — a bold light rail anchoring the card to its crew */}
@@ -1809,35 +1486,9 @@ const JobBlock = ({
                 <span style={{ overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{job.location}</span>
               </div>
             )}
-            {/* Meta row: equipment badge + duration pill share one line so they
-                never overlap, regardless of how narrow the bar gets. */}
+            {/* Duration pill. */}
             {seg.width > 36 && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4, minWidth: 0 }}>
-                {!isDelay && (equipmentCount ?? 0) > 0 && onEquipmentClick && isFirst && (
-                  <button
-                    onClick={e => { e.stopPropagation(); e.preventDefault(); onEquipmentClick(); }}
-                    onMouseDown={e => e.stopPropagation()}
-                    title={`${equipmentCount} piece${equipmentCount !== 1 ? 's' : ''} of equipment on site — click to manage`}
-                    aria-label={`${equipmentCount} equipment assigned — click to manage`}
-                    style={{
-                      display: 'inline-flex', alignItems: 'center', gap: 2.5,
-                      background: 'rgba(15,23,42,0.32)',
-                      border: '1px solid rgba(255,255,255,0.18)',
-                      borderRadius: 999,
-                      padding: '1px 6px 1px 5px',
-                      cursor: 'pointer',
-                      zIndex: 10,
-                      color: '#fff',
-                      fontSize: 9,
-                      fontWeight: 700,
-                      lineHeight: 1.4,
-                      flexShrink: 0,
-                    }}
-                  >
-                    <Wrench style={{ width: 8.5, height: 8.5, flexShrink: 0 }} aria-hidden="true" />
-                    {equipmentCount}
-                  </button>
-                )}
                 <span style={{ display: 'inline-flex', alignItems: 'center', padding: '1px 6px', borderRadius: 999, background: 'rgba(255,255,255,0.22)', color: 'rgba(255,255,255,0.97)', fontSize: 9, fontWeight: 700, lineHeight: 1.3, flexShrink: 0 }}>
                   {block.durationDays}d
                 </span>
@@ -1875,7 +1526,6 @@ export default function Scheduler({
   const [crewsState, setCrewsState] = useState<Crew[]>(initialCrews);
   const [jobsState,  setJobsState]  = useState<JobOption[]>(initialJobs);
   const [employeeList,  setEmployeeList]  = useState<SchedulerEmployee[]>([]);
-  const [equipmentList, setEquipmentList] = useState<SchedulerEquipment[]>([]);
   const [blocks, dispatch] = useReducer(reducer, initialBlocks);
   const [view, setView]    = useState<'day' | 'week' | 'month'>('week');
   const [viewOffset, setViewOffset] = useState(0); // days from default start
@@ -1903,11 +1553,9 @@ export default function Scheduler({
 
     Promise.all([
       supabase.from('schedule_crews').select('id, name, member_ids').eq('company_id', companyId).order('created_at'),
-      supabase.from('schedule_job_options').select('job_number, location, estimated_days').eq('company_id', companyId).order('created_at'),
-      supabase.from('schedule_blocks').select('id, crew_id, job_number, start_date, duration_days, type, extended, equipment_ids').eq('company_id', companyId),
-    ]).then(([crewsRes, jobsRes, blocksRes]) => {
+      supabase.from('schedule_blocks').select('id, crew_id, job_number, start_date, duration_days, type, extended').eq('company_id', companyId),
+    ]).then(([crewsRes, blocksRes]) => {
       if (crewsRes.error)  console.error('[Scheduler] Failed to load crews:',  crewsRes.error.message);
-      if (jobsRes.error)   console.error('[Scheduler] Failed to load jobs:',   jobsRes.error.message);
       if (blocksRes.error) console.error('[Scheduler] Failed to load blocks:', blocksRes.error.message);
 
       // Only replace mock data when Supabase returns actual rows
@@ -1919,20 +1567,6 @@ export default function Scheduler({
           memberIds: r.member_ids ?? [],
         })));
       }
-      {
-        // Hybrid job source: union the board's own saved job options (DB) with
-        // the jobs passed in from DigTrackPro (initialJobs), de-duped by
-        // jobNumber with the saved DB row winning. This lets the board default
-        // from existing DigTrackPro jobs while still allowing ad-hoc entries.
-        const dbJobs = (jobsRes.data ?? []).map(r => ({
-          jobNumber:     r.job_number,
-          location:      r.location,
-          estimatedDays: r.estimated_days,
-        }));
-        const seen = new Set(dbJobs.map(j => j.jobNumber));
-        const merged = [...dbJobs, ...initialJobs.filter(j => !seen.has(j.jobNumber))];
-        if (merged.length > 0) setJobsState(merged);
-      }
       if (blocksRes.data && blocksRes.data.length > 0) {
         const loaded: ScheduleBlock[] = blocksRes.data.map(r => ({
           id:            r.id,
@@ -1942,7 +1576,6 @@ export default function Scheduler({
           durationDays:  r.duration_days,
           type:          r.type as 'job' | 'delay',
           extended:      r.extended,
-          equipmentIds:  r.equipment_ids ?? [],
         }));
         dispatch({ type: 'REPLACE_ALL', blocks: loaded });
         dbBlockIdsRef.current = new Set(loaded.map(b => b.id));
@@ -1979,22 +1612,16 @@ export default function Scheduler({
     return () => clearTimeout(t);
   }, [crewsState, companyId]);
 
-  // ── Persist job options to Supabase whenever they change (debounced 600 ms)
+  // Jobs on the board come from DigTrackPro's dig-ticket jobs (passed in as
+  // initialJobs). Keep local state in sync as that list loads/changes, while
+  // preserving any ad-hoc jobs added via CSV import (unioned by jobNumber).
   useEffect(() => {
-    if (!companyId || !dbLoadedRef.current) return;
-    const rows = jobsState.map(j => ({
-      company_id:     companyId,
-      job_number:     j.jobNumber,
-      location:       j.location,
-      estimated_days: j.estimatedDays,
-    }));
-    if (rows.length === 0) return;
-    const t = setTimeout(() => {
-      supabase.from('schedule_job_options').upsert(rows, { onConflict: 'company_id,job_number' })
-        .then(({ error }) => { if (error) console.error('[Scheduler] Failed to save job options:', error.message); });
-    }, 600);
-    return () => clearTimeout(t);
-  }, [jobsState, companyId]);
+    setJobsState(prev => {
+      const seen = new Set(initialJobs.map(j => j.jobNumber));
+      const extras = prev.filter(j => !seen.has(j.jobNumber));
+      return [...initialJobs, ...extras];
+    });
+  }, [initialJobs]);
 
   // ── Persist blocks to Supabase whenever they change (debounced 600 ms) ─────
   useEffect(() => {
@@ -2012,7 +1639,6 @@ export default function Scheduler({
       duration_days: b.durationDays,
       type:          b.type,
       extended:      b.extended,
-      equipment_ids: b.equipmentIds ?? [],
     }));
 
     const currentIds = new Set(blocksToSave.map(b => b.id));
@@ -2079,14 +1705,6 @@ export default function Scheduler({
         if (error) console.error('[Scheduler] Failed to load employees:', error.message);
         else if (data) setEmployeeList(data as SchedulerEmployee[]);
       });
-  }, [companyId]);
-
-  // Fetch equipment via scheduleService so the board shares the same list as ResourcesManager
-  useEffect(() => {
-    if (!companyId) return;
-    scheduleService.getEquipment()
-      .then(data => setEquipmentList(data.map(e => ({ id: e.id, name: e.name, hourly_rate: e.hourlyRate }))))
-      .catch(err => console.error('[Scheduler] Failed to load equipment:', err));
   }, [companyId]);
 
   // Per-view geometry. Day view uses wide, roomy columns over a short horizon so
@@ -2172,7 +1790,6 @@ export default function Scheduler({
   const [showAddModal,      setShowAddModal]      = useState(false);
   const [showImportModal,   setShowImportModal]   = useState(false);
   const [showManageCrews,   setShowManageCrews]   = useState(false);
-  const [showManageJobs,    setShowManageJobs]    = useState(false);
 
   // Toolbar popover: the mobile overflow menu.
   const [showOverflow,      setShowOverflow]      = useState(false);
@@ -2189,10 +1806,6 @@ export default function Scheduler({
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [showOverflow]);
-
-  // Block-equipment modal
-  const [equipModalBlockId, setEquipModalBlockId] = useState<string | null>(null);
-  const [equipDragOverBlockId, setEquipDragOverBlockId] = useState<string | null>(null);
 
   // Pending overlap-conflict confirmation (drag-move)
   const [pendingMove, setPendingMove] = useState<{
@@ -2360,13 +1973,6 @@ export default function Scheduler({
       flagSettled(blockId);
     }
   }, [dayWidth, viewStart, dragOffsetDays, dispatchWithHistory, flagSettled]);
-
-  // ── Equipment assignment (drop onto a block / manage via the block modal) ────
-
-  const handleEquipDropOnBlock = useCallback((blockId: string, equipmentId: string) => {
-    dispatchWithHistory({ type: 'ASSIGN_EQUIPMENT', blockId, equipmentId });
-    setEquipDragOverBlockId(null);
-  }, [dispatchWithHistory]);
 
   // ── Touch-drag handlers (mobile edit mode) ───────────────────────────────────
 
@@ -2849,15 +2455,6 @@ export default function Scheduler({
               <Users className="w-3.5 h-3.5" /><span className="hidden lg:inline"> Crews</span>
             </button>
           )}
-          {isAdmin && (
-            <button
-              onClick={() => setShowManageJobs(true)}
-              title="Manage jobs"
-              className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-slate-200 text-xs font-semibold rounded-lg transition-colors border border-white/10"
-            >
-              <Briefcase className="w-3.5 h-3.5" /><span className="hidden lg:inline"> Jobs</span>
-            </button>
-          )}
           <button
             onClick={() => setShowImportModal(true)}
             aria-label="Import schedule from spreadsheet"
@@ -2893,14 +2490,6 @@ export default function Scheduler({
                     className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-slate-700 hover:bg-brand/10 hover:text-brand transition-colors"
                   >
                     <Users className="w-4 h-4 shrink-0" /> Manage Crews
-                  </button>
-                )}
-                {isAdmin && (
-                  <button
-                    onClick={() => { setShowManageJobs(true); setShowOverflow(false); }}
-                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-slate-700 hover:bg-brand/10 hover:text-brand transition-colors"
-                  >
-                    <Briefcase className="w-4 h-4 shrink-0" /> Manage Jobs
                   </button>
                 )}
                 <button
@@ -3342,7 +2931,6 @@ export default function Scheduler({
                     }));
                     if (left + width < 0 || left > totalGridWidth) return null;
                     const job = jobsState.find(j => j.jobNumber === block.jobNumber);
-                    const eqCount = (block.equipmentIds ?? []).length;
                     return (
                       <JobBlock
                         key={block.id}
@@ -3358,12 +2946,6 @@ export default function Scheduler({
                         isAdmin={isAdmin}
                         editMode={editMode}
                         onDelete={() => dispatchWithHistory({ type: 'DELETE_BLOCK', id: block.id })}
-                        equipmentCount={eqCount}
-                        isEquipDragOver={equipDragOverBlockId === block.id}
-                        onEquipmentDrop={equipId => handleEquipDropOnBlock(block.id, equipId)}
-                        onEquipmentDragOver={() => setEquipDragOverBlockId(block.id)}
-                        onEquipmentDragLeave={() => setEquipDragOverBlockId(null)}
-                        onEquipmentClick={() => setEquipModalBlockId(block.id)}
                         onDragStart={e => handleDragStart(e, block)}
                         onDragEnd={handleDragEnd}
                         onTouchStart={e => handleBlockTouchStart(e, block, color)}
@@ -3638,31 +3220,6 @@ export default function Scheduler({
         />
       )}
 
-      {showManageJobs && (
-        <ManageJobsModal
-          jobs={jobsState}
-          onUpdate={setJobsState}
-          onClose={() => setShowManageJobs(false)}
-        />
-      )}
-
-      {equipModalBlockId && (() => {
-        const eqBlock = blocks.find(b => b.id === equipModalBlockId);
-        if (!eqBlock) return null;
-        const eqJob  = jobsState.find(j => j.jobNumber === eqBlock.jobNumber);
-        const eqCrew = crewsState.find(c => c.id === eqBlock.crewId);
-        return (
-          <BlockEquipmentModal
-            block={eqBlock}
-            job={eqJob}
-            crew={eqCrew}
-            equipmentList={equipmentList}
-            onAssign={equipmentId => dispatchWithHistory({ type: 'ASSIGN_EQUIPMENT', blockId: equipModalBlockId, equipmentId })}
-            onUnassign={equipmentId => dispatchWithHistory({ type: 'UNASSIGN_EQUIPMENT', blockId: equipModalBlockId, equipmentId })}
-            onClose={() => setEquipModalBlockId(null)}
-          />
-        );
-      })()}
     </div>
   );
 }
