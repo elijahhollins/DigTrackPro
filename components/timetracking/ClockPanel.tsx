@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Clock, LogOut, MapPin, Search, Users, User as UserIcon, Check, Pencil, X, UserPlus } from 'lucide-react';
+import { Clock, LogOut, MapPin, Search, Users, User as UserIcon, Check, Pencil, X, UserPlus, ClipboardList, ChevronRight } from 'lucide-react';
 import { User } from '../../types.ts';
 import { Employee } from '../../services/schedulingTypes.ts';
 import { CostCode, ClockableJob, TimeClockCrew, TimeEntry, formatRoundedDuration } from '../../services/timeTrackingTypes.ts';
@@ -11,6 +11,8 @@ interface ClockPanelProps {
   employees: Employee[];
   clockableJobs: ClockableJob[];
   isDarkMode?: boolean;
+  canFileReport?: boolean;
+  onOpenDailyReport?: () => void;
 }
 
 type Mode = 'self' | 'crew';
@@ -27,7 +29,7 @@ function getGps(): Promise<{ lat: number; lng: number } | null> {
   });
 }
 
-export default function ClockPanel({ sessionUser, isAdmin, employees, clockableJobs, isDarkMode }: ClockPanelProps) {
+export default function ClockPanel({ sessionUser, isAdmin, employees, clockableJobs, isDarkMode, canFileReport, onOpenDailyReport }: ClockPanelProps) {
   const [activeEntries, setActiveEntries] = useState<TimeEntry[]>([]);
   const [now, setNow] = useState(Date.now());
   const [busy, setBusy] = useState(false);
@@ -182,6 +184,29 @@ export default function ClockPanel({ sessionUser, isAdmin, employees, clockableJ
 
   return (
     <div className="space-y-4">
+      {/* Daily report shortcut — foremen/admins file end-of-day progress here. */}
+      {canFileReport && onOpenDailyReport && (
+        <button
+          onClick={onOpenDailyReport}
+          className={`w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl border-2 transition ${
+            isDarkMode
+              ? 'bg-slate-800 border-brand/40 hover:border-brand'
+              : 'bg-brand/5 border-brand/30 hover:border-brand'
+          }`}
+        >
+          <span className="flex items-center gap-3 min-w-0">
+            <span className="w-9 h-9 rounded-lg bg-brand/15 flex items-center justify-center shrink-0">
+              <ClipboardList size={18} className="text-brand" />
+            </span>
+            <span className="text-left min-w-0">
+              <span className="block text-sm font-black text-brand">Daily report</span>
+              <span className="block text-xs text-slate-500 truncate">Log today's progress, photos &amp; sign-off</span>
+            </span>
+          </span>
+          <ChevronRight size={18} className="text-brand shrink-0" />
+        </button>
+      )}
+
       {/* Mode toggle (admins/foremen can switch between self and crew) */}
       {canRunCrew && (
         <div className="grid grid-cols-2 gap-2">

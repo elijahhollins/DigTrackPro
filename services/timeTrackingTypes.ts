@@ -65,6 +65,41 @@ export interface ClockableJob {
   label: string;   // human-friendly: job number + customer/location
 }
 
+// ── Daily reports ────────────────────────────────────────────────────────────
+// A foreman's end-of-day progress report for a job. Crew hours, the time-entry
+// log and the cost-code breakdown are pulled live from `time_entries`; only the
+// narrative fields + photos are stored here. Mirrors the daily_reports table in
+// supabase/migrations/20260626000000_add_daily_reports.sql.
+
+export interface DailyReportPhoto {
+  url: string;
+  caption: string;
+}
+
+// 'draft'    — foreman is still working on it; foreman (or admin) may edit.
+// 'submitted'— finalized by the foreman; only an admin may edit from here.
+export type DailyReportStatus = 'draft' | 'submitted';
+
+export interface DailyReport {
+  id: number;
+  companyId: string;
+  jobKind: JobKind;
+  jobRef: string;
+  jobLabel: string;
+  reportDate: string;          // YYYY-MM-DD (local calendar day of the work)
+  progressSummary: string;
+  safetyNotes: string;
+  locatesNotes: string;        // JULIE locates or refreshes needed
+  injuriesCount: number;
+  photos: DailyReportPhoto[];
+  status: DailyReportStatus;
+  submittedAt: string | null;
+  preparedById: string | null;
+  preparedByName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ── time helpers (display only — raw timestamps are never mutated) ──────────
 
 const QUARTER_HOUR_MS = 15 * 60 * 1000;
@@ -92,4 +127,16 @@ export function formatRoundedDuration(entry: TimeEntry, now: number = Date.now()
   const h = Math.floor(totalMin / 60);
   const m = totalMin % 60;
   return `${h}h ${m}m`;
+}
+
+/**
+ * "H:MM" clock-style label of a raw duration in milliseconds (e.g. 49h 48m →
+ * "49:48"). Used by the daily report, which shows exact worked time — not the
+ * quarter-hour-rounded payroll figure. Hours are not capped at 24.
+ */
+export function formatHoursMinutes(ms: number): string {
+  const totalMin = Math.round(Math.max(0, ms) / (60 * 1000));
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return `${h}:${String(m).padStart(2, '0')}`;
 }
