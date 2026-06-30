@@ -435,64 +435,6 @@ function reducer(state: ScheduleBlock[], action: Action): ScheduleBlock[] {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// EQUIPMENT TRAY  (draggable equipment chips shown below the toolbar)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-const EquipmentTray = ({
-  equipment,
-  onDragStart,
-  onTouchStart,
-  activeTouchId,
-  editMode,
-}: {
-  equipment: SchedulerEquipment[];
-  onDragStart: (e: React.DragEvent, id: string) => void;
-  onTouchStart?: (e: React.TouchEvent, id: string) => void;
-  activeTouchId?: string | null;
-  editMode?: boolean;
-}) => (
-  <div
-    role="toolbar"
-    aria-label="Equipment palette — drag items onto job blocks"
-    className="flex items-center gap-2 px-5 py-2.5 border-b border-slate-200 bg-gradient-to-b from-slate-50 to-white shrink-0 overflow-x-auto no-scrollbar"
-    style={{ minHeight: 52, touchAction: 'pan-x' }}
-  >
-    <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-400 shrink-0 mr-1">
-      <Wrench className="w-3 h-3" /> Equipment
-    </span>
-    {equipment.length === 0 && (
-      <span className="text-xs text-slate-400 italic">No equipment loaded</span>
-    )}
-    {equipment.map(eq => (
-      <div
-        key={eq.id}
-        draggable
-        onDragStart={e => onDragStart(e, eq.id)}
-        onTouchStart={onTouchStart ? e => onTouchStart(e, eq.id) : undefined}
-        title={eq.hourly_rate ? `$${eq.hourly_rate}/hr — drag to assign` : 'Drag to assign'}
-        className={`flex items-center gap-1.5 pl-2.5 pr-3 py-1.5 rounded-lg border text-xs font-semibold select-none shrink-0 transition-all ${
-          activeTouchId === eq.id
-            ? 'border-brand bg-brand/10 text-brand opacity-60'
-            : 'border-slate-200 bg-white text-slate-700 shadow-sm hover:border-brand/40 hover:text-brand hover:bg-brand/10 hover:-translate-y-px active:opacity-70'
-        } ${editMode ? 'cursor-grab' : 'cursor-default'}`}
-        style={{ userSelect: 'none', touchAction: editMode ? 'none' : 'pan-x' }}
-      >
-        <span className="flex items-center justify-center w-4 h-4 rounded-md bg-slate-100 text-slate-400 shrink-0">
-          <Wrench className="w-2.5 h-2.5" />
-        </span>
-        {eq.name}
-        {eq.hourly_rate !== undefined && (
-          <span className="text-slate-400 font-medium">${eq.hourly_rate}/hr</span>
-        )}
-      </div>
-    ))}
-    {!editMode && equipment.length > 0 && (
-      <span className="text-[11px] text-slate-400 italic ml-1 shrink-0">Enable edit mode to drag</span>
-    )}
-  </div>
-);
-
-// ═══════════════════════════════════════════════════════════════════════════════
 // BLOCK EQUIPMENT MODAL  (view & manage equipment assigned to a specific block)
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -2248,8 +2190,7 @@ export default function Scheduler({
     return () => document.removeEventListener('mousedown', handler);
   }, [showOverflow]);
 
-  // Equipment tray & block-equipment modal
-  const [showEquipTray,    setShowEquipTray]    = useState(false);
+  // Block-equipment modal
   const [equipModalBlockId, setEquipModalBlockId] = useState<string | null>(null);
   const [equipDragOverBlockId, setEquipDragOverBlockId] = useState<string | null>(null);
 
@@ -2420,69 +2361,12 @@ export default function Scheduler({
     }
   }, [dayWidth, viewStart, dragOffsetDays, dispatchWithHistory, flagSettled]);
 
-  // ── Equipment drag handlers ──────────────────────────────────────────────────
-
-  const handleEquipDragStart = useCallback((e: React.DragEvent, equipmentId: string) => {
-    e.dataTransfer.effectAllowed = 'copy';
-    e.dataTransfer.setData('application/x-equip-id', String(equipmentId));
-  }, []);
+  // ── Equipment assignment (drop onto a block / manage via the block modal) ────
 
   const handleEquipDropOnBlock = useCallback((blockId: string, equipmentId: string) => {
     dispatchWithHistory({ type: 'ASSIGN_EQUIPMENT', blockId, equipmentId });
     setEquipDragOverBlockId(null);
   }, [dispatchWithHistory]);
-
-  // ── Equipment touch-drag (mobile — mirrors job-block touch-drag) ────────────
-  // Uses Touch Events (touchstart/touchmove/touchend) with passive:false so that
-  // e.preventDefault() actually suppresses scroll — the same pattern job blocks
-  // use and the one that works reliably on iOS Safari.
-
-  const equipTouchRef = useRef<string | null>(null); // equipment id being touch-dragged
-  const [equipTouchGhostPos, setEquipTouchGhostPos] = useState<{ x: number; y: number } | null>(null);
-  const [equipTouchActiveId, setEquipTouchActiveId] = useState<string | null>(null);
-
-  const handleEquipTouchStart = useCallback((e: React.TouchEvent, equipmentId: string) => {
-    if (!editMode) return;
-    e.preventDefault();
-    const touch = e.touches[0];
-    equipTouchRef.current = equipmentId;
-    setEquipTouchActiveId(equipmentId);
-    setEquipTouchGhostPos({ x: touch.clientX, y: touch.clientY });
-  }, [editMode]);
-
-  useEffect(() => {
-    if (!equipTouchGhostPos) return;
-
-    const onMove = (e: TouchEvent) => {
-      e.preventDefault();
-      const touch = e.touches[0];
-      setEquipTouchGhostPos({ x: touch.clientX, y: touch.clientY });
-      const els = document.elementsFromPoint(touch.clientX, touch.clientY);
-      const blockEl = els.find(el => (el as HTMLElement).dataset?.blockId) as HTMLElement | undefined;
-      setEquipDragOverBlockId(blockEl?.dataset.blockId ?? null);
-    };
-
-    const onEnd = (e: TouchEvent) => {
-      const touch = e.changedTouches[0];
-      const els = document.elementsFromPoint(touch.clientX, touch.clientY);
-      const blockEl = els.find(el => (el as HTMLElement).dataset?.blockId) as HTMLElement | undefined;
-      const targetBlockId = blockEl?.dataset.blockId;
-      if (targetBlockId && equipTouchRef.current !== null) {
-        dispatchWithHistory({ type: 'ASSIGN_EQUIPMENT', blockId: targetBlockId, equipmentId: equipTouchRef.current });
-      }
-      equipTouchRef.current = null;
-      setEquipTouchActiveId(null);
-      setEquipTouchGhostPos(null);
-      setEquipDragOverBlockId(null);
-    };
-
-    window.addEventListener('touchmove', onMove, { passive: false });
-    window.addEventListener('touchend', onEnd);
-    return () => {
-      window.removeEventListener('touchmove', onMove, { passive: false } as EventListenerOptions);
-      window.removeEventListener('touchend', onEnd);
-    };
-  }, [equipTouchGhostPos, dispatchWithHistory]);
 
   // ── Touch-drag handlers (mobile edit mode) ───────────────────────────────────
 
@@ -2975,19 +2859,6 @@ export default function Scheduler({
             </button>
           )}
           <button
-            onClick={() => setShowEquipTray(t => !t)}
-            aria-pressed={showEquipTray}
-            aria-label="Toggle equipment tray"
-            title="Toggle equipment tray"
-            className={`hidden md:flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors border ${
-              showEquipTray
-                ? 'bg-amber-500 text-white border-amber-400 shadow-sm'
-                : 'bg-white/10 hover:bg-white/20 text-slate-200 border-white/10'
-            }`}
-          >
-            <Wrench className="w-3.5 h-3.5" /><span className="hidden lg:inline"> Equipment</span>
-          </button>
-          <button
             onClick={() => setShowImportModal(true)}
             aria-label="Import schedule from spreadsheet"
             title="Import schedule from a CSV or spreadsheet"
@@ -3016,12 +2887,6 @@ export default function Scheduler({
                 className="absolute right-0 top-full mt-2 z-50 w-52 rounded-xl bg-white shadow-2xl border border-slate-200 py-1.5"
                 onMouseDown={e => e.stopPropagation()}
               >
-                <button
-                  onClick={() => { setShowEquipTray(t => !t); setShowOverflow(false); }}
-                  className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-slate-700 hover:bg-brand/10 hover:text-brand transition-colors"
-                >
-                  <Wrench className="w-4 h-4 shrink-0" /> {showEquipTray ? 'Hide Equipment' : 'Equipment'}
-                </button>
                 {isAdmin && (
                   <button
                     onClick={() => { setShowManageCrews(true); setShowOverflow(false); }}
@@ -3059,16 +2924,6 @@ export default function Scheduler({
         </div>
       </div>
 
-      {/* ─── Equipment Tray ─── */}
-      {showEquipTray && (
-        <EquipmentTray
-          equipment={equipmentList}
-          onDragStart={handleEquipDragStart}
-          onTouchStart={handleEquipTouchStart}
-          activeTouchId={equipTouchActiveId}
-          editMode={editMode}
-        />
-      )}
       <div
         ref={scrollRef}
         className="flex-1 overflow-auto"
@@ -3672,40 +3527,6 @@ export default function Scheduler({
           )}
         </div>
       )}
-
-      {/* Equipment touch-drag ghost (mobile) */}
-      {equipTouchGhostPos && equipTouchActiveId !== null && (() => {
-        const eq = equipmentList.find(e => e.id === equipTouchActiveId);
-        const onBlock = equipDragOverBlockId !== null;
-        return (
-          <div
-            aria-hidden="true"
-            style={{
-              position: 'fixed',
-              left: equipTouchGhostPos.x + 14,
-              top:  equipTouchGhostPos.y + 14,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              background: onBlock ? '#2563eb' : '#1e293b',
-              color: '#fff',
-              borderRadius: 999,
-              padding: '6px 12px',
-              fontSize: 12,
-              fontWeight: 700,
-              pointerEvents: 'none',
-              zIndex: 9999,
-              boxShadow: '0 6px 24px rgba(0,0,0,0.4)',
-              whiteSpace: 'nowrap',
-              transform: 'rotate(3deg)',
-              transition: 'background 0.1s',
-            }}
-          >
-            <Wrench style={{ width: 12, height: 12, flexShrink: 0 }} />
-            {eq?.name ?? 'Equipment'}
-          </div>
-        );
-      })()}
 
       {ctxMenu && (
         <CtxMenu
