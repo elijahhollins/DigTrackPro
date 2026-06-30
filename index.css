@@ -81,3 +81,79 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 /* Table row hover transition */
 tbody tr { transition: background-color 0.12s ease; }
+
+/* ── Dispatch board: job block hover elevation ──
+   Lifts the bar and deepens its shadow on hover for a tactile, modern feel.
+   Scoped to .dispatch-seg so it never affects other absolutely-positioned UI. */
+.dispatch-block:not(.is-dragging):hover .dispatch-seg {
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 2px 4px rgba(15, 23, 42, 0.18),
+    0 8px 18px rgba(15, 23, 42, 0.18) !important;
+}
+.dispatch-block:not(.is-dragging):hover .dispatch-seg::after { opacity: 1; }
+.dispatch-seg {
+  transition: transform 0.13s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.13s ease;
+}
+/* Reveal-on-hover affordances (delete / handles) sit dim until the bar is hovered. */
+.dispatch-block .dispatch-affordance { opacity: 0; transition: opacity 0.12s ease; }
+.dispatch-block:hover .dispatch-affordance,
+.dispatch-block:focus-within .dispatch-affordance { opacity: 1; }
+@media (hover: none) {
+  .dispatch-block .dispatch-affordance { opacity: 1; }
+}
+
+/* ── Resize grip: subtle by default, brightens on hover/grab ── */
+.dispatch-resize-grip .dispatch-resize-bar { transition: background 0.12s ease, transform 0.12s ease; }
+.dispatch-block:hover .dispatch-resize-grip .dispatch-resize-bar,
+.dispatch-resize-grip:hover .dispatch-resize-bar {
+  background: #ffffff;
+  transform: scaleX(1.25);
+}
+
+/* ── Drop "settle" pop ── a brief, springy scale when a block lands, so the
+   drop reads as deliberate. Honors reduced-motion preferences. */
+@keyframes dispatch-settle {
+  0%   { transform: scale(1.035); }
+  55%  { transform: scale(0.992); }
+  100% { transform: scale(1); }
+}
+.dispatch-block.is-settled .dispatch-seg {
+  animation: dispatch-settle 0.30s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .dispatch-block.is-settled .dispatch-seg { animation: none; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DISPATCH BOARD — BOLD OVERHAUL ("Command Center")
+   A cohesive dark-rail / tinted-canvas visual system layered on top of the
+   existing structure. All classes are .dispatch- prefixed and scoped so they
+   never leak into the rest of the app.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Deep command-center shell behind the toolbar + summary band. */
+.dispatch-shell {
+  background:
+    radial-gradient(120% 140% at 0% 0%, rgba(56,72,128,0.55) 0%, transparent 55%),
+    radial-gradient(120% 160% at 100% 0%, rgba(30,64,120,0.45) 0%, transparent 60%),
+    linear-gradient(135deg, #0b1326 0%, #111d3d 48%, #0d1730 100%);
+}
+
+/* Crew roster workload meter — animated fill on first paint. */
+@keyframes dispatch-meter-grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.dispatch-meter-fill {
+  transform-origin: left center;
+  animation: dispatch-meter-grow 0.55s cubic-bezier(0.16,1,0.3,1);
+}
+@media (prefers-reduced-motion: reduce) { .dispatch-meter-fill { animation: none; } }
+
+/* Crew lane row — the colored identity wash + hover lift on the sticky cell. */
+.dispatch-lane-cell { transition: background 0.16s ease, box-shadow 0.16s ease; }
+.dispatch-lane:hover .dispatch-lane-cell { box-shadow: inset 0 0 0 1px rgba(15,23,42,0.04); }
+
+/* Today rail glow used across header + grid. */
+.dispatch-today-glow {
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.65), 0 2px 10px var(--brand-shadow);
+}

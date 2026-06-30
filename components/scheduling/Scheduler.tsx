@@ -1,5 +1,5 @@
 import React, { useState, useReducer, useRef, useCallback, useEffect } from 'react';
-import { Plus, X, ChevronLeft, ChevronRight, Clock, Calendar, Pencil, Trash2, Briefcase, Users, Wrench, GripHorizontal, RotateCcw, Search, Upload } from 'lucide-react';
+import { Plus, X, ChevronLeft, ChevronRight, Clock, Calendar, Pencil, Trash2, Briefcase, Users, Wrench, GripHorizontal, RotateCcw, Search, Upload, MoreHorizontal, MapPin } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient.ts';
 import { scheduleService } from '../../services/scheduleService.ts';
 import ScheduleImportModal, { type ScheduleImportRow } from './ScheduleImportModal.tsx';
@@ -433,64 +433,6 @@ function reducer(state: ScheduleBlock[], action: Action): ScheduleBlock[] {
       return state;
   }
 }
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// EQUIPMENT TRAY  (draggable equipment chips shown below the toolbar)
-// ═══════════════════════════════════════════════════════════════════════════════
-
-const EquipmentTray = ({
-  equipment,
-  onDragStart,
-  onTouchStart,
-  activeTouchId,
-  editMode,
-}: {
-  equipment: SchedulerEquipment[];
-  onDragStart: (e: React.DragEvent, id: string) => void;
-  onTouchStart?: (e: React.TouchEvent, id: string) => void;
-  activeTouchId?: string | null;
-  editMode?: boolean;
-}) => (
-  <div
-    role="toolbar"
-    aria-label="Equipment palette — drag items onto job blocks"
-    className="flex items-center gap-2 px-5 py-2.5 border-b border-slate-200 bg-gradient-to-b from-slate-50 to-white shrink-0 overflow-x-auto no-scrollbar"
-    style={{ minHeight: 52, touchAction: 'pan-x' }}
-  >
-    <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-400 shrink-0 mr-1">
-      <Wrench className="w-3 h-3" /> Equipment
-    </span>
-    {equipment.length === 0 && (
-      <span className="text-xs text-slate-400 italic">No equipment loaded</span>
-    )}
-    {equipment.map(eq => (
-      <div
-        key={eq.id}
-        draggable
-        onDragStart={e => onDragStart(e, eq.id)}
-        onTouchStart={onTouchStart ? e => onTouchStart(e, eq.id) : undefined}
-        title={eq.hourly_rate ? `$${eq.hourly_rate}/hr — drag to assign` : 'Drag to assign'}
-        className={`flex items-center gap-1.5 pl-2.5 pr-3 py-1.5 rounded-lg border text-xs font-semibold select-none shrink-0 transition-all ${
-          activeTouchId === eq.id
-            ? 'border-brand bg-brand/10 text-brand opacity-60'
-            : 'border-slate-200 bg-white text-slate-700 shadow-sm hover:border-brand/40 hover:text-brand hover:bg-brand/10 hover:-translate-y-px active:opacity-70'
-        } ${editMode ? 'cursor-grab' : 'cursor-default'}`}
-        style={{ userSelect: 'none', touchAction: editMode ? 'none' : 'pan-x' }}
-      >
-        <span className="flex items-center justify-center w-4 h-4 rounded-md bg-slate-100 text-slate-400 shrink-0">
-          <Wrench className="w-2.5 h-2.5" />
-        </span>
-        {eq.name}
-        {eq.hourly_rate !== undefined && (
-          <span className="text-slate-400 font-medium">${eq.hourly_rate}/hr</span>
-        )}
-      </div>
-    ))}
-    {!editMode && equipment.length > 0 && (
-      <span className="text-[11px] text-slate-400 italic ml-1 shrink-0">Enable edit mode to drag</span>
-    )}
-  </div>
-);
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // BLOCK EQUIPMENT MODAL  (view & manage equipment assigned to a specific block)
@@ -1584,6 +1526,7 @@ interface JobBlockProps {
   width: number;
   color: string;
   isDragging: boolean;
+  isSettled?: boolean;
   isAdmin?: boolean;
   editMode?: boolean;
   onDelete?: () => void;
@@ -1607,7 +1550,7 @@ interface JobBlockProps {
 }
 
 const JobBlock = ({
-  block, job, left, width, color, isDragging,
+  block, job, left, width, color, isDragging, isSettled,
   isAdmin, editMode, onDelete,
   equipmentCount, isEquipDragOver, onEquipmentDrop, onEquipmentDragOver, onEquipmentDragLeave, onEquipmentClick,
   onDragStart, onDragEnd, onContextMenu,
@@ -1616,8 +1559,16 @@ const JobBlock = ({
   segments,
 }: JobBlockProps) => {
   const isDelay   = block.type === 'delay';
-  const bgColor   = isDelay ? '#64748b' : color;
+  const bgColor   = isDelay ? '#334155' : color;
   const blockH    = ROW_HEIGHT - BLOCK_MARGIN * 2;
+
+  // Lightweight status from calendar dates (no scheduling logic — display only).
+  const status = (() => {
+    const endExclusive = addDays(block.startDate, block.durationDays); // inclusive-ish; display only
+    if (todayISO >= block.startDate && todayISO < endExclusive) return { label: 'In progress', dot: '#bbf7d0' };
+    if (block.startDate > todayISO) return { label: 'Upcoming', dot: 'rgba(255,255,255,0.85)' };
+    return { label: 'Completed', dot: 'rgba(255,255,255,0.45)' };
+  })();
 
   // Each segment is a contiguous run of working days. A block that carries
   // through a weekend has more than one, drawn with the weekend columns left
@@ -1627,13 +1578,17 @@ const JobBlock = ({
     : [{ left: BLOCK_MARGIN, width: Math.max(width - BLOCK_MARGIN * 2, 24) }];
   const lastIdx = segs.length - 1;
 
+  // Confident "job card" fill: a directional gradient that deepens the crew
+  // color toward the bottom-right for depth, with a crisp light edge up top.
+  // Delay blocks keep a soft diagonal hatch so they read as "no work" at a glance.
   const fillImage = isDelay
-    ? 'repeating-linear-gradient(45deg, transparent, transparent 7px, rgba(255,255,255,0.10) 7px, rgba(255,255,255,0.10) 14px)'
-    : 'linear-gradient(160deg, rgba(255,255,255,0.20) 0%, rgba(255,255,255,0.05) 42%, rgba(0,0,0,0.14) 100%)';
+    ? 'repeating-linear-gradient(45deg, rgba(255,255,255,0.12) 0, rgba(255,255,255,0.12) 1px, transparent 1px, transparent 9px)'
+    : `linear-gradient(135deg, color-mix(in srgb, ${color} 86%, white) 0%, ${color} 46%, color-mix(in srgb, ${color} 80%, black) 100%)`;
 
   return (
     <div
       data-block-id={block.id}
+      className={`dispatch-block${isDragging ? ' is-dragging' : ''}${isSettled ? ' is-settled' : ''}`}
       draggable={editMode}
       onDragStart={editMode ? onDragStart : undefined}
       onDragEnd={editMode ? onDragEnd : undefined}
@@ -1685,6 +1640,7 @@ const JobBlock = ({
         return (
           <div
             key={i}
+            className="dispatch-seg"
             style={{
               position: 'absolute',
               left: seg.left,
@@ -1693,97 +1649,113 @@ const JobBlock = ({
               height: blockH,
               backgroundColor: bgColor,
               backgroundImage: fillImage,
-              borderRadius: 10,
+              borderRadius: 11,
               overflow: 'hidden',
               display: 'flex',
               flexDirection: 'column',
               justifyContent: 'center',
-              padding: '0 10px 0 13px',
+              padding: '0 9px 0 16px',
               boxSizing: 'border-box',
               boxShadow: isEquipDragOver
                 ? '0 0 0 2px #fff, 0 0 0 4px var(--brand-primary, #3b82f6)'
                 : isDragging
-                  ? 'none'
-                  : 'inset 0 1px 0 rgba(255,255,255,0.22), 0 1px 2px rgba(15,23,42,0.20), 0 4px 10px rgba(15,23,42,0.12)',
+                  ? '0 10px 24px rgba(15,23,42,0.30)'
+                  : `inset 0 1px 0 rgba(255,255,255,0.28), 0 1px 1px rgba(15,23,42,0.10), 0 4px 10px ${isDelay ? 'rgba(15,23,42,0.12)' : `color-mix(in srgb, ${color} 35%, transparent)`}`,
             }}
           >
-            {/* Left accent strip — adds visual structure / a "tab" feel */}
+            {/* Left identity tab — a bold light rail anchoring the card to its crew */}
             <div
               style={{
-                position: 'absolute', left: 0, top: 0, bottom: 0, width: 4,
+                position: 'absolute', left: 0, top: 0, bottom: 0, width: 5,
                 background: isDelay
-                  ? 'rgba(255,255,255,0.35)'
-                  : 'linear-gradient(180deg, rgba(255,255,255,0.65), rgba(255,255,255,0.25))',
+                  ? 'rgba(255,255,255,0.32)'
+                  : 'linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.55))',
+                boxShadow: 'inset -1px 0 2px rgba(0,0,0,0.10)',
                 pointerEvents: 'none',
               }}
             />
-            {/* Extended dashed border (every segment, so the whole job reads as extended) */}
+            {/* Extended treatment: a soft amber inset ring on every segment so the
+                whole job reads as extended, without the heavy dashed look. */}
             {block.extended && !isDelay && (
               <div
                 style={{
-                  position: 'absolute', inset: 0, borderRadius: 10,
-                  border: '2px dashed rgba(251,191,36,0.85)',
+                  position: 'absolute', inset: 1, borderRadius: 8,
+                  border: '1.5px dashed rgba(251,191,36,0.9)',
+                  boxShadow: 'inset 0 0 0 1px rgba(251,191,36,0.18)',
                   pointerEvents: 'none',
                 }}
               />
             )}
 
-            {/* Extended corner badge — on the final segment (the job's end) */}
-            {block.extended && !isDelay && isLast && (
+            {/* Extended pill badge — on the final segment (the job's end) */}
+            {block.extended && !isDelay && isLast && seg.width > 70 && (
               <div
                 title="Extended"
                 style={{
-                  position: 'absolute', top: 0, right: 0,
-                  width: 0, height: 0,
-                  borderStyle: 'solid',
-                  borderWidth: '0 16px 16px 0',
-                  borderColor: `transparent #fbbf24 transparent transparent`,
+                  position: 'absolute', top: 4, right: 4,
+                  display: 'inline-flex', alignItems: 'center', gap: 2,
+                  background: '#fbbf24', color: '#78350f',
+                  fontSize: 8.5, fontWeight: 800, letterSpacing: '0.04em',
+                  borderRadius: 5, padding: '1px 5px', lineHeight: 1.3,
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
                 }}
-              />
+              >
+                EXT
+              </div>
             )}
 
             {/* Edit mode drag handle — top-left of the first segment */}
             {editMode && isFirst && (
               <div
+                className="dispatch-affordance"
                 style={{
-                  position: 'absolute', top: 3, left: 3,
-                  color: 'rgba(255,255,255,0.65)',
+                  position: 'absolute', top: 4, left: 5,
+                  color: 'rgba(255,255,255,0.78)',
                   pointerEvents: 'none',
                   lineHeight: 1,
                 }}
               >
-                <GripHorizontal style={{ width: 10, height: 10 }} />
+                <GripHorizontal style={{ width: 11, height: 11 }} />
               </div>
             )}
 
-            {/* Resize handle — right edge of the final segment for job blocks */}
+            {/* Resize handle — right edge of the final segment for job blocks.
+                Wider hit area (20px) than its visual width so it's easy to grab;
+                the grip itself stays visually slim. */}
             {editMode && !isDelay && isLast && (
               <div
+                className="dispatch-resize-grip"
                 onMouseDown={e => { e.stopPropagation(); e.preventDefault(); onResizeStart?.(e); }}
                 onTouchStart={e => { e.stopPropagation(); e.preventDefault(); onResizeTouchStart?.(e); }}
                 title="Drag to extend job duration"
                 style={{
                   position: 'absolute',
-                  right: 0, top: 0,
-                  width: 10, height: '100%',
+                  right: -4, top: 0,
+                  width: 20, height: '100%',
                   cursor: 'col-resize',
                   display: 'flex',
-                  flexDirection: 'column',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 3,
+                  justifyContent: 'flex-end',
+                  paddingRight: 3,
+                  touchAction: 'none',
                   zIndex: 15,
                 }}
               >
-                <div style={{ width: 2, height: 6, background: 'rgba(255,255,255,0.55)', borderRadius: 1 }} />
-                <div style={{ width: 2, height: 6, background: 'rgba(255,255,255,0.55)', borderRadius: 1 }} />
-                <div style={{ width: 2, height: 6, background: 'rgba(255,255,255,0.55)', borderRadius: 1 }} />
+                <div
+                  className="dispatch-resize-bar"
+                  style={{
+                    width: 4, height: 22, borderRadius: 3,
+                    background: 'rgba(255,255,255,0.82)',
+                    boxShadow: '0 0 0 1px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.18)',
+                  }}
+                />
               </div>
             )}
 
-            {/* Admin delete button — top-right of the first segment */}
+            {/* Admin delete button — top-right of the first segment, reveal-on-hover */}
             {isAdmin && onDelete && isFirst && (
               <button
+                className="dispatch-affordance"
                 onClick={e => { e.stopPropagation(); e.preventDefault(); onDelete(); }}
                 onMouseDown={e => e.stopPropagation()}
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); onDelete(); } }}
@@ -1791,73 +1763,84 @@ const JobBlock = ({
                 aria-label="Delete block"
                 style={{
                   position: 'absolute',
-                  top: 3,
-                  right: 3,
-                  width: 16,
-                  height: 16,
+                  top: 4,
+                  right: block.extended && !isDelay && isLast && seg.width > 70 ? 36 : 4,
+                  width: 17,
+                  height: 17,
                   borderRadius: '50%',
-                  backgroundColor: 'rgba(0,0,0,0.35)',
-                  border: 'none',
+                  backgroundColor: 'rgba(15,23,42,0.55)',
+                  border: '1px solid rgba(255,255,255,0.25)',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   padding: 0,
-                  zIndex: 10,
+                  zIndex: 12,
                   lineHeight: 1,
                   color: '#fff',
-                  fontSize: 10,
-                  fontWeight: 700,
+                  backdropFilter: 'blur(2px)',
                 }}
               >
-                ×
-              </button>
-            )}
-
-            {/* Equipment badge — bottom-left of the first segment; opens equipment modal */}
-            {!isDelay && (equipmentCount ?? 0) > 0 && onEquipmentClick && isFirst && (
-              <button
-                onClick={e => { e.stopPropagation(); e.preventDefault(); onEquipmentClick(); }}
-                onMouseDown={e => e.stopPropagation()}
-                title={`${equipmentCount} piece${equipmentCount !== 1 ? 's' : ''} of equipment on site — click to manage`}
-                aria-label={`${equipmentCount} equipment assigned — click to manage`}
-                style={{
-                  position: 'absolute',
-                  bottom: 3,
-                  left: 4,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 2,
-                  background: 'rgba(0,0,0,0.35)',
-                  border: 'none',
-                  borderRadius: 4,
-                  padding: '1px 4px',
-                  cursor: 'pointer',
-                  zIndex: 10,
-                  color: '#fff',
-                  fontSize: 9,
-                  fontWeight: 700,
-                  lineHeight: 1.4,
-                }}
-              >
-                <Wrench style={{ width: 8, height: 8, flexShrink: 0 }} aria-hidden="true" />
-                {equipmentCount}
+                <X style={{ width: 10, height: 10 }} aria-hidden="true" />
               </button>
             )}
 
             {/* Labels — shown on every segment so each piece of a block that
                 carries through a weekend still identifies its job. */}
-            <div style={{ color: '#fff', fontSize: 11.5, fontWeight: 700, lineHeight: 1.2, letterSpacing: '0.01em', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', textShadow: '0 1px 2px rgba(0,0,0,0.28)' }}>
-              {block.jobNumber}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+              {/* Status dot — at-a-glance state from dates (first segment only) */}
+              {!isDelay && isFirst && seg.width > 44 && (
+                <span
+                  title={status.label}
+                  style={{
+                    flexShrink: 0, width: 7, height: 7, borderRadius: '50%',
+                    background: status.dot,
+                    boxShadow: `0 0 0 2px rgba(255,255,255,0.45)`,
+                  }}
+                />
+              )}
+              <span style={{ color: '#fff', fontSize: 12, fontWeight: 800, lineHeight: 1.2, letterSpacing: '0.01em', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', textShadow: '0 1px 2px rgba(0,0,0,0.32)', fontFamily: "'Space Grotesk', 'Inter', sans-serif" }}>
+                {block.jobNumber}
+              </span>
             </div>
-            {!isDelay && job && seg.width > 64 && (
-              <div style={{ color: 'rgba(255,255,255,0.82)', fontSize: 9.5, marginTop: 2, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', textShadow: '0 1px 1px rgba(0,0,0,0.2)' }}>
-                {job.location}
+            {!isDelay && job && seg.width > 70 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 3, color: 'rgba(255,255,255,0.88)', fontSize: 9.5, marginTop: 2, overflow: 'hidden', whiteSpace: 'nowrap', textShadow: '0 1px 1px rgba(0,0,0,0.22)' }}>
+                <MapPin style={{ width: 9, height: 9, flexShrink: 0, opacity: 0.85 }} />
+                <span style={{ overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{job.location}</span>
               </div>
             )}
-            {seg.width > 40 && (
-              <div style={{ display: 'inline-flex', alignItems: 'center', alignSelf: 'flex-start', marginTop: 4, padding: '1px 6px', borderRadius: 999, background: 'rgba(255,255,255,0.20)', color: 'rgba(255,255,255,0.95)', fontSize: 9, fontWeight: 600, lineHeight: 1.3, backdropFilter: 'blur(2px)' }}>
-                {block.durationDays}d
+            {/* Meta row: equipment badge + duration pill share one line so they
+                never overlap, regardless of how narrow the bar gets. */}
+            {seg.width > 36 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4, minWidth: 0 }}>
+                {!isDelay && (equipmentCount ?? 0) > 0 && onEquipmentClick && isFirst && (
+                  <button
+                    onClick={e => { e.stopPropagation(); e.preventDefault(); onEquipmentClick(); }}
+                    onMouseDown={e => e.stopPropagation()}
+                    title={`${equipmentCount} piece${equipmentCount !== 1 ? 's' : ''} of equipment on site — click to manage`}
+                    aria-label={`${equipmentCount} equipment assigned — click to manage`}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 2.5,
+                      background: 'rgba(15,23,42,0.32)',
+                      border: '1px solid rgba(255,255,255,0.18)',
+                      borderRadius: 999,
+                      padding: '1px 6px 1px 5px',
+                      cursor: 'pointer',
+                      zIndex: 10,
+                      color: '#fff',
+                      fontSize: 9,
+                      fontWeight: 700,
+                      lineHeight: 1.4,
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Wrench style={{ width: 8.5, height: 8.5, flexShrink: 0 }} aria-hidden="true" />
+                    {equipmentCount}
+                  </button>
+                )}
+                <span style={{ display: 'inline-flex', alignItems: 'center', padding: '1px 6px', borderRadius: 999, background: 'rgba(255,255,255,0.22)', color: 'rgba(255,255,255,0.97)', fontSize: 9, fontWeight: 700, lineHeight: 1.3, flexShrink: 0 }}>
+                  {block.durationDays}d
+                </span>
               </div>
             )}
           </div>
@@ -1894,7 +1877,7 @@ export default function Scheduler({
   const [employeeList,  setEmployeeList]  = useState<SchedulerEmployee[]>([]);
   const [equipmentList, setEquipmentList] = useState<SchedulerEquipment[]>([]);
   const [blocks, dispatch] = useReducer(reducer, initialBlocks);
-  const [view, setView]    = useState<'week' | 'month'>('week');
+  const [view, setView]    = useState<'day' | 'week' | 'month'>('week');
   const [viewOffset, setViewOffset] = useState(0); // days from default start
 
   // Skip weekends: durations count working days (Mon–Fri) and blocks never start
@@ -2106,11 +2089,17 @@ export default function Scheduler({
       .catch(err => console.error('[Scheduler] Failed to load equipment:', err));
   }, [companyId]);
 
-  const dayWidth  = view === 'week' ? 60 : 24;
-  const totalDays = view === 'week' ? 28 : 90;
+  // Per-view geometry. Day view uses wide, roomy columns over a short horizon so
+  // each day is legible; week is the everyday planning span; month is the wide
+  // overview. `leadDays` keeps today near the left edge of the initial window.
+  const dayWidth  = view === 'day' ? 132 : view === 'week' ? 60 : 24;
+  const totalDays = view === 'day' ? 14  : view === 'week' ? 28 : 90;
+  const leadDays  = view === 'day' ? 2   : 7;
+  // How far prev/next steps the window for each view.
+  const navStep   = view === 'day' ? 7   : view === 'week' ? 14 : 30;
 
-  // View window: start 7 days before today + navigation offset
-  const viewStart = addDays(addDays(todayISO, -7), viewOffset);
+  // View window: start `leadDays` before today + navigation offset
+  const viewStart = addDays(addDays(todayISO, -leadDays), viewOffset);
   const days = Array.from({ length: totalDays }, (_, i) => addDays(viewStart, i));
   const todayOffset = diffDays(todayISO, viewStart) * dayWidth;
   const totalGridWidth = totalDays * dayWidth;
@@ -2124,9 +2113,35 @@ export default function Scheduler({
   const [draggingId,    setDraggingId]    = useState<string | null>(null);
   const [dragOffsetDays, setDragOffsetDays] = useState(0);
 
+  // Live drop preview (desktop + touch). While a block is being dragged we
+  // compute the snapped target crew row + start date and render a translucent
+  // placeholder there so the user sees exactly where the block will land before
+  // releasing. Shape mirrors what the drop handlers ultimately dispatch, and the
+  // snap math (weekday-snap when skipping) stays consistent with handleDrop.
+  const [dragPreview, setDragPreview] = useState<{
+    crewId:       string;
+    startDate:    string;
+    durationDays: number;
+    conflict:     boolean;
+  } | null>(null);
+
+  // Block id that just settled after a drop — drives a brief "settle" pop so the
+  // landing reads as deliberate. Cleared by a short timer.
+  const [settledId, setSettledId] = useState<string | null>(null);
+  const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flagSettled = useCallback((id: string) => {
+    if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
+    setSettledId(id);
+    settleTimerRef.current = setTimeout(() => setSettledId(null), 320);
+  }, []);
+  useEffect(() => () => { if (settleTimerRef.current) clearTimeout(settleTimerRef.current); }, []);
+
   // Resize-drag state (dragging the right edge of a job block to extend it)
   const [resizingId,      setResizingId]      = useState<string | null>(null);
   const [resizeDeltaDays, setResizeDeltaDays] = useState(0);
+  // Live cursor position during a resize drag — anchors the floating duration /
+  // end-date label that previews the new extent.
+  const [resizeCursor, setResizeCursor] = useState<{ x: number; y: number } | null>(null);
   const resizeRef = useRef<{
     blockId:      string;
     startX:       number;
@@ -2159,8 +2174,23 @@ export default function Scheduler({
   const [showManageCrews,   setShowManageCrews]   = useState(false);
   const [showManageJobs,    setShowManageJobs]    = useState(false);
 
-  // Equipment tray & block-equipment modal
-  const [showEquipTray,    setShowEquipTray]    = useState(false);
+  // Toolbar popover: the mobile overflow menu.
+  const [showOverflow,      setShowOverflow]      = useState(false);
+  const overflowRef   = useRef<HTMLDivElement>(null);
+
+  // Close the overflow popover when clicking outside of it.
+  useEffect(() => {
+    if (!showOverflow) return;
+    const handler = (e: MouseEvent) => {
+      if (overflowRef.current && !overflowRef.current.contains(e.target as Node)) {
+        setShowOverflow(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showOverflow]);
+
+  // Block-equipment modal
   const [equipModalBlockId, setEquipModalBlockId] = useState<string | null>(null);
   const [equipDragOverBlockId, setEquipDragOverBlockId] = useState<string | null>(null);
 
@@ -2247,12 +2277,48 @@ export default function Scheduler({
     e.dataTransfer.setData('application/x-block-id', block.id);
   }, [dayWidth]);
 
-  const handleDragEnd = useCallback(() => setDraggingId(null), []);
+  const handleDragEnd = useCallback(() => {
+    setDraggingId(null);
+    setDragPreview(null);
+  }, []);
 
-  const handleDragOver = useCallback((e: React.DragEvent) => {
+  // Translate a pointer clientX into the snapped start date for the block being
+  // dragged, using the same geometry the drop handlers use so the preview and
+  // the eventual landing agree to the day. Returns null when no drag is active.
+  const computeSnappedStart = useCallback((clientX: number): string | null => {
+    const drag = blocksRef.current.find(b => b.id === draggingId);
+    if (!drag || !scrollRef.current) return null;
+    const container = scrollRef.current;
+    const containerRect = container.getBoundingClientRect();
+    const xInContent = clientX - containerRect.left + container.scrollLeft;
+    const xInGrid    = xInContent - CREW_COL_W;
+    const dayIndex   = Math.floor(xInGrid / dayWidth);
+    const skip       = skipWeekendsRef.current;
+    let   newStart   = addDays(viewStart, dayIndex - dragOffsetDays);
+    if (skip) newStart = snapToWeekday(newStart);
+    return newStart;
+  }, [draggingId, dayWidth, viewStart, dragOffsetDays]);
+
+  // Hovering a crew row while dragging: compute the snapped target and stash it
+  // so the live placeholder + guide render at the exact landing spot.
+  const handleDragOver = useCallback((e: React.DragEvent, crewId: string) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-  }, []);
+    const id = draggingId;
+    if (!id) return;
+    const newStart = computeSnappedStart(e.clientX);
+    if (!newStart) return;
+    const moving = blocksRef.current.find(b => b.id === id);
+    if (!moving) return;
+    const skip = skipWeekendsRef.current;
+    const conflicts = findOverlapConflicts(blocksRef.current, crewId, newStart, moving.durationDays, skip, id);
+    setDragPreview(prev => {
+      if (prev && prev.crewId === crewId && prev.startDate === newStart && prev.conflict === (conflicts.length > 0)) {
+        return prev;
+      }
+      return { crewId, startDate: newStart, durationDays: moving.durationDays, conflict: conflicts.length > 0 };
+    });
+  }, [draggingId, computeSnappedStart]);
 
   const handleDrop = useCallback((e: React.DragEvent, crewId: string) => {
     e.preventDefault();
@@ -2271,6 +2337,7 @@ export default function Scheduler({
     if (skip) newStart = snapToWeekday(newStart);
 
     setDraggingId(null);
+    setDragPreview(null);
 
     const allBlocks   = blocksRef.current;
     const movingBlock = allBlocks.find(b => b.id === blockId);
@@ -2290,72 +2357,16 @@ export default function Scheduler({
       });
     } else {
       dispatchWithHistory({ type: 'MOVE_BLOCK', id: blockId, crewId, startDate: newStart });
+      flagSettled(blockId);
     }
-  }, [dayWidth, viewStart, dragOffsetDays, dispatchWithHistory]);
+  }, [dayWidth, viewStart, dragOffsetDays, dispatchWithHistory, flagSettled]);
 
-  // ── Equipment drag handlers ──────────────────────────────────────────────────
-
-  const handleEquipDragStart = useCallback((e: React.DragEvent, equipmentId: string) => {
-    e.dataTransfer.effectAllowed = 'copy';
-    e.dataTransfer.setData('application/x-equip-id', String(equipmentId));
-  }, []);
+  // ── Equipment assignment (drop onto a block / manage via the block modal) ────
 
   const handleEquipDropOnBlock = useCallback((blockId: string, equipmentId: string) => {
     dispatchWithHistory({ type: 'ASSIGN_EQUIPMENT', blockId, equipmentId });
     setEquipDragOverBlockId(null);
   }, [dispatchWithHistory]);
-
-  // ── Equipment touch-drag (mobile — mirrors job-block touch-drag) ────────────
-  // Uses Touch Events (touchstart/touchmove/touchend) with passive:false so that
-  // e.preventDefault() actually suppresses scroll — the same pattern job blocks
-  // use and the one that works reliably on iOS Safari.
-
-  const equipTouchRef = useRef<string | null>(null); // equipment id being touch-dragged
-  const [equipTouchGhostPos, setEquipTouchGhostPos] = useState<{ x: number; y: number } | null>(null);
-  const [equipTouchActiveId, setEquipTouchActiveId] = useState<string | null>(null);
-
-  const handleEquipTouchStart = useCallback((e: React.TouchEvent, equipmentId: string) => {
-    if (!editMode) return;
-    e.preventDefault();
-    const touch = e.touches[0];
-    equipTouchRef.current = equipmentId;
-    setEquipTouchActiveId(equipmentId);
-    setEquipTouchGhostPos({ x: touch.clientX, y: touch.clientY });
-  }, [editMode]);
-
-  useEffect(() => {
-    if (!equipTouchGhostPos) return;
-
-    const onMove = (e: TouchEvent) => {
-      e.preventDefault();
-      const touch = e.touches[0];
-      setEquipTouchGhostPos({ x: touch.clientX, y: touch.clientY });
-      const els = document.elementsFromPoint(touch.clientX, touch.clientY);
-      const blockEl = els.find(el => (el as HTMLElement).dataset?.blockId) as HTMLElement | undefined;
-      setEquipDragOverBlockId(blockEl?.dataset.blockId ?? null);
-    };
-
-    const onEnd = (e: TouchEvent) => {
-      const touch = e.changedTouches[0];
-      const els = document.elementsFromPoint(touch.clientX, touch.clientY);
-      const blockEl = els.find(el => (el as HTMLElement).dataset?.blockId) as HTMLElement | undefined;
-      const targetBlockId = blockEl?.dataset.blockId;
-      if (targetBlockId && equipTouchRef.current !== null) {
-        dispatchWithHistory({ type: 'ASSIGN_EQUIPMENT', blockId: targetBlockId, equipmentId: equipTouchRef.current });
-      }
-      equipTouchRef.current = null;
-      setEquipTouchActiveId(null);
-      setEquipTouchGhostPos(null);
-      setEquipDragOverBlockId(null);
-    };
-
-    window.addEventListener('touchmove', onMove, { passive: false });
-    window.addEventListener('touchend', onEnd);
-    return () => {
-      window.removeEventListener('touchmove', onMove, { passive: false } as EventListenerOptions);
-      window.removeEventListener('touchend', onEnd);
-    };
-  }, [equipTouchGhostPos, dispatchWithHistory]);
 
   // ── Touch-drag handlers (mobile edit mode) ───────────────────────────────────
 
@@ -2404,10 +2415,36 @@ export default function Scheduler({
     if (!touchGhostPos) return; // nothing being dragged
 
     const handleTouchMove = (e: TouchEvent) => {
-      if (!touchDragRef.current) return;
+      const drag = touchDragRef.current;
+      if (!drag || !scrollRef.current) return;
       e.preventDefault();
       const touch = e.touches[0];
       setTouchGhostPos({ x: touch.clientX, y: touch.clientY });
+
+      // Live target preview for touch — mirror the release math so the
+      // placeholder + guide sit exactly where the block will land.
+      const container = scrollRef.current;
+      const containerRect = container.getBoundingClientRect();
+      const yInView     = touch.clientY - containerRect.top;
+      const crewAreaTop = HEADER_MONTH_H + HEADER_DAY_H;
+      const crewIndex   = Math.floor((yInView - crewAreaTop) / ROW_HEIGHT);
+      const crews       = crewsStateRef.current;
+      const clampedIdx  = Math.min(Math.max(crewIndex, 0), crews.length - 1);
+      const targetCrew  = crews[clampedIdx];
+      const dw = dayWidthRef.current;
+      const xInContent = touch.clientX - containerRect.left + container.scrollLeft;
+      const xInGrid    = xInContent - CREW_COL_W;
+      const dayIndex   = dw > 0 ? Math.floor(xInGrid / dw) : 0;
+      const skip       = skipWeekendsRef.current;
+      let   newStart   = addDays(viewStartRef.current, dayIndex - drag.offsetDays);
+      if (skip) newStart = snapToWeekday(newStart);
+      if (targetCrew) {
+        const moving = blocksRef.current.find(b => b.id === drag.blockId);
+        if (moving) {
+          const conflicts = findOverlapConflicts(blocksRef.current, targetCrew.id, newStart, moving.durationDays, skip, drag.blockId);
+          setDragPreview({ crewId: targetCrew.id, startDate: newStart, durationDays: moving.durationDays, conflict: conflicts.length > 0 });
+        }
+      }
     };
 
     const handleTouchEnd = (e: TouchEvent) => {
@@ -2416,6 +2453,7 @@ export default function Scheduler({
         touchDragRef.current = null;
         setDraggingId(null);
         setTouchGhostPos(null);
+        setDragPreview(null);
         return;
       }
 
@@ -2459,12 +2497,14 @@ export default function Scheduler({
             });
           } else {
             dispatchWithHistory({ type: 'MOVE_BLOCK', id: drag.blockId, crewId: targetCrew.id, startDate: newStart });
+            flagSettled(drag.blockId);
           }
         }
       }
       touchDragRef.current = null;
       setDraggingId(null);
       setTouchGhostPos(null);
+      setDragPreview(null);
     };
 
     window.addEventListener('touchmove', handleTouchMove, { passive: false });
@@ -2473,7 +2513,7 @@ export default function Scheduler({
       window.removeEventListener('touchmove', handleTouchMove);
       window.removeEventListener('touchend', handleTouchEnd);
     };
-  }, [touchGhostPos]);
+  }, [touchGhostPos, dispatchWithHistory, flagSettled]);
 
   // ── Resize-drag handlers (right-edge drag in edit mode) ─────────────────────
 
@@ -2487,6 +2527,7 @@ export default function Scheduler({
     };
     setResizingId(block.id);
     setResizeDeltaDays(0);
+    setResizeCursor({ x: e.clientX, y: e.clientY });
   }, []);
 
   const handleResizeTouchStart = useCallback((e: React.TouchEvent, block: ScheduleBlock) => {
@@ -2502,6 +2543,7 @@ export default function Scheduler({
     };
     setResizingId(block.id);
     setResizeDeltaDays(0);
+    setResizeCursor({ x: touch.clientX, y: touch.clientY });
   }, [editMode]);
 
   useEffect(() => {
@@ -2524,6 +2566,7 @@ export default function Scheduler({
       if (!r || dayWidthRef.current === 0) return;
       const cols = Math.max(0, Math.round((e.clientX - r.startX) / dayWidthRef.current));
       setResizeDeltaDays(toDurationDelta(r, cols));
+      setResizeCursor({ x: e.clientX, y: e.clientY });
     };
 
     const onMouseUp = (e: MouseEvent) => {
@@ -2534,10 +2577,12 @@ export default function Scheduler({
       const days = toDurationDelta(r, cols);
       if (days > 0) {
         dispatch({ type: 'EXTEND_JOB', blockId: r.blockId, days, skipWeekends: skipWeekendsRef.current });
+        flagSettled(r.blockId);
       }
       resizeRef.current = null;
       setResizingId(null);
       setResizeDeltaDays(0);
+      setResizeCursor(null);
     };
 
     const onTouchMove = (e: TouchEvent) => {
@@ -2547,6 +2592,7 @@ export default function Scheduler({
       const touch = e.touches[0];
       const cols = Math.max(0, Math.round((touch.clientX - r.startX) / dayWidthRef.current));
       setResizeDeltaDays(toDurationDelta(r, cols));
+      setResizeCursor({ x: touch.clientX, y: touch.clientY });
     };
 
     const onTouchEnd = (e: TouchEvent) => {
@@ -2558,10 +2604,12 @@ export default function Scheduler({
       const days = toDurationDelta(r, cols);
       if (days > 0) {
         dispatch({ type: 'EXTEND_JOB', blockId: r.blockId, days, skipWeekends: skipWeekendsRef.current });
+        flagSettled(r.blockId);
       }
       resizeRef.current = null;
       setResizingId(null);
       setResizeDeltaDays(0);
+      setResizeCursor(null);
     };
 
     document.addEventListener('mousemove', onMouseMove);
@@ -2574,7 +2622,7 @@ export default function Scheduler({
       document.removeEventListener('touchmove', onTouchMove, { passive: false } as EventListenerOptions);
       document.removeEventListener('touchend',  onTouchEnd);
     };
-  }, [resizingId, dispatch]);
+  }, [resizingId, dispatch, flagSettled]);
 
   // ── Context-menu actions ─────────────────────────────────────────────────────
 
@@ -2656,17 +2704,18 @@ export default function Scheduler({
     }
   });
 
+  // Last calendar day of the visible window — used by the per-crew workload meter.
+  const windowEndISO = addDays(viewStart, totalDays - 1);
+
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col bg-white select-none rounded-2xl border border-slate-200 overflow-hidden shadow-sm" style={{ height: 'calc(100svh - 220px)', minHeight: '420px' }}>
+    <div className="dispatch-shell flex flex-col select-none rounded-2xl overflow-hidden" style={{ height: 'calc(100svh - 220px)', minHeight: '420px', boxShadow: '0 18px 48px -12px rgba(11,19,38,0.45), 0 4px 12px rgba(11,19,38,0.18)', border: '1px solid rgba(255,255,255,0.06)' }}>
       {/* ─── Toolbar ─── */}
       <div
-        className="flex items-center gap-x-3 gap-y-2.5 px-5 py-3.5 shrink-0 flex-wrap"
+        className="flex items-center gap-x-2.5 gap-y-2.5 px-4 sm:px-5 pt-3.5 sm:pt-4 pb-3 shrink-0 flex-wrap"
         style={{
-          background: 'linear-gradient(120deg, #0a142d 0%, #11244f 100%)',
-          borderBottom: '1px solid rgba(255,255,255,0.08)',
-          boxShadow: 'inset 0 -1px 0 rgba(255,255,255,0.04)',
+          background: 'transparent',
         }}
       >
         {/* Branded title block */}
@@ -2680,59 +2729,64 @@ export default function Scheduler({
           >
             <Calendar className="w-[18px] h-[18px] text-white" />
           </div>
-          <div className="leading-tight">
+          <div className="leading-tight hidden sm:block">
             <h2 className="font-display text-white font-bold text-[15px] tracking-tight">Dispatch Board</h2>
             <p className="text-[10px] text-slate-400 font-medium">Crew &amp; job scheduling</p>
           </div>
         </div>
 
-        {/* View toggle — segmented control */}
-        <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-black/25 border border-white/10">
-          {(['week', 'month'] as const).map(v => (
+        {/* ── Navigation group: view toggle · prev/Today/next · jump · range ── */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* View toggle — segmented control (Day · Week · Month) */}
+          <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-black/25 border border-white/10">
+            {(['day', 'week', 'month'] as const).map(v => (
+              <button
+                key={v}
+                onClick={() => { setView(v); }}
+                aria-pressed={view === v}
+                className={`px-3 sm:px-3.5 py-1.5 text-xs font-semibold capitalize rounded-md transition-all ${
+                  view === v
+                    ? 'bg-brand text-white shadow-sm'
+                    : 'text-slate-300 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+
+          {/* Navigation cluster — prev · Today · next */}
+          <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-black/25 border border-white/10">
             <button
-              key={v}
-              onClick={() => setView(v)}
-              className={`px-3.5 py-1.5 text-xs font-semibold capitalize rounded-md transition-all ${
-                view === v
-                  ? 'bg-brand text-white shadow-sm'
-                  : 'text-slate-300 hover:text-white hover:bg-white/5'
-              }`}
+              onClick={() => setViewOffset(v => v - navStep)}
+              aria-label="Previous period"
+              className="w-7 h-7 flex items-center justify-center rounded-md text-slate-300 hover:bg-white/10 hover:text-white transition-colors"
             >
-              {v}
+              <ChevronLeft className="w-4 h-4" />
             </button>
-          ))}
+            <button
+              onClick={() => { setViewOffset(0); setFocusTodayNonce(n => n + 1); }}
+              className="px-3 py-1 text-xs font-semibold text-slate-200 hover:bg-white/10 hover:text-white rounded-md transition-colors"
+            >
+              Today
+            </button>
+            <button
+              onClick={() => setViewOffset(v => v + navStep)}
+              aria-label="Next period"
+              className="w-7 h-7 flex items-center justify-center rounded-md text-slate-300 hover:bg-white/10 hover:text-white transition-colors"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Visible date range — reflects the window of the active view */}
+          <span className="hidden md:inline-flex items-center px-2.5 py-1 rounded-md bg-white/5 text-slate-300 text-xs font-medium tabular-nums">
+            {fmtShort(viewStart)} – {fmtShort(addDays(viewStart, totalDays - 1))}
+          </span>
         </div>
 
-        {/* Navigation cluster */}
-        <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-black/25 border border-white/10">
-          <button
-            onClick={() => setViewOffset(v => v - (view === 'week' ? 14 : 30))}
-            aria-label="Previous"
-            className="w-7 h-7 flex items-center justify-center rounded-md text-slate-300 hover:bg-white/10 hover:text-white transition-colors"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => { setViewOffset(0); setFocusTodayNonce(n => n + 1); }}
-            className="px-3 py-1 text-xs font-semibold text-slate-200 hover:bg-white/10 hover:text-white rounded-md transition-colors"
-          >
-            Today
-          </button>
-          <button
-            onClick={() => setViewOffset(v => v + (view === 'week' ? 14 : 30))}
-            aria-label="Next"
-            className="w-7 h-7 flex items-center justify-center rounded-md text-slate-300 hover:bg-white/10 hover:text-white transition-colors"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Visible date range */}
-        <span className="hidden sm:inline-flex items-center px-2.5 py-1 rounded-md bg-white/5 text-slate-300 text-xs font-medium tabular-nums">
-          {fmtShort(viewStart)} – {fmtShort(addDays(viewStart, totalDays - 1))}
-        </span>
-
-        <div className="ml-auto flex items-center gap-2">
+        {/* ── Action group ── */}
+        <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
           {/* Skip-weekends toggle — when on, jobs span Mon–Fri and auto-skip Sat/Sun */}
           <button
             onClick={() => setSkipWeekends(s => !s)}
@@ -2741,14 +2795,14 @@ export default function Scheduler({
             title={skipWeekends
               ? 'Weekends skipped — jobs are scheduled Monday–Friday. Click to allow weekend work.'
               : 'Weekends included — jobs can run any day. Click to skip weekends.'}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all border ${
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded-lg transition-all border ${
               skipWeekends
                 ? 'bg-white/10 hover:bg-white/20 text-slate-200 border-white/10'
                 : 'bg-amber-400 text-slate-900 border-amber-300 shadow-sm'
             }`}
           >
             <Calendar className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">{skipWeekends ? 'Mon–Fri' : '7-Day'}</span>
+            <span className="hidden lg:inline">{skipWeekends ? 'Mon–Fri' : '7-Day'}</span>
           </button>
           {/* Edit mode toggle */}
           <button
@@ -2756,13 +2810,13 @@ export default function Scheduler({
             aria-pressed={editMode}
             aria-label={editMode ? 'Exit edit mode' : 'Enter edit mode to drag blocks'}
             title={editMode ? 'Exit edit mode' : 'Edit: drag blocks to reschedule'}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all border ${
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded-lg transition-all border ${
               editMode
                 ? 'bg-amber-400 text-slate-900 border-amber-300 shadow-sm'
                 : 'bg-white/10 hover:bg-white/20 text-slate-200 border-white/10'
             }`}
           >
-            <Pencil className="w-3.5 h-3.5" /><span className="hidden sm:inline">{editMode ? 'Editing' : 'Edit'}</span>
+            <Pencil className="w-3.5 h-3.5" /><span className="hidden lg:inline">{editMode ? 'Editing' : 'Edit'}</span>
           </button>
           {/* Undo button — visible only in edit mode */}
           {editMode && (
@@ -2771,80 +2825,115 @@ export default function Scheduler({
               disabled={!canUndo}
               aria-label="Undo last action"
               title="Undo last action (Ctrl+Z)"
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors border ${
+              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors border ${
                 canUndo
                   ? 'bg-white/10 hover:bg-white/20 text-slate-200 border-white/10'
                   : 'bg-white/5 text-slate-600 border-white/5 cursor-not-allowed'
               }`}
             >
-              <RotateCcw className="w-3.5 h-3.5" /><span className="hidden sm:inline"> Undo</span>
+              <RotateCcw className="w-3.5 h-3.5" /><span className="hidden lg:inline"> Undo</span>
             </button>
           )}
 
-          {/* Divider */}
-          {isAdmin && <span className="w-px h-5 bg-white/10 mx-0.5" aria-hidden="true" />}
+          {/* Divider before secondary/admin actions */}
+          <span className="hidden md:inline-block w-px h-5 bg-white/10 mx-0.5" aria-hidden="true" />
 
+          {/* Secondary / admin actions — shown inline on wide screens (md+),
+              collapsed into the overflow menu on narrow screens. */}
           {isAdmin && (
-            <>
-              <button
-                onClick={() => setShowManageCrews(true)}
-                title="Manage crews"
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-slate-200 text-xs font-semibold rounded-lg transition-colors border border-white/10"
-              >
-                <Users className="w-3.5 h-3.5" /><span className="hidden sm:inline"> Crews</span>
-              </button>
-              <button
-                onClick={() => setShowManageJobs(true)}
-                title="Manage jobs"
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-slate-200 text-xs font-semibold rounded-lg transition-colors border border-white/10"
-              >
-                <Briefcase className="w-3.5 h-3.5" /><span className="hidden sm:inline"> Jobs</span>
-              </button>
-            </>
+            <button
+              onClick={() => setShowManageCrews(true)}
+              title="Manage crews"
+              className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-slate-200 text-xs font-semibold rounded-lg transition-colors border border-white/10"
+            >
+              <Users className="w-3.5 h-3.5" /><span className="hidden lg:inline"> Crews</span>
+            </button>
           )}
-          <button
-            onClick={() => setShowEquipTray(t => !t)}
-            aria-pressed={showEquipTray}
-            aria-label="Toggle equipment tray"
-            title="Toggle equipment tray"
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors border ${
-              showEquipTray
-                ? 'bg-amber-500 text-white border-amber-400 shadow-sm'
-                : 'bg-white/10 hover:bg-white/20 text-slate-200 border-white/10'
-            }`}
-          >
-            <Wrench className="w-3.5 h-3.5" /><span className="hidden sm:inline"> Equipment</span>
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => setShowManageJobs(true)}
+              title="Manage jobs"
+              className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-slate-200 text-xs font-semibold rounded-lg transition-colors border border-white/10"
+            >
+              <Briefcase className="w-3.5 h-3.5" /><span className="hidden lg:inline"> Jobs</span>
+            </button>
+          )}
           <button
             onClick={() => setShowImportModal(true)}
             aria-label="Import schedule from spreadsheet"
             title="Import schedule from a CSV or spreadsheet"
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-slate-200 text-xs font-semibold rounded-lg transition-colors border border-white/10"
+            className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-slate-200 text-xs font-semibold rounded-lg transition-colors border border-white/10"
           >
-            <Upload className="w-3.5 h-3.5" /><span className="hidden sm:inline"> Import</span>
+            <Upload className="w-3.5 h-3.5" /><span className="hidden lg:inline"> Import</span>
           </button>
+
+          {/* Overflow menu — collapses secondary actions on narrow (< md) screens */}
+          <div ref={overflowRef} className="relative md:hidden">
+            <button
+              onClick={() => setShowOverflow(o => !o)}
+              aria-label="More actions"
+              aria-expanded={showOverflow}
+              title="More"
+              className={`flex items-center justify-center w-8 h-8 rounded-lg transition-colors border ${
+                showOverflow
+                  ? 'bg-white/20 text-white border-white/20'
+                  : 'bg-white/10 hover:bg-white/20 text-slate-200 border-white/10'
+              }`}
+            >
+              <MoreHorizontal className="w-4 h-4" />
+            </button>
+            {showOverflow && (
+              <div
+                className="absolute right-0 top-full mt-2 z-50 w-52 rounded-xl bg-white shadow-2xl border border-slate-200 py-1.5"
+                onMouseDown={e => e.stopPropagation()}
+              >
+                {isAdmin && (
+                  <button
+                    onClick={() => { setShowManageCrews(true); setShowOverflow(false); }}
+                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-slate-700 hover:bg-brand/10 hover:text-brand transition-colors"
+                  >
+                    <Users className="w-4 h-4 shrink-0" /> Manage Crews
+                  </button>
+                )}
+                {isAdmin && (
+                  <button
+                    onClick={() => { setShowManageJobs(true); setShowOverflow(false); }}
+                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-slate-700 hover:bg-brand/10 hover:text-brand transition-colors"
+                  >
+                    <Briefcase className="w-4 h-4 shrink-0" /> Manage Jobs
+                  </button>
+                )}
+                <button
+                  onClick={() => { setShowImportModal(true); setShowOverflow(false); }}
+                  className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-slate-700 hover:bg-brand/10 hover:text-brand transition-colors"
+                >
+                  <Upload className="w-4 h-4 shrink-0" /> Import Schedule
+                </button>
+              </div>
+            )}
+          </div>
+
           <button
             onClick={() => setShowAddModal(true)}
             aria-label="Add job"
             title="Add job"
-            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-brand hover:opacity-90 text-white text-xs font-semibold rounded-lg transition-all shadow-brand/20 hover:-translate-y-px"
+            className="flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 bg-brand hover:opacity-90 text-white text-xs font-semibold rounded-lg transition-all shadow-brand/20 hover:-translate-y-px"
           >
             <Plus className="w-3.5 h-3.5" /><span className="hidden sm:inline"> Add Job</span>
           </button>
         </div>
       </div>
 
-      {/* ─── Equipment Tray ─── */}
-      {showEquipTray && (
-        <EquipmentTray
-          equipment={equipmentList}
-          onDragStart={handleEquipDragStart}
-          onTouchStart={handleEquipTouchStart}
-          activeTouchId={equipTouchActiveId}
-          editMode={editMode}
-        />
-      )}
-      <div ref={scrollRef} className="flex-1 overflow-auto" style={{ minHeight: 0 }}>
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-auto"
+        style={{
+          minHeight: 0,
+          background: '#e7edf6',
+          borderTop: '1px solid rgba(255,255,255,0.06)',
+          boxShadow: 'inset 0 8px 18px -12px rgba(11,19,38,0.5)',
+        }}
+      >
         <div style={{ minWidth: CREW_COL_W + totalGridWidth }}>
 
           {/* Month header */}
@@ -2853,17 +2942,18 @@ export default function Scheduler({
             style={{
               height: HEADER_MONTH_H,
               position: 'sticky', top: 0, zIndex: 30,
-              background: '#ffffff',
-              borderBottom: '1px solid #eef2f7',
+              background: 'linear-gradient(180deg, #f4f7fc 0%, #eef2f8 100%)',
+              borderBottom: '1px solid #dde5f0',
             }}
           >
             <div
               style={{
                 width: CREW_COL_W, minWidth: CREW_COL_W, height: HEADER_MONTH_H,
-                borderRight: '1px solid #e8edf3',
+                borderRight: '1px solid #d8e0ec',
                 flexShrink: 0,
                 position: 'sticky', left: 0, zIndex: 31,
-                background: '#ffffff',
+                background: 'linear-gradient(180deg, #f4f7fc 0%, #eef2f8 100%)',
+                boxShadow: '1px 0 0 rgba(203,213,225,0.7)',
               }}
             />
             <div style={{ position: 'relative', width: totalGridWidth, height: HEADER_MONTH_H }}>
@@ -2876,10 +2966,11 @@ export default function Scheduler({
                     width: ml.span * dayWidth,
                     height: HEADER_MONTH_H,
                     display: 'flex', alignItems: 'center',
-                    paddingLeft: 10, boxSizing: 'border-box',
-                    borderRight: '1px solid #eef2f7',
-                    color: '#64748b',
-                    fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase',
+                    paddingLeft: 12, boxSizing: 'border-box',
+                    borderRight: '1px solid #f1f5f9',
+                    color: '#475569',
+                    fontFamily: "'Space Grotesk', 'Inter', sans-serif",
+                    fontSize: 10.5, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase',
                   }}
                 >
                   {ml.label}
@@ -2894,22 +2985,32 @@ export default function Scheduler({
             style={{
               height: HEADER_DAY_H,
               position: 'sticky', top: HEADER_MONTH_H, zIndex: 30,
-              background: '#f8fafc',
-              borderBottom: '1px solid #e2e8f0',
+              background: 'linear-gradient(180deg, #ffffff 0%, #f6f8fc 100%)',
+              borderBottom: '1px solid #d8e0ec',
             }}
           >
             <div
               style={{
                 width: CREW_COL_W, minWidth: CREW_COL_W, height: HEADER_DAY_H,
-                borderRight: '1px solid #e8edf3',
-                display: 'flex', alignItems: 'center',
+                borderRight: '1px solid #d8e0ec',
+                display: 'flex', alignItems: 'center', gap: 7,
                 paddingLeft: 14, flexShrink: 0,
                 position: 'sticky', left: 0, zIndex: 31,
-                background: '#f8fafc',
+                background: 'linear-gradient(180deg, #ffffff 0%, #f6f8fc 100%)',
+                boxShadow: '1px 0 0 rgba(203,213,225,0.7)',
               }}
             >
-              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: '#94a3b8' }}>
-                Crews
+              <span
+                style={{
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  width: 18, height: 18, borderRadius: 6,
+                  background: 'var(--brand-ring)', color: 'var(--brand-primary)',
+                }}
+              >
+                <Users style={{ width: 11, height: 11 }} />
+              </span>
+              <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.16em', textTransform: 'uppercase', color: '#475569' }}>
+                Roster
               </span>
             </div>
             <div style={{ position: 'relative', width: totalGridWidth, height: HEADER_DAY_H }}>
@@ -2917,7 +3018,8 @@ export default function Scheduler({
                 const d = parseDate(day);
                 const isToday   = day === todayISO;
                 const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-                const showLabel = view === 'week' || i % 3 === 0;
+                const showLabel = view !== 'month' || i % 3 === 0;
+                const isDayView = view === 'day';
                 return (
                   <div
                     key={day}
@@ -2925,32 +3027,32 @@ export default function Scheduler({
                       position: 'absolute',
                       left: i * dayWidth, width: dayWidth, height: HEADER_DAY_H,
                       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                      gap: 1,
-                      borderRight: '1px solid #eef2f7',
-                      backgroundColor: isToday ? 'var(--brand-ring)' : isWeekend ? 'rgba(148,163,184,0.06)' : undefined,
+                      gap: 2,
+                      borderRight: isWeekend ? '1px solid #eef2f7' : '1px solid #f1f5f9',
+                      backgroundColor: isToday ? 'var(--brand-ring)' : isWeekend ? 'rgba(148,163,184,0.07)' : undefined,
                       boxSizing: 'border-box',
                     }}
                   >
                     {showLabel && (
                       <>
-                        <span style={{ fontSize: 9, color: isToday ? 'var(--brand-primary)' : isWeekend ? '#cbd5e1' : '#94a3b8', fontWeight: isToday ? 700 : 500, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                          {d.toLocaleDateString('en-US', { weekday: 'narrow' })}
+                        <span style={{ fontSize: isDayView ? 10 : 9, color: isToday ? 'var(--brand-primary)' : isWeekend ? '#b6c0cf' : '#94a3b8', fontWeight: isToday ? 700 : 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                          {d.toLocaleDateString('en-US', { weekday: isDayView ? 'short' : 'narrow' })}
                         </span>
                         {isToday ? (
                           <span
                             style={{
                               display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              minWidth: 18, height: 18, padding: '0 5px',
+                              minWidth: 19, height: 19, padding: '0 5px',
                               borderRadius: 999,
                               background: 'var(--brand-primary)',
-                              color: '#fff', fontSize: 10, fontWeight: 700,
+                              color: '#fff', fontSize: 10.5, fontWeight: 700,
                               boxShadow: '0 2px 6px var(--brand-shadow)',
                             }}
                           >
                             {d.getDate()}
                           </span>
                         ) : (
-                          <span style={{ fontSize: 11, color: isWeekend ? '#cbd5e1' : '#475569', fontWeight: 600 }}>
+                          <span style={{ fontSize: 11.5, color: isWeekend ? '#b6c0cf' : '#334155', fontWeight: 600 }}>
                             {d.getDate()}
                           </span>
                         )}
@@ -2967,63 +3069,113 @@ export default function Scheduler({
             const crewBlocks = blocks.filter(b => b.crewId === crew.id);
             const color = crewColorMap.get(crew.id) ?? CREW_COLORS[0];
 
+            // Workload: fraction of working days in the visible window this crew
+            // is booked across its job blocks (clamped, read-only).
+            const workWindowDays = countWorkingDays(viewStart, windowEndISO) || totalDays;
+            const bookedDays = crewBlocks.reduce((sum, b) => {
+              if (b.type !== 'job') return sum;
+              const s = b.startDate < viewStart ? viewStart : b.startDate;
+              const endExcl = blockEndExclusive(b.startDate, b.durationDays, skipWeekends);
+              const eIncl = addDays(endExcl, -1);
+              const e = eIncl > windowEndISO ? windowEndISO : eIncl;
+              if (e < s) return sum;
+              return sum + countWorkingDays(s, e);
+            }, 0);
+            const workloadPct = Math.min(100, Math.round((bookedDays / Math.max(1, workWindowDays)) * 100));
+            const workloadColor = workloadPct >= 90 ? '#e11d48' : workloadPct >= 60 ? color : workloadPct > 0 ? color : '#cbd5e1';
+
+            // Live drop preview targeting this row (desktop drag or touch drag).
+            // Geometry mirrors the block render below so the placeholder sits
+            // exactly where the dragged block will land — to the day.
+            const preview = dragPreview && dragPreview.crewId === crew.id ? dragPreview : null;
+            const previewLeft = preview ? diffDays(preview.startDate, viewStart) * dayWidth : 0;
+            const previewSegs = preview
+              ? workingDayRuns(preview.startDate, preview.durationDays, skipWeekends).map(run => ({
+                  left:  run.offsetDays * dayWidth + BLOCK_MARGIN,
+                  width: Math.max(run.lengthDays * dayWidth - BLOCK_MARGIN * 2, 16),
+                }))
+              : [];
+            const previewColor = preview?.conflict ? '#e11d48' : color;
+
+            const memberNames = crew.memberIds.length > 0 && employeeList.length > 0
+              ? crew.memberIds
+                  .map(id => employeeList.find(e => e.id === id)?.name)
+                  .filter(Boolean) as string[]
+              : [];
+            const workerCount = crew.memberIds.length || crew.size;
+
             return (
-              <div key={crew.id} className="flex" style={{ height: ROW_HEIGHT }}>
-                {/* Sticky crew label */}
+              <div key={crew.id} className="dispatch-lane flex" style={{ height: ROW_HEIGHT }}>
+                {/* Sticky crew roster cell — designed identity card */}
                 <div
+                  className="dispatch-lane-cell"
                   style={{
                     width: CREW_COL_W, minWidth: CREW_COL_W, height: ROW_HEIGHT,
                     position: 'sticky', left: 0, zIndex: 20,
-                    background: ci % 2 === 0 ? '#ffffff' : '#fbfcfe',
-                    borderRight: '1px solid #e8edf3',
-                    borderBottom: '1px solid #eef2f7',
+                    background: `linear-gradient(90deg, ${color}1f 0%, ${color}0d 36%, ${ci % 2 === 0 ? '#ffffff' : '#f8fafd'} 78%), ${ci % 2 === 0 ? '#ffffff' : '#f8fafd'}`,
+                    borderRight: '1px solid #d8e0ec',
+                    borderBottom: '1px solid #e3e9f2',
+                    boxShadow: '1px 0 0 rgba(203,213,225,0.7)',
                     display: 'flex', alignItems: 'center',
-                    padding: '0 10px 0 14px', gap: 10,
+                    padding: '0 9px 0 16px', gap: 10,
                     flexShrink: 0,
                   }}
                 >
-                  {/* Crew avatar chip */}
+                  {/* Bold crew color identity band */}
                   <div
                     style={{
-                      width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+                      position: 'absolute', left: 0, top: 0, bottom: 0, width: 5,
+                      background: `linear-gradient(180deg, ${color}, color-mix(in srgb, ${color} 78%, black))`,
+                      boxShadow: `2px 0 8px ${color}40`,
+                    }}
+                  />
+                  {/* Crew avatar — solid color identity */}
+                  <div
+                    style={{
+                      width: 38, height: 38, borderRadius: 11, flexShrink: 0,
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      background: `${color}14`,
-                      border: `1px solid ${color}33`,
-                      color,
-                      fontSize: 14, fontWeight: 700,
+                      background: `linear-gradient(145deg, ${color}, color-mix(in srgb, ${color} 72%, black))`,
+                      boxShadow: `0 3px 8px ${color}55, inset 0 1px 0 rgba(255,255,255,0.35)`,
+                      color: '#fff',
+                      fontSize: 15, fontWeight: 800,
                       fontFamily: "'Space Grotesk', 'Inter', sans-serif",
+                      letterSpacing: '0.02em',
                     }}
                   >
                     {crew.name.trim().charAt(0).toUpperCase() || '?'}
                   </div>
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ color: '#1e293b', fontSize: 13, fontWeight: 600, lineHeight: 1.2, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
-                      {crew.name}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                      <span style={{ color: '#0f172a', fontSize: 13, fontWeight: 700, lineHeight: 1.15, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', letterSpacing: '-0.01em', fontFamily: "'Space Grotesk', 'Inter', sans-serif" }}>
+                        {crew.name}
+                      </span>
                     </div>
-                    {(() => {
-                      const memberNames = crew.memberIds.length > 0 && employeeList.length > 0
-                        ? crew.memberIds
-                            .map(id => employeeList.find(e => e.id === id)?.name)
-                            .filter(Boolean) as string[]
-                        : [];
-                      const workerCount = crew.memberIds.length || crew.size;
-                      return (
-                        <>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#94a3b8', fontSize: 10, fontWeight: 500, marginTop: 2 }}>
-                            <Users style={{ width: 10, height: 10, flexShrink: 0 }} />
-                            {workerCount} {workerCount === 1 ? 'worker' : 'workers'}
-                          </div>
-                          {memberNames.length > 0 && (
-                            <div
-                              style={{ color: '#94a3b8', fontSize: 9, marginTop: 1, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}
-                              title={memberNames.join(', ')}
-                            >
-                              {memberNames.slice(0, 2).join(', ')}{memberNames.length > 2 ? ` +${memberNames.length - 2}` : ''}
-                            </div>
-                          )}
-                        </>
-                      );
-                    })()}
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#64748b', fontSize: 9.5, fontWeight: 600, marginTop: 2 }}>
+                      <Users style={{ width: 9.5, height: 9.5, flexShrink: 0 }} />
+                      {workerCount} {workerCount === 1 ? 'worker' : 'workers'}
+                      {memberNames.length > 0 && (
+                        <span style={{ color: '#94a3b8', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', maxWidth: 56 }} title={memberNames.join(', ')}>
+                          · {memberNames[0].split(' ')[0]}{memberNames.length > 1 ? ` +${memberNames.length - 1}` : ''}
+                        </span>
+                      )}
+                    </div>
+                    {/* Workload meter — how booked this crew is in the window */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 5 }}>
+                      <div style={{ position: 'relative', flex: 1, height: 5, borderRadius: 999, background: '#e2e8f0', overflow: 'hidden', minWidth: 0 }}>
+                        <div
+                          className="dispatch-meter-fill"
+                          style={{
+                            position: 'absolute', left: 0, top: 0, bottom: 0,
+                            width: `${workloadPct}%`,
+                            borderRadius: 999,
+                            background: `linear-gradient(90deg, ${workloadColor}, color-mix(in srgb, ${workloadColor} 70%, white))`,
+                          }}
+                        />
+                      </div>
+                      <span style={{ fontSize: 9, fontWeight: 800, color: workloadPct >= 90 ? '#e11d48' : '#64748b', fontVariantNumeric: 'tabular-nums', minWidth: 24, textAlign: 'right' }}>
+                        {workloadPct}%
+                      </span>
+                    </div>
                   </div>
                   {/* Per-crew delay button */}
                   <button
@@ -3034,18 +3186,19 @@ export default function Scheduler({
                     aria-label={`Add delay to ${crew.name}'s schedule`}
                     style={{
                       flexShrink: 0,
-                      width: 24, height: 24,
-                      borderRadius: 7,
-                      background: hoverDelayCrewId === crew.id ? 'rgba(245,158,11,0.14)' : '#f1f5f9',
-                      border: `1px solid ${hoverDelayCrewId === crew.id ? 'rgba(245,158,11,0.4)' : '#e2e8f0'}`,
+                      width: 26, height: 26,
+                      borderRadius: 8,
+                      background: hoverDelayCrewId === crew.id ? 'rgba(245,158,11,0.16)' : 'rgba(255,255,255,0.7)',
+                      border: `1px solid ${hoverDelayCrewId === crew.id ? 'rgba(245,158,11,0.45)' : '#dce3ee'}`,
                       cursor: 'pointer',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       color: hoverDelayCrewId === crew.id ? '#d97706' : '#94a3b8',
                       padding: 0,
-                      transition: 'background 0.15s, color 0.15s, border-color 0.15s',
+                      transition: 'background 0.15s, color 0.15s, border-color 0.15s, transform 0.1s',
+                      transform: hoverDelayCrewId === crew.id ? 'scale(1.06)' : undefined,
                     }}
                   >
-                    <Clock style={{ width: 12, height: 12 }} />
+                    <Clock style={{ width: 13, height: 13 }} />
                   </button>
                 </div>
 
@@ -3054,16 +3207,27 @@ export default function Scheduler({
                   style={{
                     position: 'relative',
                     width: totalGridWidth, height: ROW_HEIGHT,
-                    background: ci % 2 === 0 ? '#ffffff' : '#fafbfd',
-                    borderBottom: '1px solid #eef2f7',
+                    background: preview
+                      ? (preview.conflict
+                          ? 'rgba(225,29,72,0.06)'
+                          : `color-mix(in srgb, ${color} 9%, ${ci % 2 === 0 ? '#ffffff' : '#f6f8fc'})`)
+                      : ci % 2 === 0
+                        ? `linear-gradient(90deg, ${color}07 0%, #ffffff 22%)`
+                        : `linear-gradient(90deg, ${color}09 0%, #f6f8fc 22%)`,
+                    borderBottom: '1px solid #e3e9f2',
+                    transition: 'background 0.12s ease',
                   }}
-                  onDragOver={editMode ? handleDragOver : undefined}
+                  onDragOver={editMode ? e => handleDragOver(e, crew.id) : undefined}
                   onDrop={editMode ? e => handleDrop(e, crew.id) : undefined}
                 >
-                  {/* Day cells (grid lines + weekend shading + today column) */}
+                  {/* Day cells (grid lines + weekend shading + today column).
+                      Weekend columns get a touch of shade; weekday gridlines are
+                      lighter than week boundaries so the eye reads weeks cleanly. */}
                   {days.map((day, i) => {
-                    const isWeekend = [0, 6].includes(parseDate(day).getDay());
+                    const dow = parseDate(day).getDay();
+                    const isWeekend = dow === 0 || dow === 6;
                     const isToday   = day === todayISO;
+                    const isWeekStart = dow === 1; // Monday — slightly stronger divider
                     return (
                       <div
                         key={day}
@@ -3071,10 +3235,10 @@ export default function Scheduler({
                           position: 'absolute',
                           left: i * dayWidth, top: 0,
                           width: dayWidth, height: ROW_HEIGHT,
-                          borderRight: '1px solid #eef2f7',
+                          borderRight: isWeekStart ? '1px solid #d4ddea' : '1px solid #e6ecf5',
                           backgroundColor: isToday
                             ? 'var(--brand-ring)'
-                            : isWeekend ? 'rgba(148,163,184,0.05)' : undefined,
+                            : isWeekend ? 'rgba(100,116,139,0.07)' : undefined,
                           boxSizing: 'border-box',
                           pointerEvents: 'none',
                         }}
@@ -3082,17 +3246,86 @@ export default function Scheduler({
                     );
                   })}
 
-                  {/* Today line */}
+                  {/* Today line — a slim brand-tinted rule. The pin marker on the
+                      first row keeps it elegant without shouting red across rows. */}
                   {todayOffset >= 0 && todayOffset <= totalGridWidth && (
-                    <div
-                      style={{
-                        position: 'absolute', left: todayOffset,
-                        top: 0, width: 2, height: ROW_HEIGHT,
-                        background: 'linear-gradient(180deg, #f43f5e, #e11d48)',
-                        boxShadow: '0 0 6px rgba(244,63,94,0.5)',
-                        zIndex: 8, pointerEvents: 'none',
-                      }}
-                    />
+                    <>
+                      <div
+                        style={{
+                          position: 'absolute', left: todayOffset - 0.5,
+                          top: 0, width: 2, height: ROW_HEIGHT,
+                          background: 'var(--brand-primary)',
+                          opacity: 0.9,
+                          zIndex: 8, pointerEvents: 'none',
+                        }}
+                      />
+                      {ci === 0 && (
+                        <div
+                          style={{
+                            position: 'absolute', left: todayOffset - 4.5,
+                            top: -3, width: 9, height: 9, borderRadius: '50%',
+                            background: 'var(--brand-primary)',
+                            boxShadow: '0 0 0 2px #fff, 0 1px 4px var(--brand-shadow)',
+                            zIndex: 9, pointerEvents: 'none',
+                          }}
+                        />
+                      )}
+                    </>
+                  )}
+
+                  {/* Live drop preview — a translucent placeholder at the snapped
+                      target day, plus a vertical snap guide, so the landing spot
+                      is obvious before release. Drawn under the dragged source. */}
+                  {preview && (
+                    <>
+                      {/* Vertical snap guide at the target start column */}
+                      <div
+                        style={{
+                          position: 'absolute',
+                          left: previewLeft - 1, top: 0,
+                          width: 2, height: ROW_HEIGHT,
+                          background: previewColor,
+                          opacity: 0.55,
+                          zIndex: 6, pointerEvents: 'none',
+                        }}
+                      />
+                      {previewSegs.map((seg, i) => (
+                        <div
+                          key={i}
+                          aria-hidden="true"
+                          style={{
+                            position: 'absolute',
+                            left: previewLeft + seg.left,
+                            top: BLOCK_MARGIN,
+                            width: seg.width,
+                            height: ROW_HEIGHT - BLOCK_MARGIN * 2,
+                            borderRadius: 9,
+                            background: `color-mix(in srgb, ${previewColor} 16%, transparent)`,
+                            border: `2px dashed color-mix(in srgb, ${previewColor} 75%, transparent)`,
+                            boxShadow: `0 0 0 1px color-mix(in srgb, ${previewColor} 18%, transparent)`,
+                            boxSizing: 'border-box',
+                            zIndex: 6,
+                            pointerEvents: 'none',
+                            display: 'flex', alignItems: 'center', justifyContent: 'flex-start',
+                            padding: '0 10px',
+                          }}
+                        >
+                          {i === 0 && seg.width > 54 && (
+                            <span
+                              style={{
+                                fontSize: 10, fontWeight: 800, letterSpacing: '0.02em',
+                                color: previewColor,
+                                background: 'rgba(255,255,255,0.78)',
+                                borderRadius: 6, padding: '1px 6px',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {preview.conflict ? '⚠ ' : ''}{fmtShort(preview.startDate)}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </>
                   )}
 
                   {/* Job/Delay blocks */}
@@ -3121,6 +3354,7 @@ export default function Scheduler({
                         segments={segments}
                         color={color}
                         isDragging={draggingId === block.id}
+                        isSettled={settledId === block.id}
                         isAdmin={isAdmin}
                         editMode={editMode}
                         onDelete={() => dispatchWithHistory({ type: 'DELETE_BLOCK', id: block.id })}
@@ -3157,73 +3391,142 @@ export default function Scheduler({
               </div>
             );
           })}
+
+          {/* Empty state — no crews yet. Friendly prompt sits below the headers,
+              pinned within the visible viewport so it reads even when scrolled. */}
+          {crewsState.length === 0 && (
+            <div
+              style={{
+                position: 'sticky', left: 0,
+                width: 'min(100%, 520px)',
+                margin: '0 auto',
+                padding: '52px 24px 64px',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center',
+              }}
+            >
+              <div
+                style={{
+                  width: 56, height: 56, borderRadius: 16,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: 'var(--brand-ring)',
+                  border: '1px solid var(--brand-shadow)',
+                  marginBottom: 16,
+                }}
+              >
+                <Users className="text-brand" style={{ width: 26, height: 26 }} />
+              </div>
+              <h3 className="font-display" style={{ fontSize: 17, fontWeight: 600, color: '#0f172a', margin: 0 }}>
+                No crews on the board yet
+              </h3>
+              <p style={{ fontSize: 13, color: '#64748b', margin: '8px 0 0', maxWidth: 360, lineHeight: 1.5 }}>
+                Add a crew to start scheduling jobs. Each crew gets its own lane on
+                the timeline where you can drag, drop, and extend work.
+              </p>
+              {isAdmin && (
+                <button
+                  onClick={() => setShowManageCrews(true)}
+                  className="bg-brand"
+                  style={{
+                    marginTop: 20,
+                    display: 'inline-flex', alignItems: 'center', gap: 7,
+                    color: '#fff', fontSize: 13, fontWeight: 600,
+                    padding: '9px 18px', borderRadius: 12, border: 'none', cursor: 'pointer',
+                    boxShadow: '0 4px 14px var(--brand-shadow)',
+                  }}
+                >
+                  <Plus style={{ width: 16, height: 16 }} /> Add your first crew
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
       {/* ─── Overlays ─── */}
-      {tooltip && <BlockTooltip tip={tooltip} skipWeekends={skipWeekends} />}
+      {tooltip && !draggingId && !resizingId && <BlockTooltip tip={tooltip} skipWeekends={skipWeekends} />}
 
-      {/* Touch drag ghost */}
-      {touchGhostPos && touchDragRef.current && (
-        <div
-          aria-hidden="true"
-          style={{
-            position: 'fixed',
-            left: touchGhostPos.x - 24,
-            top:  touchGhostPos.y - 20,
-            background: touchDragRef.current.color,
-            color: '#fff',
-            borderRadius: 8,
-            padding: '5px 10px',
-            fontSize: 12,
-            fontWeight: 700,
-            pointerEvents: 'none',
-            zIndex: 9999,
-            opacity: 0.9,
-            boxShadow: '0 6px 24px rgba(0,0,0,0.4)',
-            whiteSpace: 'nowrap',
-            maxWidth: 160,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-          }}
-        >
-          {touchDragRef.current.label}
-        </div>
-      )}
-
-      {/* Equipment touch-drag ghost (mobile) */}
-      {equipTouchGhostPos && equipTouchActiveId !== null && (() => {
-        const eq = equipmentList.find(e => e.id === equipTouchActiveId);
-        const onBlock = equipDragOverBlockId !== null;
+      {/* Resize floating label — live new duration + end date near the cursor */}
+      {resizingId && resizeCursor && (() => {
+        const rb = blocks.find(b => b.id === resizingId);
+        if (!rb) return null;
+        const newDuration = rb.durationDays + resizeDeltaDays;
+        const endISO = skipWeekends
+          ? nthWorkingDay(rb.startDate, newDuration)
+          : addDays(rb.startDate, newDuration - 1);
         return (
           <div
             aria-hidden="true"
             style={{
               position: 'fixed',
-              left: equipTouchGhostPos.x + 14,
-              top:  equipTouchGhostPos.y + 14,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              background: onBlock ? '#2563eb' : '#1e293b',
+              left: resizeCursor.x + 16,
+              top:  resizeCursor.y - 44,
+              background: '#0a142d',
               color: '#fff',
-              borderRadius: 999,
-              padding: '6px 12px',
-              fontSize: 12,
-              fontWeight: 700,
+              borderRadius: 10,
+              padding: '7px 11px',
+              fontSize: 11,
+              fontWeight: 600,
               pointerEvents: 'none',
               zIndex: 9999,
-              boxShadow: '0 6px 24px rgba(0,0,0,0.4)',
+              boxShadow: '0 8px 28px rgba(0,0,0,0.4)',
+              border: '1px solid rgba(255,255,255,0.12)',
               whiteSpace: 'nowrap',
-              transform: 'rotate(3deg)',
-              transition: 'background 0.1s',
             }}
           >
-            <Wrench style={{ width: 12, height: 12, flexShrink: 0 }} />
-            {eq?.name ?? 'Equipment'}
+            <span style={{ color: '#5eead4', fontWeight: 800 }}>
+              {newDuration} {skipWeekends ? 'working ' : ''}day{newDuration !== 1 ? 's' : ''}
+            </span>
+            {resizeDeltaDays > 0 && (
+              <span style={{ color: '#94a3b8', marginLeft: 6 }}>(+{resizeDeltaDays})</span>
+            )}
+            <div style={{ color: '#cbd5e1', marginTop: 2, fontWeight: 500 }}>
+              Ends {fmtLong(endISO)}
+            </div>
           </div>
         );
       })()}
+
+      {/* Touch drag ghost — a clearer floating chip that follows the finger and
+          shows the snapped target date so the landing reads at a glance. */}
+      {touchGhostPos && touchDragRef.current && (
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'fixed',
+            left: touchGhostPos.x - 30,
+            top:  touchGhostPos.y - 54,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-start',
+            gap: 3,
+            background: dragPreview?.conflict ? '#e11d48' : touchDragRef.current.color,
+            color: '#fff',
+            borderRadius: 10,
+            padding: '7px 12px',
+            fontSize: 13,
+            fontWeight: 800,
+            pointerEvents: 'none',
+            zIndex: 9999,
+            opacity: 0.96,
+            boxShadow: '0 10px 30px rgba(0,0,0,0.45)',
+            border: '1.5px solid rgba(255,255,255,0.35)',
+            whiteSpace: 'nowrap',
+            maxWidth: 190,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            transform: 'scale(1.02)',
+          }}
+        >
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 166 }}>
+            {touchDragRef.current.label}
+          </span>
+          {dragPreview && (
+            <span style={{ fontSize: 10.5, fontWeight: 600, opacity: 0.95 }}>
+              {dragPreview.conflict ? '⚠ ' : '→ '}{fmtShort(dragPreview.startDate)}
+            </span>
+          )}
+        </div>
+      )}
 
       {ctxMenu && (
         <CtxMenu
