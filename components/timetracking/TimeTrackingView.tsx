@@ -116,6 +116,8 @@ export default function TimeTrackingView({ sessionUser, jobs, company, isDarkMod
           employees={employees}
           clockableJobs={clockableJobs}
           isDarkMode={isDarkMode}
+          canFileReport={isAdmin || isForeman}
+          onOpenDailyReport={() => setTab('reports')}
         />
       )}
       {tab === 'reports' && (isAdmin || isForeman) && (
