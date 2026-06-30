@@ -9,7 +9,22 @@ import { computeTotals } from './scheduling/costUtils.ts';
 import { jobInvoiceService } from '../services/jobInvoiceService.ts';
 import { scheduleService } from '../services/scheduleService.ts';
 import { apiService } from '../services/apiService.ts';
+import { timeTrackingService } from '../services/timeTrackingService.ts';
 import { TimeEntry, entryRoundedHours } from '../services/timeTrackingTypes.ts';
+
+// Group a set of time entries into crew line items: one row per employee with
+// hours summed and rate resolved from the employee catalog.
+const aggregateCrew = (entries: TimeEntry[], employees: Employee[], fallback: CrewLine[] = []): CrewLine[] => {
+  const byEmp = new Map<number, CrewLine>();
+  for (const e of entries) {
+    const rate = employees.find(em => em.id === e.employeeId)?.hourlyRate
+      ?? fallback.find(c => c.employeeId === e.employeeId)?.rate ?? 0;
+    const prev = byEmp.get(e.employeeId) ?? { employeeId: e.employeeId, hours: 0, rate };
+    prev.hours += entryRoundedHours(e);
+    byEmp.set(e.employeeId, prev);
+  }
+  return Array.from(byEmp.values());
+};
 
 type CrewLine = WorkLogEntry['employees'][number];
 type EquipLine = WorkLogEntry['equipment'][number];
@@ -60,14 +75,16 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
   const [address, setAddress] = useState(prefill.address);
   const [invoiceDate, setInvoiceDate] = useState(toISODate(new Date()));
 
+  // This job's dig-job time entries. Seeded from what JobHub passed in, but the
+  // modal re-fetches them directly on mount so it never depends on JobHub having
+  // finished (or succeeded at) loading time entries before the invoice opened.
+  const [jobEntries, setJobEntries] = useState<TimeEntry[]>(prefill.timeEntries);
+
   // Work-date range over which crew hours are pulled (a time entry's clock-in day).
   // Defaults to the full span of the job's logged entries.
-  const workDays = useMemo(
-    () => prefill.timeEntries.map(e => e.clockedInAt.slice(0, 10)).sort(),
-    [prefill.timeEntries],
-  );
-  const [workFrom, setWorkFrom] = useState(workDays[0] ?? '');
-  const [workTo, setWorkTo] = useState(workDays[workDays.length - 1] ?? '');
+  const seedDays = prefill.timeEntries.map(e => e.clockedInAt.slice(0, 10)).sort();
+  const [workFrom, setWorkFrom] = useState(seedDays[0] ?? '');
+  const [workTo, setWorkTo] = useState(seedDays[seedDays.length - 1] ?? '');
 
   // ── catalogs + branding + history (loaded on mount) ─────────────────────────
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -84,11 +101,12 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
   useEffect(() => {
     let alive = true;
     (async () => {
-      const [emps, items, settings, invs] = await Promise.all([
+      const [emps, items, settings, invs, entries] = await Promise.all([
         scheduleService.getEmployees().catch(() => [] as Employee[]),
         apiService.getInventoryItems().catch(() => [] as InventoryItem[]),
         scheduleService.getInvoiceSettings().catch(() => null),
         jobInvoiceService.listByJob(job.id).catch(() => [] as JobInvoice[]),
+        timeTrackingService.listEntries().catch(() => [] as TimeEntry[]),
       ]);
       if (!alive) return;
       setEmployees(emps);
@@ -98,6 +116,18 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
       setMatCatalog(items.filter(i => i.itemType === InventoryItemType.MATERIAL));
       if (settings) setBranding(settings);
       setHistory(invs);
+
+      // Authoritative time entries for this dig job, fetched directly.
+      const digEntries = entries.filter(e => e.jobKind === 'dig' && e.jobRef === job.id);
+      setJobEntries(digEntries);
+      if (digEntries.length > 0) {
+        const days = digEntries.map(e => e.clockedInAt.slice(0, 10)).sort();
+        setWorkFrom(days[0]);
+        setWorkTo(days[days.length - 1]);
+        // Seed crew from the full span only when nothing has been entered yet, so
+        // a slow/empty JobHub prefill no longer leaves the invoice blank.
+        setCrew(prev => (prev.length === 0 ? aggregateCrew(digEntries, emps) : prev));
+      }
     })();
     return () => { alive = false; };
   }, [job.id, companyId]);
@@ -108,19 +138,11 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
   // Re-pull crew lines from the time entries whose work day falls in [workFrom, workTo],
   // grouped by employee with hours summed and rate from the employee record.
   const pullCrewFromWorkDates = () => {
-    const inRange = prefill.timeEntries.filter(e => {
+    const inRange = jobEntries.filter(e => {
       const d = e.clockedInAt.slice(0, 10);
       return (!workFrom || d >= workFrom) && (!workTo || d <= workTo);
     });
-    const byEmp = new Map<number, CrewLine>();
-    for (const e of inRange) {
-      const rate = employees.find(em => em.id === e.employeeId)?.hourlyRate
-        ?? crew.find(c => c.employeeId === e.employeeId)?.rate ?? 0;
-      const prev = byEmp.get(e.employeeId) ?? { employeeId: e.employeeId, hours: 0, rate };
-      prev.hours += entryRoundedHours(e);
-      byEmp.set(e.employeeId, prev);
-    }
-    setCrew(Array.from(byEmp.values()));
+    setCrew(aggregateCrew(inRange, employees, crew));
   };
 
   // ── totals ──────────────────────────────────────────────────────────────────
@@ -253,12 +275,12 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
                 <label className={`text-[9px] font-black uppercase tracking-widest ${subtle}`}>Work To</label>
                 <input type="date" value={workTo} onChange={e => setWorkTo(e.target.value)} className={`${inputCls} w-full`} />
               </div>
-              <button onClick={pullCrewFromWorkDates} disabled={prefill.timeEntries.length === 0}
+              <button onClick={pullCrewFromWorkDates} disabled={jobEntries.length === 0}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand text-[#0f172a] text-[9px] font-black uppercase tracking-widest disabled:opacity-40">
                 <Clock size={12} /> Pull Hours
               </button>
               <span className={`text-[9px] font-bold ${subtle}`}>
-                {prefill.timeEntries.length === 0 ? 'No time logged on this job' : `${prefill.timeEntries.length} entr${prefill.timeEntries.length === 1 ? 'y' : 'ies'} logged`}
+                {jobEntries.length === 0 ? 'No time logged on this job' : `${jobEntries.length} entr${jobEntries.length === 1 ? 'y' : 'ies'} logged`}
               </span>
             </div>
             {crew.length === 0 ? <p className={`text-[11px] italic ${subtle}`}>No crew lines.</p> : (
