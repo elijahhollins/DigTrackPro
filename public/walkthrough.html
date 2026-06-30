@@ -320,14 +320,14 @@
       <li><a href="#tickets">Tickets Dashboard</a></li>
       <li><a href="#ai-scanning">AI Ticket Scanning</a></li>
       <li><a href="#status">Status, Refresh &amp; No-Show</a></li>
-      <li><a href="#schedule">Schedule (Calendar)</a></li>
+      <li><a href="#schedule">Calendar</a></li>
       <li><a href="#map">Map</a></li>
       <li><a href="#field-docs">Field Docs</a></li>
-      <li><a href="#jobs">Jobs</a></li>
-      <li><a href="#as-built">As Built (PDF Markup)</a></li>
-      <li><a href="#crew">Crew / Team Management</a></li>
+      <li><a href="#jobs">Jobs (Job Hub)</a></li>
+      <li><a href="#as-built">Documents (PDF Markup)</a></li>
+      <li><a href="#crew">Settings / Team Management</a></li>
       <li><a href="#inbound">Inbound Tickets</a></li>
-      <li><a href="#field-ops">Field Ops (Scheduling)</a></li>
+      <li><a href="#field-ops">Operations (Scheduling)</a></li>
       <li><a href="#time">Time Tracker</a></li>
       <li><a href="#inventory">Inventory</a></li>
       <li><a href="#settings">Settings &amp; Branding</a></li>
@@ -373,7 +373,7 @@
     <h2>2. The Interface &amp; Navigation</h2>
     <ul>
       <li>The <strong>top-left header</strong> shows your <strong>company name</strong> (falls back to "DigTrack Pro" if none).</li>
-      <li><strong>Navigation tabs</strong> switch between views. Core tabs are always present; optional-module tabs appear only when an admin enables them: <strong>Tickets · Schedule · Map · Field Docs · Crew · As Built</strong>, plus <strong>Field Ops · Time · Inventory</strong> when on.</li>
+      <li><strong>Navigation tabs</strong> switch between views. Core tabs are always present; optional-module tabs appear only when an admin enables them: <strong>Tickets · Calendar · Map · Field Docs · Jobs · Documents · Settings</strong>, plus <strong>Operations · Time · Inventory</strong> when on.</li>
       <li><strong>Dark / Light mode</strong> — toggle in the header; your choice is remembered per device.</li>
       <li><strong>Document viewer</strong> — clicking a ticket's document number opens the scanned PDF/image in an in-app viewer.</li>
       <li>The current view is stored in the URL hash (e.g. <code>#map</code>), so you can bookmark or share a deep link, and browser back/forward work.</li>
@@ -461,10 +461,10 @@
     <p>Open a ticket's <strong>Notes</strong> to add timestamped, attributed comments visible to the team — useful for field updates and coordination.</p>
   </div>
 
-  <!-- 6. SCHEDULE -->
+  <!-- 6. CALENDAR -->
   <div class="section" id="schedule">
-    <h2>6. Schedule (Calendar)</h2>
-    <p>The <strong>Schedule</strong> tab is a calendar view of your tickets by date.</p>
+    <h2>6. Calendar</h2>
+    <p>The <strong>Calendar</strong> tab is a calendar view of your tickets by date.</p>
     <ul>
       <li>See tickets laid out on their <strong>work dates</strong>, color-coded by status.</li>
       <li>Click a ticket to <strong>edit</strong> it, <strong>view its document</strong>, <strong>jump to it in the dashboard</strong>, or <strong>manage a no-show</strong>.</li>
@@ -497,25 +497,50 @@
     <p>Use this for site conditions, damage documentation, completed work, and any field paperwork.</p>
   </div>
 
-  <!-- 9. JOBS -->
+  <!-- 9. JOBS (JOB HUB) -->
   <div class="section" id="jobs">
-    <h2>9. Jobs</h2>
-    <p>The <strong>Jobs</strong> tab reviews work organized by job rather than by ticket.</p>
+    <h2>9. Jobs (Job Hub)</h2>
+    <p>The <strong>Jobs</strong> tab is a master-detail command center for every job on your account.</p>
+
+    <h3>Job list (left panel)</h3>
     <ul>
-      <li>See each job's customer, address, and roll-up of its tickets/status.</li>
-      <li>Open a <strong>job summary</strong>, jump to its tickets, or view associated documents.</li>
-      <li>Admins can mark jobs complete (completed jobs drop off the active ticket dashboard).</li>
+      <li>Search jobs by number, name, or address; toggle <strong>Hide Completed</strong> to focus on active work.</li>
+      <li>Each row shows a ticket-health dot (green / amber / red) so you can spot jobs that need attention at a glance.</li>
+      <li>Admins can create a new job from the <strong>+ New Job</strong> button.</li>
+    </ul>
+
+    <h3>Job detail panel (right panel)</h3>
+    <p>Selecting a job opens the command center. Everything about a job is visible — and editable for admins — in one place:</p>
+    <ul>
+      <li><strong>Header</strong> — job number, <strong>Job Name</strong>, <strong>Site Contact</strong>, <strong>Customer</strong> (inline-editable by admins), address, and completion status. Admins can <strong>Edit</strong>, <strong>Mark Complete</strong>, or <strong>Delete</strong> from here.</li>
+      <li><strong>Quick stats</strong> — active ticket count, tickets needing attention, total hours logged, and total labor cost.</li>
+      <li><strong>Ticket health</strong> — a breakdown by status (valid, expiring, refresh needed, expired) with a clickable active-ticket list; click any ticket to open its document.</li>
+      <li><strong>Blueprint / PDF</strong> — upload a plan PDF or open an existing one directly in the <strong>PDF markup editor</strong>.</li>
+      <li><strong>Cost codes</strong> — assign or remove cost codes for this job (admin only).</li>
+      <li><strong>Crew &amp; equipment on site</strong> — who is currently clocked in and what equipment is assigned.</li>
+      <li><strong>Material orders &amp; recent inventory movements</strong> — materials consumed or transferred for this job.</li>
+      <li><strong>Hours worked</strong> — per crew-member breakdown of time logged.</li>
+      <li><strong>Scheduled blocks</strong> — work blocks from the Operations scheduler tied to this job.</li>
+      <li><strong>Activity timeline</strong> — a merged chronological feed of all recent events (tickets, time entries, notes, movements).</li>
+      <li><strong>Field Docs</strong> — shortcut to the job's photo/document gallery.</li>
+    </ul>
+
+    <h3>Job Name vs Site Contact</h3>
+    <p>Jobs now carry two separate identity fields:</p>
+    <ul>
+      <li><strong>Job Name</strong> — a user-entered label for the project (e.g. "Main St Water Main").</li>
+      <li><strong>Site Contact</strong> — the on-site point of contact extracted from the ticket or entered manually (separate from the job/client name).</li>
     </ul>
   </div>
 
-  <!-- 10. AS BUILT -->
+  <!-- 10. DOCUMENTS (AS BUILT) -->
   <div class="section" id="as-built">
-    <h2>10. As Built (PDF Markup)</h2>
-    <p>The <strong>As Built</strong> tab manages job <strong>prints</strong> (plan PDFs) and lets you mark them up — turning plans into red-lined as-builts.</p>
+    <h2>10. Documents (PDF Markup)</h2>
+    <p>The <strong>Documents</strong> tab manages job <strong>prints</strong> (plan PDFs) and lets you mark them up — turning plans into red-lined as-builts.</p>
 
     <h3>Manage prints</h3>
     <ol class="steps">
-      <li>Find a job (search by job number, customer, or address). By default jobs <strong>without</strong> PDFs are hidden — toggle that off to see all.</li>
+      <li>Find a job (search by job number, name, or address). By default jobs <strong>without</strong> PDFs are hidden — toggle that off to see all.</li>
       <li><strong>Upload</strong> a plan PDF to a job. <strong>Pin</strong> important prints to keep them at the top.</li>
     </ol>
 
@@ -533,10 +558,10 @@
     <p>Annotations save per page with your name and timestamp, so the whole team sees the same marked-up set. You can also drop <strong>ticket markers</strong> onto a print to tie a locate ticket to a spot on the plan.</p>
   </div>
 
-  <!-- 11. CREW -->
+  <!-- 11. SETTINGS / TEAM MANAGEMENT -->
   <div class="section" id="crew">
-    <h2>11. Crew / Team Management</h2>
-    <p>The <strong>Crew</strong> tab is where admins manage people and company settings. (Crew members see a read-only version.)</p>
+    <h2>11. Settings / Team Management</h2>
+    <p>The <strong>Settings</strong> tab is where admins manage people and company settings. (Crew members see a read-only version.)</p>
 
     <h3>Manage users (Admin)</h3>
     <ul>
@@ -554,7 +579,7 @@
     </ul>
 
     <h3>Company &amp; module settings (Admin)</h3>
-    <p>From here admins toggle the <strong>optional modules</strong> for the company: <strong>Inbound Tickets</strong>, <strong>Field Ops (Scheduling)</strong>, <strong>Time Tracker</strong>, and <strong>Inventory</strong>.</p>
+    <p>From here admins toggle the <strong>optional modules</strong> for the company: <strong>Inbound Tickets</strong>, <strong>Operations (Scheduling)</strong>, <strong>Time Tracker</strong>, and <strong>Inventory</strong>.</p>
 
     <h3>Super Admin</h3>
     <p>A <strong>Super Admin</strong> additionally sees a company-management panel to <strong>create companies</strong>, <strong>activate/deactivate</strong> them, and toggle <strong>each company's</strong> modules — useful for running DigTrack Pro across multiple organizations.</p>
@@ -586,15 +611,35 @@
     </ul>
   </div>
 
-  <!-- 13. FIELD OPS -->
+  <!-- 13. OPERATIONS (SCHEDULING) -->
   <div class="section" id="field-ops">
-    <h2>13. Field Ops (Scheduling) <span class="module-tag">Optional module</span></h2>
-    <p>Enable via company settings. A dispatch board for crews, equipment, and materials, with work logs and invoicing. The <strong>Field Ops</strong> tab has four sub-tabs:</p>
+    <h2>13. Operations (Scheduling) <span class="module-tag">Optional module</span></h2>
+    <p>Enable via company settings. A dispatch board for crews, equipment, and materials, with work logs and invoicing. The <strong>Operations</strong> tab has four sub-tabs:</p>
 
     <h3>Board</h3>
     <ul>
       <li>A <strong>Gantt-style dispatch board</strong>: schedule blocks for crews against jobs across a timeline.</li>
-      <li>Your existing DigTrack jobs are auto-offered as schedulable jobs (you can also add ad-hoc ones).</li>
+      <li>Your existing DigTrack jobs are auto-offered as schedulable jobs — start typing to <strong>live-search</strong> by job number, name, or address when adding a block (you can also add ad-hoc jobs).</li>
+      <li>The board <strong>opens on today</strong> by default, scrolled so the current day is visible. Use <strong>Today</strong> to jump back at any time.</li>
+      <li>Job info (number, location, duration) is shown on <strong>every block segment</strong>, including continuation segments that span a weekend, so each piece of a split job is always identifiable.</li>
+    </ul>
+
+    <h3>Weekend skipping (Mon–Fri mode)</h3>
+    <ul>
+      <li>The board defaults to <strong>Mon–Fri mode</strong>: job durations are counted in <strong>working days</strong>, not calendar days, and Saturdays and Sundays are visually compressed. A 5-day job starting Monday ends on Friday.</li>
+      <li>New and dragged blocks automatically snap off weekends onto the next weekday.</li>
+      <li>Delays, extends, crew pushes, overlap detection, and conflict cascades all advance by working days.</li>
+      <li>Switch to <strong>7-Day mode</strong> via the <strong>Mon–Fri / 7-Day</strong> toolbar toggle when you need to schedule a weekend crew. Your preference is persisted.</li>
+      <li>The <strong>Add Job</strong>, <strong>Insert Delay</strong>, and <strong>Extend Job</strong> dialogs label duration fields as <strong>Working Days</strong> (when Mon–Fri is on) and show a live end-date preview so the count is trustworthy at a glance.</li>
+    </ul>
+
+    <h3>CSV / spreadsheet import</h3>
+    <ul>
+      <li>Click <strong>Import</strong> in the board toolbar to bulk-load a schedule from a <strong>CSV, XLSX, or XLS</strong> file.</li>
+      <li>Flexible column matching for crew, job number, location, start date, and duration (days). US- and ISO-style dates are both supported, as are native Excel date cells.</li>
+      <li>A preview table validates each row and flags rows that will create a new crew or job entry, and skips rows missing required data.</li>
+      <li>On import, new crews and jobs are created automatically; start dates snap off weekends when Mon–Fri mode is on. The whole import is one undo step.</li>
+      <li>Download the built-in <strong>template</strong> from the import modal to get started.</li>
     </ul>
 
     <h3>Resources</h3>
@@ -644,6 +689,7 @@
       <li>Add <strong>Equipment</strong> (unit number, type, year/make/model, serial, VIN, license plate, asset tag, odometer, service dates, hourly rate) or <strong>Materials</strong> (quantity + unit).</li>
       <li>Move items with tracked <strong>movements</strong>: <strong>Check Out / Check In</strong> (to/from a location), <strong>Transfer</strong> (location → location), <strong>Assign / Return</strong> (to/from a person), and <strong>Consume</strong> (draw down material quantity).</li>
       <li>Each item shows its <strong>current location, job, or assignee</strong> at a glance.</li>
+      <li><strong>Column sorting:</strong> click the <strong>Name</strong>, <strong>Type</strong>, <strong>Location/Assignee</strong>, or <strong>Unit #</strong> column headers to sort ascending; click again to toggle descending. The active sort column is highlighted. Unit numbers sort numerically (e.g. 1b, 2, 10, 22b) so they order correctly even with alphanumeric IDs.</li>
     </ul>
 
     <h3>Locations</h3>
@@ -661,8 +707,8 @@
     <h2>16. Settings, Notifications &amp; Branding</h2>
     <ul>
       <li><strong>Branding:</strong> the company <strong>brand color</strong> chosen at registration themes the entire UI; the company name shows in the header. Admins can update company details (name, city, state, phone).</li>
-      <li><strong>Email alerts:</strong> refresh requests (and other key events) email everyone with a configured <strong>notification email</strong>. Set these per user in <strong>Crew</strong>, and verify delivery with <strong>Test Email</strong>.</li>
-      <li><strong>Module toggles:</strong> admins switch Inbound, Field Ops, Time, and Inventory on/off per company; super admins do this across all companies.</li>
+      <li><strong>Email alerts:</strong> refresh requests (and other key events) email everyone with a configured <strong>notification email</strong>. Set these per user in the <strong>Settings</strong> tab, and verify delivery with <strong>Test Email</strong>.</li>
+      <li><strong>Module toggles:</strong> admins switch Inbound, Operations, Time, and Inventory on/off per company; super admins do this across all companies.</li>
       <li><strong>Dark/Light mode:</strong> per-device preference, remembered between sessions.</li>
     </ul>
   </div>
