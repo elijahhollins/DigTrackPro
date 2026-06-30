@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { X, Plus, Trash2, Download, Save, Users, Truck, Package, FileText } from 'lucide-react';
+import { X, Plus, Trash2, Download, Save, Users, Truck, Package, FileText, Clock } from 'lucide-react';
 import { Job, InventoryItem, InventoryItemType } from '../types.ts';
 import {
   Employee, Equipment, ServiceJob, WorkLog, WorkLogEntry, InvoiceSettings, JobInvoice, JobInvoiceData,
@@ -9,6 +9,7 @@ import { computeTotals } from './scheduling/costUtils.ts';
 import { jobInvoiceService } from '../services/jobInvoiceService.ts';
 import { scheduleService } from '../services/scheduleService.ts';
 import { apiService } from '../services/apiService.ts';
+import { TimeEntry, entryRoundedHours } from '../services/timeTrackingTypes.ts';
 
 type CrewLine = WorkLogEntry['employees'][number];
 type EquipLine = WorkLogEntry['equipment'][number];
@@ -20,6 +21,8 @@ interface PrefillData {
   materials: MatLine[];
   customerName: string;
   address: string;
+  // Raw time entries for this job, so the modal can re-pull crew hours by work date.
+  timeEntries: TimeEntry[];
 }
 
 interface JobInvoiceModalProps {
@@ -56,7 +59,15 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
   const [customerName, setCustomerName] = useState(prefill.customerName);
   const [address, setAddress] = useState(prefill.address);
   const [invoiceDate, setInvoiceDate] = useState(toISODate(new Date()));
-  const [dueDate, setDueDate] = useState(toISODate(new Date(Date.now() + 30 * 86400000)));
+
+  // Work-date range over which crew hours are pulled (a time entry's clock-in day).
+  // Defaults to the full span of the job's logged entries.
+  const workDays = useMemo(
+    () => prefill.timeEntries.map(e => e.clockedInAt.slice(0, 10)).sort(),
+    [prefill.timeEntries],
+  );
+  const [workFrom, setWorkFrom] = useState(workDays[0] ?? '');
+  const [workTo, setWorkTo] = useState(workDays[workDays.length - 1] ?? '');
 
   // ── catalogs + branding + history (loaded on mount) ─────────────────────────
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -94,6 +105,24 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
   const empName = (id: number) => employees.find(e => e.id === id)?.name ?? `Employee #${id}`;
   const equipName = (id: string) => equipCatalog.find(e => e.id === id)?.name ?? `Equipment #${id}`;
 
+  // Re-pull crew lines from the time entries whose work day falls in [workFrom, workTo],
+  // grouped by employee with hours summed and rate from the employee record.
+  const pullCrewFromWorkDates = () => {
+    const inRange = prefill.timeEntries.filter(e => {
+      const d = e.clockedInAt.slice(0, 10);
+      return (!workFrom || d >= workFrom) && (!workTo || d <= workTo);
+    });
+    const byEmp = new Map<number, CrewLine>();
+    for (const e of inRange) {
+      const rate = employees.find(em => em.id === e.employeeId)?.hourlyRate
+        ?? crew.find(c => c.employeeId === e.employeeId)?.rate ?? 0;
+      const prev = byEmp.get(e.employeeId) ?? { employeeId: e.employeeId, hours: 0, rate };
+      prev.hours += entryRoundedHours(e);
+      byEmp.set(e.employeeId, prev);
+    }
+    setCrew(Array.from(byEmp.values()));
+  };
+
   // ── totals ──────────────────────────────────────────────────────────────────
   const entry: WorkLogEntry = useMemo(() => ({ employees: crew, equipment, materials }), [crew, equipment, materials]);
   const totals = useMemo(() => computeTotals([{ id: 0, jobId: 0, date: invoiceDate, notes: '', data: entry }], []), [entry, invoiceDate]);
@@ -106,12 +135,12 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
   });
 
   const download = (
-    log: WorkLog, t: ReturnType<typeof computeTotals>, num: string, cn: string, addr: string, dt: Date, due: Date,
+    log: WorkLog, t: ReturnType<typeof computeTotals>, num: string, cn: string, addr: string, dt: Date,
   ) => {
     generateInvoicePdf({
       job: buildServiceJob(cn, addr),
       logs: [log], totals: t, invoiceNumber: num,
-      invoiceDate: dt, dueDate: due, branding,
+      invoiceDate: dt, branding,
       employees, equipment: equipCatalog, materials: [],
     });
   };
@@ -119,7 +148,7 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
   const handleDownload = () => {
     download(
       { id: 0, jobId: 0, date: invoiceDate, notes: '', data: entry },
-      totals, invoiceNumber, customerName, address, new Date(invoiceDate), new Date(dueDate),
+      totals, invoiceNumber, customerName, address, new Date(invoiceDate),
     );
   };
 
@@ -128,7 +157,7 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
     try {
       const data: JobInvoiceData = { customerName, address, employees: crew, equipment, materials };
       const saved = await jobInvoiceService.create(companyId, {
-        jobId: job.id, invoiceNumber, date: invoiceDate, dueDate,
+        jobId: job.id, invoiceNumber, date: invoiceDate, dueDate: null,
         laborTotal: totals.labor, equipmentTotal: totals.equipment,
         materialTotal: totals.material, grandTotal: totals.grand, data,
       });
@@ -148,7 +177,7 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
       log,
       { labor: inv.laborTotal, equipment: inv.equipmentTotal, material: inv.materialTotal, grand: inv.grandTotal },
       inv.invoiceNumber, data.customerName, data.address,
-      inv.date ? new Date(inv.date) : new Date(), inv.dueDate ? new Date(inv.dueDate) : new Date(),
+      inv.date ? new Date(inv.date) : new Date(),
     );
   };
 
@@ -208,16 +237,30 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
               <label className={`text-[9px] font-black uppercase tracking-widest ${subtle}`}>Invoice Date</label>
               <input type="date" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} className={`${inputCls} w-full`} />
             </div>
-            <div className="space-y-1">
-              <label className={`text-[9px] font-black uppercase tracking-widest ${subtle}`}>Due Date</label>
-              <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className={`${inputCls} w-full`} />
-            </div>
           </div>
 
           {/* Crew labor */}
           <div>
             <SectionHead icon={<Users size={14} />} title="Crew Labor" addLabel="Add crew"
               onAdd={() => setCrew(prev => [...prev, { employeeId: employees[0]?.id ?? 0, hours: 0, rate: employees[0]?.hourlyRate ?? 0 }])} />
+            {/* Work-date range: pull employees + hours logged within the window. */}
+            <div className={`flex flex-wrap items-end gap-2 mb-3 p-3 rounded-xl border ${isDarkMode ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+              <div className="space-y-1">
+                <label className={`text-[9px] font-black uppercase tracking-widest ${subtle}`}>Work From</label>
+                <input type="date" value={workFrom} onChange={e => setWorkFrom(e.target.value)} className={`${inputCls} w-full`} />
+              </div>
+              <div className="space-y-1">
+                <label className={`text-[9px] font-black uppercase tracking-widest ${subtle}`}>Work To</label>
+                <input type="date" value={workTo} onChange={e => setWorkTo(e.target.value)} className={`${inputCls} w-full`} />
+              </div>
+              <button onClick={pullCrewFromWorkDates} disabled={prefill.timeEntries.length === 0}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand text-[#0f172a] text-[9px] font-black uppercase tracking-widest disabled:opacity-40">
+                <Clock size={12} /> Pull Hours
+              </button>
+              <span className={`text-[9px] font-bold ${subtle}`}>
+                {prefill.timeEntries.length === 0 ? 'No time logged on this job' : `${prefill.timeEntries.length} entr${prefill.timeEntries.length === 1 ? 'y' : 'ies'} logged`}
+              </span>
+            </div>
             {crew.length === 0 ? <p className={`text-[11px] italic ${subtle}`}>No crew lines.</p> : (
               <div className="space-y-1.5">
                 {crew.map((c, i) => (

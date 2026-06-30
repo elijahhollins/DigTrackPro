@@ -744,6 +744,8 @@ export const JobHub: React.FC<JobHubProps> = ({
             materials: detail.materials.map(i => ({ name: i.name, quantity: i.quantity, unitPrice: 0 })),
             customerName: selectedJob.customer ?? '',
             address: [selectedJob.address, selectedJob.city, selectedJob.state].filter(Boolean).join(', '),
+            // Raw entries so the modal can re-pull crew hours by work-date range.
+            timeEntries: detail.jobEntries,
           }}
           onClose={() => setShowInvoice(false)}
           onSaved={() => loadInvoiceCount(selectedJob.id)}
