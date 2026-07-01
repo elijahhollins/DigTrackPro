@@ -138,6 +138,19 @@ export interface JobInvoice {
   createdAt: number;
 }
 
+// A foreman's saved crew + equipment set for quickly building an invoice.
+// Stores only IDs — names/rates are always resolved from the live employees /
+// inventory_items catalogs when the template is applied.
+export interface JobInvoiceTemplate {
+  id: number;
+  companyId: string;
+  ownerProfileId: string;
+  name: string;
+  employeeIds: number[];
+  equipmentIds: string[];
+  createdAt: number;
+}
+
 // ── Scheduler board entities (UUID-string ids) ──────────────────────────────
 
 export interface Crew {

@@ -3,7 +3,7 @@ import {
   Search, Plus, FileText, Upload, Clock, Package, Users, Truck,
   CalendarDays, Activity, Trash2, Pencil, CheckCircle2, RotateCcw, X, Receipt,
 } from 'lucide-react';
-import { Job, DigTicket, TicketStatus, InventoryItem, InventoryItemType, InventoryMovement, JobPrint } from '../types.ts';
+import { Job, DigTicket, TicketStatus, InventoryItem, InventoryItemType, InventoryMovement, JobPrint, User } from '../types.ts';
 import { getTicketStatus, getStatusColor, formatDateStr } from '../utils/dateUtils.ts';
 import { apiService } from '../services/apiService.ts';
 import { scheduleService } from '../services/scheduleService.ts';
@@ -19,6 +19,7 @@ interface JobHubProps {
   tickets: DigTicket[];
   companyId: string;
   isAdmin: boolean;
+  sessionUser: User;
   isDarkMode?: boolean;
   schedulingEnabled?: boolean;
   timeTrackingEnabled?: boolean;
@@ -63,7 +64,7 @@ const HEALTH_DOT: Record<string, string> = {
 };
 
 export const JobHub: React.FC<JobHubProps> = ({
-  jobs, tickets, companyId, isAdmin, isDarkMode,
+  jobs, tickets, companyId, isAdmin, sessionUser, isDarkMode,
   schedulingEnabled, timeTrackingEnabled, inventoryEnabled, refreshKey,
   onCreateJob, onEditJob, onDeleteJob, onToggleComplete, onUpdateJob, onOpenMarkup, onViewDoc, onViewMedia,
 }) => {
@@ -241,6 +242,14 @@ export const JobHub: React.FC<JobHubProps> = ({
 
   // ── derived detail data for the selected job ────────────────────────────────
   const empById = useMemo(() => new Map(employees.map(e => [e.id, e])), [employees]);
+
+  // The employee record linked to the current login — lets a foreman (login
+  // linked to an employee flagged isForeman) invoice their own crew/equipment.
+  const isForeman = useMemo(
+    () => employees.some(e => e.profileId === sessionUser.id && e.isForeman),
+    [employees, sessionUser.id],
+  );
+  const canInvoice = isAdmin || isForeman;
 
   const detail = useMemo(() => {
     if (!selectedJob) return null;
@@ -449,20 +458,26 @@ export const JobHub: React.FC<JobHubProps> = ({
                       )}
                     </div>
                   </div>
-                  {isAdmin && (
+                  {(canInvoice || isAdmin) && (
                     <div className="flex flex-wrap items-center gap-2">
-                      <button onClick={() => setShowInvoice(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-brand/10 text-brand text-[10px] font-black uppercase tracking-widest hover:bg-brand/20 transition-all">
-                        <Receipt size={13} /> Invoice{invoiceCount > 0 ? ` (${invoiceCount})` : ''}
-                      </button>
-                      <button onClick={() => onEditJob(selectedJob)} className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${isDarkMode ? 'border-white/10 hover:bg-white/5' : 'border-slate-200 hover:bg-slate-50'}`}>
-                        <Pencil size={13} /> Edit
-                      </button>
-                      <button onClick={() => onToggleComplete(selectedJob)} className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${selectedJob.isComplete ? (isDarkMode ? 'bg-white/10' : 'bg-slate-100') : 'bg-emerald-500 text-white'}`}>
-                        {selectedJob.isComplete ? <><RotateCcw size={13} /> Reopen</> : <><CheckCircle2 size={13} /> Complete</>}
-                      </button>
-                      <button onClick={() => onDeleteJob(selectedJob)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white transition-all">
-                        <Trash2 size={13} />
-                      </button>
+                      {canInvoice && (
+                        <button onClick={() => setShowInvoice(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-brand/10 text-brand text-[10px] font-black uppercase tracking-widest hover:bg-brand/20 transition-all">
+                          <Receipt size={13} /> Invoice{invoiceCount > 0 ? ` (${invoiceCount})` : ''}
+                        </button>
+                      )}
+                      {isAdmin && (
+                        <>
+                          <button onClick={() => onEditJob(selectedJob)} className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${isDarkMode ? 'border-white/10 hover:bg-white/5' : 'border-slate-200 hover:bg-slate-50'}`}>
+                            <Pencil size={13} /> Edit
+                          </button>
+                          <button onClick={() => onToggleComplete(selectedJob)} className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${selectedJob.isComplete ? (isDarkMode ? 'bg-white/10' : 'bg-slate-100') : 'bg-emerald-500 text-white'}`}>
+                            {selectedJob.isComplete ? <><RotateCcw size={13} /> Reopen</> : <><CheckCircle2 size={13} /> Complete</>}
+                          </button>
+                          <button onClick={() => onDeleteJob(selectedJob)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white transition-all">
+                            <Trash2 size={13} />
+                          </button>
+                        </>
+                      )}
                     </div>
                   )}
                 </div>
@@ -728,6 +743,8 @@ export const JobHub: React.FC<JobHubProps> = ({
           job={selectedJob}
           companyId={companyId}
           isDarkMode={isDarkMode}
+          isAdmin={isAdmin}
+          ownerProfileId={sessionUser.id}
           prefill={{
             // Crew: aggregate logged hours per employee, rate from the employee record.
             crew: Array.from(

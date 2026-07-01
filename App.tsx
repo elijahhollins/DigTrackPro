@@ -1197,6 +1197,7 @@ const App: React.FC = () => {
               jobs={jobs}
               companyId={sessionUser.companyId}
               isAdmin={isAdmin}
+              sessionUser={sessionUser}
               isDarkMode={isDarkMode}
               schedulingEnabled={isSchedulingEnabled}
               timeTrackingEnabled={isTimeTrackingEnabled}
