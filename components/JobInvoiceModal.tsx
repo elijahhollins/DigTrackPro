@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { X, Plus, Trash2, Download, Save, Users, Truck, Package, FileText, Clock, LayoutTemplate, ListChecks } from 'lucide-react';
+import { X, Plus, Trash2, Download, Save, Users, Truck, Package, FileText, Clock, LayoutTemplate } from 'lucide-react';
 import { Job, InventoryItem, InventoryItemType } from '../types.ts';
 import {
   Employee, Equipment, ServiceJob, WorkLog, WorkLogEntry, InvoiceSettings, JobInvoice, JobInvoiceData, JobInvoiceTemplate,
@@ -72,6 +72,50 @@ const EquipmentPicker: React.FC<{
               onClick={() => { onSelect(c.id); setOpen(false); setQuery(''); }}
               className={`w-full text-left px-3 py-1.5 text-[11px] font-bold transition-colors hover:bg-brand/10 ${c.id === value ? 'text-brand' : ''}`}>
               {equipLabel(c)}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const employeeLabel = (e: Employee) => (e.role ? `${e.name} (${e.role})` : e.name);
+
+// Live-searchable employee combobox, mirroring EquipmentPicker above.
+const EmployeePicker: React.FC<{
+  value: number;
+  catalog: Employee[];
+  inputCls: string;
+  isDarkMode?: boolean;
+  onSelect: (id: number) => void;
+}> = ({ value, catalog, inputCls, isDarkMode, onSelect }) => {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const selected = catalog.find(c => c.id === value);
+  const q = query.trim().toLowerCase();
+  const filtered = q ? catalog.filter(c => employeeLabel(c).toLowerCase().includes(q)) : catalog;
+
+  return (
+    <div className="relative flex-1">
+      <input
+        value={open ? query : (selected ? employeeLabel(selected) : (value ? `Employee #${value}` : ''))}
+        onChange={e => { setQuery(e.target.value); if (!open) setOpen(true); }}
+        onFocus={() => { setQuery(''); setOpen(true); }}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        placeholder="Search crew…"
+        className={`${inputCls} w-full`}
+      />
+      {open && (
+        <div className={`absolute z-20 mt-1 w-full max-h-52 overflow-y-auto rounded-lg border shadow-xl ${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white border-slate-200'}`}>
+          {filtered.length === 0 ? (
+            <p className={`px-3 py-2 text-[11px] italic ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>No matches</p>
+          ) : filtered.map(c => (
+            <button key={c.id} type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => { onSelect(c.id); setOpen(false); setQuery(''); }}
+              className={`w-full text-left px-3 py-1.5 text-[11px] font-bold transition-colors hover:bg-brand/10 ${c.id === value ? 'text-brand' : ''}`}>
+              {employeeLabel(c)}
             </button>
           ))}
         </div>
@@ -158,8 +202,10 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
   // ── bulk-select checklists (add many crew/equipment lines at once) ──────────
   const [showCrewPicker, setShowCrewPicker] = useState(false);
   const [crewPickIds, setCrewPickIds] = useState<Set<number>>(new Set());
+  const [crewSearch, setCrewSearch] = useState('');
   const [showEquipPicker, setShowEquipPicker] = useState(false);
   const [equipPickIds, setEquipPickIds] = useState<Set<string>>(new Set());
+  const [equipSearch, setEquipSearch] = useState('');
 
   const card = isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white border-slate-200';
   const subtle = isDarkMode ? 'text-slate-400' : 'text-slate-500';
@@ -204,8 +250,6 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
     return () => { alive = false; };
   }, [job.id, companyId]);
 
-  const empName = (id: number) => employees.find(e => e.id === id)?.name ?? `Employee #${id}`;
-
   // Equipment picker options, sorted by unit number ascending (numeric); items
   // without a unit number sort after those that have one.
   const sortedEquipCatalog = useMemo(() => [...equipCatalog].sort((a, b) => {
@@ -216,6 +260,19 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
     if (!Number.isNaN(bn)) return 1;
     return a.name.localeCompare(b.name);
   }), [equipCatalog]);
+
+  // Live-filtered options for the bulk-add checklists.
+  const crewPickOptions = useMemo(() => {
+    const q = crewSearch.trim().toLowerCase();
+    if (!q) return employees;
+    return employees.filter(e => e.name.toLowerCase().includes(q) || e.role.toLowerCase().includes(q));
+  }, [employees, crewSearch]);
+
+  const equipPickOptions = useMemo(() => {
+    const q = equipSearch.trim().toLowerCase();
+    if (!q) return sortedEquipCatalog;
+    return sortedEquipCatalog.filter(c => equipLabel(c).toLowerCase().includes(q));
+  }, [sortedEquipCatalog, equipSearch]);
 
   // Re-pull crew lines from the time entries whose work day falls in [workFrom, workTo],
   // grouped by employee with hours summed and rate from the employee record.
@@ -383,25 +440,15 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
   };
 
   // ── line-item editors ─────────────────────────────────────────────────────
-  const SectionHead: React.FC<{
-    icon: React.ReactNode; title: string; onAdd: () => void; addLabel: string;
-    onSecondary?: () => void; secondaryLabel?: string;
-  }> = ({ icon, title, onAdd, addLabel, onSecondary, secondaryLabel }) => (
+  const SectionHead: React.FC<{ icon: React.ReactNode; title: string; onAdd: () => void; addLabel: string }> = ({ icon, title, onAdd, addLabel }) => (
     <div className="flex items-center justify-between mb-2">
       <div className="flex items-center gap-2">
         <span className="text-brand">{icon}</span>
         <h4 className={`text-[10px] font-black uppercase tracking-[0.18em] ${subtle}`}>{title}</h4>
       </div>
-      <div className="flex items-center gap-1.5">
-        {onSecondary && (
-          <button onClick={onSecondary} className={`flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[9px] font-black uppercase tracking-widest ${isDarkMode ? 'border-white/10 hover:bg-white/5' : 'border-slate-200 hover:bg-slate-50'}`}>
-            <ListChecks size={11} /> {secondaryLabel}
-          </button>
-        )}
-        <button onClick={onAdd} className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-brand/10 text-brand text-[9px] font-black uppercase tracking-widest hover:bg-brand/20">
-          <Plus size={11} /> {addLabel}
-        </button>
-      </div>
+      <button onClick={onAdd} className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-brand/10 text-brand text-[9px] font-black uppercase tracking-widest hover:bg-brand/20">
+        <Plus size={11} /> {addLabel}
+      </button>
     </div>
   );
 
@@ -483,15 +530,15 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
 
           {/* Crew labor */}
           <div>
-            <SectionHead icon={<Users size={14} />} title="Crew Labor" addLabel="Add crew"
-              onAdd={() => setCrew(prev => [...prev, { employeeId: employees[0]?.id ?? 0, hours: 0, rate: employees[0]?.hourlyRate ?? 0 }])}
-              secondaryLabel="Select Multiple" onSecondary={() => setShowCrewPicker(v => !v)} />
+            <SectionHead icon={<Users size={14} />} title="Crew Labor" addLabel="Add Crew"
+              onAdd={() => setShowCrewPicker(v => !v)} />
             {showCrewPicker && (
               <div className={`mb-3 p-3 rounded-xl border ${isDarkMode ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+                <input value={crewSearch} onChange={e => setCrewSearch(e.target.value)} placeholder="Search by name or role…" className={`${inputCls} w-full mb-2`} />
                 <div className="max-h-48 overflow-y-auto space-y-0.5 mb-2">
-                  {employees.length === 0 ? (
-                    <p className={`text-[11px] italic ${subtle}`}>No employees found.</p>
-                  ) : employees.map(e => (
+                  {crewPickOptions.length === 0 ? (
+                    <p className={`text-[11px] italic ${subtle}`}>No matches.</p>
+                  ) : crewPickOptions.map(e => (
                     <label key={e.id} className="flex items-center gap-2 py-1 cursor-pointer">
                       <input type="checkbox" checked={crewPickIds.has(e.id)} onChange={() => toggleCrewPick(e.id)} className="w-4 h-4 accent-brand rounded shrink-0" />
                       <span className="text-[11px] font-bold flex-1 truncate">{e.name}</span>
@@ -500,7 +547,7 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
                   ))}
                 </div>
                 <div className="flex items-center justify-end gap-2">
-                  <button onClick={() => { setShowCrewPicker(false); setCrewPickIds(new Set()); }} className={`px-3 py-1.5 rounded-lg border text-[9px] font-black uppercase tracking-widest ${isDarkMode ? 'border-white/10 hover:bg-white/5' : 'border-slate-200 hover:bg-slate-50'}`}>Cancel</button>
+                  <button onClick={() => { setShowCrewPicker(false); setCrewPickIds(new Set()); setCrewSearch(''); }} className={`px-3 py-1.5 rounded-lg border text-[9px] font-black uppercase tracking-widest ${isDarkMode ? 'border-white/10 hover:bg-white/5' : 'border-slate-200 hover:bg-slate-50'}`}>Cancel</button>
                   <button onClick={addSelectedCrew} disabled={crewPickIds.size === 0} className="px-3 py-1.5 rounded-lg bg-brand text-[#0f172a] text-[9px] font-black uppercase tracking-widest disabled:opacity-40">
                     Add Selected ({crewPickIds.size})
                   </button>
@@ -529,10 +576,13 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
               <div className="space-y-1.5">
                 {crew.map((c, i) => (
                   <div key={i} className="flex items-center gap-2">
-                    <select value={c.employeeId} onChange={e => setCrew(prev => prev.map((x, j) => j === i ? { ...x, employeeId: Number(e.target.value), rate: x.rate || (employees.find(em => em.id === Number(e.target.value))?.hourlyRate ?? 0) } : x))} className={`${inputCls} flex-1`}>
-                      {employees.length === 0 && <option value={c.employeeId}>{empName(c.employeeId)}</option>}
-                      {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-                    </select>
+                    <EmployeePicker
+                      value={c.employeeId}
+                      catalog={employees}
+                      inputCls={inputCls}
+                      isDarkMode={isDarkMode}
+                      onSelect={id => setCrew(prev => prev.map((x, j) => j === i ? { ...x, employeeId: id, rate: x.rate || (employees.find(em => em.id === id)?.hourlyRate ?? 0) } : x))}
+                    />
                     {numInput(c.hours, n => setCrew(prev => prev.map((x, j) => j === i ? { ...x, hours: n } : x)))}
                     <span className={`text-[9px] ${subtle}`}>hrs ×</span>
                     {numInput(c.rate, n => setCrew(prev => prev.map((x, j) => j === i ? { ...x, rate: n } : x)))}
@@ -546,15 +596,15 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
 
           {/* Equipment */}
           <div>
-            <SectionHead icon={<Truck size={14} />} title="Equipment" addLabel="Add equipment"
-              onAdd={() => setEquipment(prev => [...prev, { equipmentId: sortedEquipCatalog[0]?.id ?? '', hours: 0, rate: sortedEquipCatalog[0]?.hourlyRate ?? 0 }])}
-              secondaryLabel="Select Multiple" onSecondary={() => setShowEquipPicker(v => !v)} />
+            <SectionHead icon={<Truck size={14} />} title="Equipment" addLabel="Add Equipment"
+              onAdd={() => setShowEquipPicker(v => !v)} />
             {showEquipPicker && (
               <div className={`mb-3 p-3 rounded-xl border ${isDarkMode ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+                <input value={equipSearch} onChange={e => setEquipSearch(e.target.value)} placeholder="Search by unit #, name, or type…" className={`${inputCls} w-full mb-2`} />
                 <div className="max-h-48 overflow-y-auto space-y-0.5 mb-2">
-                  {sortedEquipCatalog.length === 0 ? (
-                    <p className={`text-[11px] italic ${subtle}`}>No equipment found.</p>
-                  ) : sortedEquipCatalog.map(c => (
+                  {equipPickOptions.length === 0 ? (
+                    <p className={`text-[11px] italic ${subtle}`}>No matches.</p>
+                  ) : equipPickOptions.map(c => (
                     <label key={c.id} className="flex items-center gap-2 py-1 cursor-pointer">
                       <input type="checkbox" checked={equipPickIds.has(c.id)} onChange={() => toggleEquipPick(c.id)} className="w-4 h-4 accent-brand rounded shrink-0" />
                       <span className="text-[11px] font-bold flex-1 truncate">{equipLabel(c)}</span>
@@ -562,7 +612,7 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
                   ))}
                 </div>
                 <div className="flex items-center justify-end gap-2">
-                  <button onClick={() => { setShowEquipPicker(false); setEquipPickIds(new Set()); }} className={`px-3 py-1.5 rounded-lg border text-[9px] font-black uppercase tracking-widest ${isDarkMode ? 'border-white/10 hover:bg-white/5' : 'border-slate-200 hover:bg-slate-50'}`}>Cancel</button>
+                  <button onClick={() => { setShowEquipPicker(false); setEquipPickIds(new Set()); setEquipSearch(''); }} className={`px-3 py-1.5 rounded-lg border text-[9px] font-black uppercase tracking-widest ${isDarkMode ? 'border-white/10 hover:bg-white/5' : 'border-slate-200 hover:bg-slate-50'}`}>Cancel</button>
                   <button onClick={addSelectedEquipment} disabled={equipPickIds.size === 0} className="px-3 py-1.5 rounded-lg bg-brand text-[#0f172a] text-[9px] font-black uppercase tracking-widest disabled:opacity-40">
                     Add Selected ({equipPickIds.size})
                   </button>
