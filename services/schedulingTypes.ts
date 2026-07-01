@@ -113,6 +113,31 @@ export interface Invoice {
   data: Record<string, unknown>;
 }
 
+// ── Job Hub invoicing (keyed to the dig-ticket jobs table, uuid id) ─────────
+
+// Line-item payload stored on job_invoices.data. Reuses the WorkLogEntry shape
+// (employees/equipment/materials) so it feeds straight into generateInvoicePdf,
+// plus the captured bill-to fields.
+export interface JobInvoiceData extends WorkLogEntry {
+  customerName: string;
+  address: string;
+}
+
+export interface JobInvoice {
+  id: number;
+  companyId: string;
+  jobId: string;            // dig-ticket jobs.id (uuid)
+  invoiceNumber: string;
+  date: string | null;
+  dueDate: string | null;
+  laborTotal: number;
+  equipmentTotal: number;
+  materialTotal: number;
+  grandTotal: number;
+  data: JobInvoiceData;
+  createdAt: number;
+}
+
 // ── Scheduler board entities (UUID-string ids) ──────────────────────────────
 
 export interface Crew {
@@ -120,14 +145,6 @@ export interface Crew {
   companyId: string;
   name: string;
   memberIds: number[];
-}
-
-export interface ScheduleJobOption {
-  id: number;
-  companyId: string;
-  jobNumber: string;
-  location: string;
-  estimatedDays: number;
 }
 
 export interface ScheduleBlock {
@@ -139,5 +156,4 @@ export interface ScheduleBlock {
   durationDays: number;
   type: 'job' | 'delay';
   extended: boolean;
-  equipmentIds: string[];
 }

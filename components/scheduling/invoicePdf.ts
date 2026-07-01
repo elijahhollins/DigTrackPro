@@ -27,7 +27,7 @@ export interface InvoicePdfArgs {
   totals: CostTotals;
   invoiceNumber: string;
   invoiceDate: Date;
-  dueDate: Date;
+  dueDate?: Date;
   branding: InvoiceSettings;
   employees: Employee[];
   equipment: Equipment[];
@@ -80,7 +80,7 @@ export function generateInvoicePdf(args: InvoicePdfArgs): void {
   text(slate300); pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8);
   pdf.text(`# ${invoiceNumber}`, rightX, cardTop + 18, { align: 'right' });
   pdf.text(`Date: ${invoiceDate.toLocaleDateString('en-US')}`, rightX, cardTop + 24, { align: 'right' });
-  pdf.text(`Due:  ${dueDate.toLocaleDateString('en-US')}`, rightX, cardTop + 30, { align: 'right' });
+  if (dueDate) pdf.text(`Due:  ${dueDate.toLocaleDateString('en-US')}`, rightX, cardTop + 30, { align: 'right' });
 
   // ── Bill-to ────────────────────────────────────────────────────────────────
   let cursorY = cardTop + cardH + 8;

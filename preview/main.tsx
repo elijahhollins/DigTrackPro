@@ -27,15 +27,15 @@ const jobs: JobOption[] = [
   { jobNumber: 'J-2046', location: '8 Quarry Rd, Cedar Park',        estimatedDays: 2 },
 ];
 const blocks: ScheduleBlock[] = [
-  { id: 'b1', crewId: 'c1', jobNumber: 'J-2041', startDate: addDays(-3), durationDays: 5, type: 'job', extended: false, equipmentIds: ['e1', 'e2'] },
+  { id: 'b1', crewId: 'c1', jobNumber: 'J-2041', startDate: addDays(-3), durationDays: 5, type: 'job', extended: false },
   { id: 'b2', crewId: 'c1', jobNumber: 'J-2042', startDate: addDays(3),  durationDays: 3, type: 'job', extended: false },
   { id: 'b3', crewId: 'c2', jobNumber: 'J-2043', startDate: addDays(-1), durationDays: 7, type: 'job', extended: true },
-  { id: 'b4', crewId: 'c2', jobNumber: 'J-2044', startDate: addDays(8),  durationDays: 4, type: 'job', extended: false, equipmentIds: ['e3'] },
+  { id: 'b4', crewId: 'c2', jobNumber: 'J-2044', startDate: addDays(8),  durationDays: 4, type: 'job', extended: false },
   { id: 'd1', crewId: 'c3', jobNumber: 'Delay – 2 days', startDate: addDays(0), durationDays: 2, type: 'delay', extended: false },
-  { id: 'b5', crewId: 'c3', jobNumber: 'J-2045', startDate: addDays(2),  durationDays: 6, type: 'job', extended: false, equipmentIds: ['e1', 'e4', 'e2'] },
+  { id: 'b5', crewId: 'c3', jobNumber: 'J-2045', startDate: addDays(2),  durationDays: 6, type: 'job', extended: false },
   { id: 'b6', crewId: 'c4', jobNumber: 'J-2046', startDate: addDays(1),  durationDays: 2, type: 'job', extended: false },
   { id: 'b7', crewId: 'c4', jobNumber: 'J-2042', startDate: addDays(5),  durationDays: 3, type: 'job', extended: false },
-  { id: 'b8', crewId: 'c5', jobNumber: 'J-2043', startDate: addDays(-2), durationDays: 4, type: 'job', extended: false, equipmentIds: ['e5'] },
+  { id: 'b8', crewId: 'c5', jobNumber: 'J-2043', startDate: addDays(-2), durationDays: 4, type: 'job', extended: false },
   { id: 'b9', crewId: 'c5', jobNumber: 'J-2041', startDate: addDays(4),  durationDays: 5, type: 'job', extended: false },
 ];
 

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Search, Plus, FileText, Upload, Clock, Package, Users, Truck,
-  CalendarDays, Activity, Trash2, Pencil, CheckCircle2, RotateCcw, X,
+  CalendarDays, Activity, Trash2, Pencil, CheckCircle2, RotateCcw, X, Receipt,
 } from 'lucide-react';
 import { Job, DigTicket, TicketStatus, InventoryItem, InventoryItemType, InventoryMovement, JobPrint } from '../types.ts';
 import { getTicketStatus, getStatusColor, formatDateStr } from '../utils/dateUtils.ts';
@@ -10,6 +10,8 @@ import { scheduleService } from '../services/scheduleService.ts';
 import { timeTrackingService } from '../services/timeTrackingService.ts';
 import { CostCode, JobCostCodeAssignment, TimeEntry, entryRoundedHours } from '../services/timeTrackingTypes.ts';
 import { Employee } from '../services/schedulingTypes.ts';
+import { jobInvoiceService } from '../services/jobInvoiceService.ts';
+import { JobInvoiceModal } from './JobInvoiceModal.tsx';
 import { supabase } from '../lib/supabaseClient.ts';
 
 interface JobHubProps {
@@ -90,6 +92,10 @@ export const JobHub: React.FC<JobHubProps> = ({
   const [printsLoading, setPrintsLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // ── invoicing ───────────────────────────────────────────────────────────────
+  const [showInvoice, setShowInvoice] = useState(false);
+  const [invoiceCount, setInvoiceCount] = useState(0);
 
   const card = isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-200 shadow-sm';
   const subtle = isDarkMode ? 'text-slate-400' : 'text-slate-500';
@@ -197,6 +203,15 @@ export const JobHub: React.FC<JobHubProps> = ({
       .finally(() => { if (alive) setPrintsLoading(false); });
     return () => { alive = false; };
   }, [selectedJob?.jobNumber]);
+
+  // Load saved-invoice count for the selected job (drives the header badge).
+  const loadInvoiceCount = (jobId: string) => {
+    jobInvoiceService.listByJob(jobId).then(list => setInvoiceCount(list.length)).catch(() => setInvoiceCount(0));
+  };
+  useEffect(() => {
+    if (!selectedJob) { setInvoiceCount(0); return; }
+    loadInvoiceCount(selectedJob.id);
+  }, [selectedJob?.id]);
 
   const selectJob = (id: string) => { setSelectedId(id); setMobileDetailOpen(true); };
 
@@ -436,6 +451,9 @@ export const JobHub: React.FC<JobHubProps> = ({
                   </div>
                   {isAdmin && (
                     <div className="flex flex-wrap items-center gap-2">
+                      <button onClick={() => setShowInvoice(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-brand/10 text-brand text-[10px] font-black uppercase tracking-widest hover:bg-brand/20 transition-all">
+                        <Receipt size={13} /> Invoice{invoiceCount > 0 ? ` (${invoiceCount})` : ''}
+                      </button>
                       <button onClick={() => onEditJob(selectedJob)} className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${isDarkMode ? 'border-white/10 hover:bg-white/5' : 'border-slate-200 hover:bg-slate-50'}`}>
                         <Pencil size={13} /> Edit
                       </button>
@@ -704,6 +722,35 @@ export const JobHub: React.FC<JobHubProps> = ({
           )}
         </div>
       </div>
+
+      {showInvoice && selectedJob && detail && (
+        <JobInvoiceModal
+          job={selectedJob}
+          companyId={companyId}
+          isDarkMode={isDarkMode}
+          prefill={{
+            // Crew: aggregate logged hours per employee, rate from the employee record.
+            crew: Array.from(
+              detail.jobEntries.reduce((map, e) => {
+                const prev = map.get(e.employeeId) ?? { employeeId: e.employeeId, hours: 0, rate: empById.get(e.employeeId)?.hourlyRate ?? 0 };
+                prev.hours += entryRoundedHours(e);
+                map.set(e.employeeId, prev);
+                return map;
+              }, new Map<number, { employeeId: number; hours: number; rate: number }>()).values(),
+            ),
+            // Equipment on site: one line each, hours blank for the user to fill.
+            equipment: detail.equipment.map(i => ({ equipmentId: i.id, hours: 0, rate: i.hourlyRate ?? 0 })),
+            // Materials linked to the job: qty from inventory, price for the user to fill.
+            materials: detail.materials.map(i => ({ name: i.name, quantity: i.quantity, unitPrice: 0 })),
+            customerName: selectedJob.customer ?? '',
+            address: [selectedJob.address, selectedJob.city, selectedJob.state].filter(Boolean).join(', '),
+            // Raw entries so the modal can re-pull crew hours by work-date range.
+            timeEntries: detail.jobEntries,
+          }}
+          onClose={() => setShowInvoice(false)}
+          onSaved={() => loadInvoiceCount(selectedJob.id)}
+        />
+      )}
     </div>
   );
 };
