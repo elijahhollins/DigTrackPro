@@ -31,6 +31,55 @@ type CrewLine = WorkLogEntry['employees'][number];
 type EquipLine = WorkLogEntry['equipment'][number];
 type MatLine = WorkLogEntry['materials'][number];
 
+const equipLabel = (e: Equipment) =>
+  [e.unitNumber ? `#${e.unitNumber}` : null, e.name, e.equipmentType ? `(${e.equipmentType})` : null].filter(Boolean).join(' ');
+
+// Live-searchable equipment combobox: filters the catalog (by unit #, name, or
+// type) as the user types, falling back to the full sorted list when idle.
+// Defined at module scope (not inline in JobInvoiceModal) so its identity is
+// stable across renders — otherwise every keystroke elsewhere in the modal
+// would remount this and drop focus/typed text.
+const EquipmentPicker: React.FC<{
+  value: string;
+  catalog: Equipment[];
+  inputCls: string;
+  isDarkMode?: boolean;
+  onSelect: (id: string) => void;
+}> = ({ value, catalog, inputCls, isDarkMode, onSelect }) => {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const selected = catalog.find(c => c.id === value);
+  const q = query.trim().toLowerCase();
+  const filtered = q ? catalog.filter(c => equipLabel(c).toLowerCase().includes(q)) : catalog;
+
+  return (
+    <div className="relative flex-1">
+      <input
+        value={open ? query : (selected ? equipLabel(selected) : (value ? `Equipment #${value}` : ''))}
+        onChange={e => { setQuery(e.target.value); if (!open) setOpen(true); }}
+        onFocus={() => { setQuery(''); setOpen(true); }}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        placeholder="Search equipment…"
+        className={`${inputCls} w-full`}
+      />
+      {open && (
+        <div className={`absolute z-20 mt-1 w-full max-h-52 overflow-y-auto rounded-lg border shadow-xl ${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white border-slate-200'}`}>
+          {filtered.length === 0 ? (
+            <p className={`px-3 py-2 text-[11px] italic ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>No matches</p>
+          ) : filtered.map(c => (
+            <button key={c.id} type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => { onSelect(c.id); setOpen(false); setQuery(''); }}
+              className={`w-full text-left px-3 py-1.5 text-[11px] font-bold transition-colors hover:bg-brand/10 ${c.id === value ? 'text-brand' : ''}`}>
+              {equipLabel(c)}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 interface PrefillData {
   crew: CrewLine[];
   equipment: EquipLine[];
@@ -125,7 +174,10 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
       setEmployees(emps);
       setEquipCatalog(items
         .filter(i => i.itemType === InventoryItemType.EQUIPMENT)
-        .map(i => ({ id: i.id, companyId: i.companyId, name: i.unitNumber ? `#${i.unitNumber} ${i.name}` : i.name, hourlyRate: i.hourlyRate ?? 0 })));
+        .map(i => ({
+          id: i.id, companyId: i.companyId, name: i.name, hourlyRate: i.hourlyRate ?? 0,
+          unitNumber: i.unitNumber, equipmentType: i.equipmentType,
+        })));
       setMatCatalog(items.filter(i => i.itemType === InventoryItemType.MATERIAL));
       if (settings) setBranding(settings);
       setHistory(invs);
@@ -147,7 +199,17 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
   }, [job.id, companyId]);
 
   const empName = (id: number) => employees.find(e => e.id === id)?.name ?? `Employee #${id}`;
-  const equipName = (id: string) => equipCatalog.find(e => e.id === id)?.name ?? `Equipment #${id}`;
+
+  // Equipment picker options, sorted by unit number ascending (numeric); items
+  // without a unit number sort after those that have one.
+  const sortedEquipCatalog = useMemo(() => [...equipCatalog].sort((a, b) => {
+    const an = a.unitNumber ? parseFloat(a.unitNumber) : NaN;
+    const bn = b.unitNumber ? parseFloat(b.unitNumber) : NaN;
+    if (!Number.isNaN(an) && !Number.isNaN(bn)) return an - bn;
+    if (!Number.isNaN(an)) return -1;
+    if (!Number.isNaN(bn)) return 1;
+    return a.name.localeCompare(b.name);
+  }), [equipCatalog]);
 
   // Re-pull crew lines from the time entries whose work day falls in [workFrom, workTo],
   // grouped by employee with hours summed and rate from the employee record.
@@ -411,15 +473,18 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
           {/* Equipment */}
           <div>
             <SectionHead icon={<Truck size={14} />} title="Equipment" addLabel="Add equipment"
-              onAdd={() => setEquipment(prev => [...prev, { equipmentId: equipCatalog[0]?.id ?? '', hours: 0, rate: equipCatalog[0]?.hourlyRate ?? 0 }])} />
+              onAdd={() => setEquipment(prev => [...prev, { equipmentId: sortedEquipCatalog[0]?.id ?? '', hours: 0, rate: sortedEquipCatalog[0]?.hourlyRate ?? 0 }])} />
             {equipment.length === 0 ? <p className={`text-[11px] italic ${subtle}`}>No equipment lines.</p> : (
               <div className="space-y-1.5">
                 {equipment.map((eq, i) => (
                   <div key={i} className="flex items-center gap-2">
-                    <select value={eq.equipmentId} onChange={e => setEquipment(prev => prev.map((x, j) => j === i ? { ...x, equipmentId: e.target.value, rate: x.rate || (equipCatalog.find(c => c.id === e.target.value)?.hourlyRate ?? 0) } : x))} className={`${inputCls} flex-1`}>
-                      {equipCatalog.length === 0 && <option value={eq.equipmentId}>{equipName(eq.equipmentId)}</option>}
-                      {equipCatalog.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
+                    <EquipmentPicker
+                      value={eq.equipmentId}
+                      catalog={sortedEquipCatalog}
+                      inputCls={inputCls}
+                      isDarkMode={isDarkMode}
+                      onSelect={id => setEquipment(prev => prev.map((x, j) => j === i ? { ...x, equipmentId: id, rate: x.rate || (equipCatalog.find(c => c.id === id)?.hourlyRate ?? 0) } : x))}
+                    />
                     {numInput(eq.hours, n => setEquipment(prev => prev.map((x, j) => j === i ? { ...x, hours: n } : x)))}
                     <span className={`text-[9px] ${subtle}`}>hrs ×</span>
                     {numInput(eq.rate, n => setEquipment(prev => prev.map((x, j) => j === i ? { ...x, rate: n } : x)))}
