@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { X, Plus, Trash2, Download, Save, Users, Truck, Package, FileText, Clock } from 'lucide-react';
+import { X, Plus, Trash2, Download, Save, Users, Truck, Package, FileText, Clock, LayoutTemplate } from 'lucide-react';
 import { Job, InventoryItem, InventoryItemType } from '../types.ts';
 import {
-  Employee, Equipment, ServiceJob, WorkLog, WorkLogEntry, InvoiceSettings, JobInvoice, JobInvoiceData,
+  Employee, Equipment, ServiceJob, WorkLog, WorkLogEntry, InvoiceSettings, JobInvoice, JobInvoiceData, JobInvoiceTemplate,
 } from '../services/schedulingTypes.ts';
 import { generateInvoicePdf } from './scheduling/invoicePdf.ts';
 import { computeTotals } from './scheduling/costUtils.ts';
 import { jobInvoiceService } from '../services/jobInvoiceService.ts';
+import { jobInvoiceTemplateService } from '../services/jobInvoiceTemplateService.ts';
 import { scheduleService } from '../services/scheduleService.ts';
 import { apiService } from '../services/apiService.ts';
 import { timeTrackingService } from '../services/timeTrackingService.ts';
@@ -45,6 +46,11 @@ interface JobInvoiceModalProps {
   companyId: string;
   isDarkMode?: boolean;
   prefill: PrefillData;
+  // Only admins may delete an already-saved invoice; a foreman can still create,
+  // view and download them.
+  isAdmin: boolean;
+  // Current login's profile id — owner of any templates it saves.
+  ownerProfileId: string;
   onClose: () => void;
   onSaved?: () => void;
 }
@@ -64,7 +70,7 @@ const DEFAULT_BRANDING = (companyId: string): InvoiceSettings => ({
 const toISODate = (d: Date) => d.toISOString().slice(0, 10);
 
 export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
-  job, companyId, isDarkMode, prefill, onClose, onSaved,
+  job, companyId, isDarkMode, prefill, isAdmin, ownerProfileId, onClose, onSaved,
 }) => {
   // ── editable line items (seeded from the job's tracked data) ────────────────
   const [crew, setCrew] = useState<CrewLine[]>(prefill.crew);
@@ -94,6 +100,12 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
   const [history, setHistory] = useState<JobInvoice[]>([]);
   const [saving, setSaving] = useState(false);
 
+  // ── crew/equipment templates (quick-add) ─────────────────────────────────────
+  const [templates, setTemplates] = useState<JobInvoiceTemplate[]>([]);
+  const [showTemplateForm, setShowTemplateForm] = useState(false);
+  const [templateName, setTemplateName] = useState('');
+  const [savingTemplate, setSavingTemplate] = useState(false);
+
   const card = isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white border-slate-200';
   const subtle = isDarkMode ? 'text-slate-400' : 'text-slate-500';
   const inputCls = `px-2 py-1.5 rounded-lg border text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 ${isDarkMode ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`;
@@ -101,12 +113,13 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
   useEffect(() => {
     let alive = true;
     (async () => {
-      const [emps, items, settings, invs, entries] = await Promise.all([
+      const [emps, items, settings, invs, entries, tmpls] = await Promise.all([
         scheduleService.getEmployees().catch(() => [] as Employee[]),
         apiService.getInventoryItems().catch(() => [] as InventoryItem[]),
         scheduleService.getInvoiceSettings().catch(() => null),
         jobInvoiceService.listByJob(job.id).catch(() => [] as JobInvoice[]),
         timeTrackingService.listEntries().catch(() => [] as TimeEntry[]),
+        jobInvoiceTemplateService.list().catch(() => [] as JobInvoiceTemplate[]),
       ]);
       if (!alive) return;
       setEmployees(emps);
@@ -116,6 +129,7 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
       setMatCatalog(items.filter(i => i.itemType === InventoryItemType.MATERIAL));
       if (settings) setBranding(settings);
       setHistory(invs);
+      setTemplates(tmpls);
 
       // Authoritative time entries for this dig job, fetched directly.
       const digEntries = entries.filter(e => e.jobKind === 'dig' && e.jobRef === job.id);
@@ -143,6 +157,56 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
       return (!workFrom || d >= workFrom) && (!workTo || d <= workTo);
     });
     setCrew(aggregateCrew(inRange, employees, crew));
+  };
+
+  // ── templates ───────────────────────────────────────────────────────────────
+  // Add any crew/equipment lines from a template that aren't already on the
+  // invoice. Names and rates are resolved fresh from the live catalogs.
+  const applyTemplate = (t: JobInvoiceTemplate) => {
+    setCrew(prev => {
+      const have = new Set(prev.map(c => c.employeeId));
+      const additions: CrewLine[] = t.employeeIds
+        .filter(id => !have.has(id))
+        .map(id => ({ employeeId: id, hours: 0, rate: employees.find(e => e.id === id)?.hourlyRate ?? 0 }));
+      return [...prev, ...additions];
+    });
+    setEquipment(prev => {
+      const have = new Set(prev.map(e => e.equipmentId));
+      const additions: EquipLine[] = t.equipmentIds
+        .filter(id => !have.has(id))
+        .map(id => ({ equipmentId: id, hours: 0, rate: equipCatalog.find(c => c.id === id)?.hourlyRate ?? 0 }));
+      return [...prev, ...additions];
+    });
+  };
+
+  const handleSaveTemplate = async () => {
+    const name = templateName.trim();
+    if (!name) return;
+    setSavingTemplate(true);
+    try {
+      const saved = await jobInvoiceTemplateService.create(
+        companyId, ownerProfileId, name,
+        Array.from(new Set(crew.map(c => c.employeeId))),
+        Array.from(new Set(equipment.map(e => e.equipmentId))),
+      );
+      setTemplates(prev => [...prev, saved].sort((a, b) => a.name.localeCompare(b.name)));
+      setTemplateName('');
+      setShowTemplateForm(false);
+    } catch (err: any) {
+      alert('Failed to save template: ' + (err?.message ?? err));
+    } finally {
+      setSavingTemplate(false);
+    }
+  };
+
+  const deleteTemplate = async (t: JobInvoiceTemplate) => {
+    if (!confirm(`Delete template "${t.name}"?`)) return;
+    try {
+      await jobInvoiceTemplateService.delete(t.id);
+      setTemplates(prev => prev.filter(x => x.id !== t.id));
+    } catch (err: any) {
+      alert('Failed to delete template: ' + (err?.message ?? err));
+    }
   };
 
   // ── totals ──────────────────────────────────────────────────────────────────
@@ -261,6 +325,48 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
             </div>
           </div>
 
+          {/* Crew + equipment templates */}
+          <div className={`rounded-2xl border p-4 ${isDarkMode ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <span className="text-brand"><LayoutTemplate size={14} /></span>
+                <h4 className={`text-[10px] font-black uppercase tracking-[0.18em] ${subtle}`}>My Crew &amp; Equipment Templates</h4>
+              </div>
+              <button onClick={() => setShowTemplateForm(v => !v)} className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-brand/10 text-brand text-[9px] font-black uppercase tracking-widest hover:bg-brand/20">
+                <Plus size={11} /> Save Current
+              </button>
+            </div>
+            {showTemplateForm && (
+              <div className="flex items-center gap-2 mb-3">
+                <input value={templateName} onChange={e => setTemplateName(e.target.value)} placeholder="Template name (e.g. Crew A + Excavator)" className={`${inputCls} flex-1`} />
+                <button onClick={handleSaveTemplate} disabled={savingTemplate || !templateName.trim()} className="px-3 py-1.5 rounded-lg bg-brand text-[#0f172a] text-[9px] font-black uppercase tracking-widest disabled:opacity-50">
+                  {savingTemplate ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            )}
+            {templates.length === 0 ? (
+              <p className={`text-[11px] italic ${subtle}`}>No saved templates yet. Build your crew and equipment lines below, then save them here for quick reuse next time.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {templates.map(t => (
+                  <div key={t.id} className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-bold truncate">{t.name}</p>
+                      <p className={`text-[9px] font-semibold ${subtle}`}>
+                        {t.employeeIds.length} crew · {t.equipmentIds.length} equipment
+                        {isAdmin ? ` · ${employees.find(e => e.profileId === t.ownerProfileId)?.name ?? 'Unknown foreman'}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button onClick={() => applyTemplate(t)} className="px-2.5 py-1 rounded-lg bg-brand/10 text-brand text-[9px] font-black uppercase tracking-widest hover:bg-brand/20">Apply</button>
+                      <button onClick={() => deleteTemplate(t)} className="text-rose-500 hover:text-rose-600"><Trash2 size={13} /></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Crew labor */}
           <div>
             <SectionHead icon={<Users size={14} />} title="Crew Labor" addLabel="Add crew"
@@ -376,7 +482,9 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
                       <button onClick={() => downloadSaved(inv)} className="p-1.5 rounded-lg bg-brand/10 text-brand hover:bg-brand/20" aria-label="Download"><Download size={13} /></button>
-                      <button onClick={() => deleteSaved(inv)} className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-500/10" aria-label="Delete"><Trash2 size={13} /></button>
+                      {isAdmin && (
+                        <button onClick={() => deleteSaved(inv)} className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-500/10" aria-label="Delete"><Trash2 size={13} /></button>
+                      )}
                     </div>
                   </div>
                 ))}
