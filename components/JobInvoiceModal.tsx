@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { X, Plus, Trash2, Download, Save, Users, Truck, Package, FileText, Clock } from 'lucide-react';
+import { X, Plus, Trash2, Download, Save, Users, Truck, Package, FileText, Clock, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Job, InventoryItem, InventoryItemType } from '../types.ts';
 import {
   Employee, Equipment, ServiceJob, WorkLog, WorkLogEntry, InvoiceSettings, JobInvoice, JobInvoiceData,
@@ -24,6 +24,88 @@ const aggregateCrew = (entries: TimeEntry[], employees: Employee[], fallback: Cr
     byEmp.set(e.employeeId, prev);
   }
   return Array.from(byEmp.values());
+};
+
+// ── inline range calendar ─────────────────────────────────────────────────────
+const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const parseYmd = (s: string) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+const WEEKDAY_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+const fmtRange = (from: string, to: string): string => {
+  if (!from) return 'Select a range';
+  const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
+  const f = parseYmd(from).toLocaleDateString('en-US', opts);
+  if (!to || to === from) return f;
+  return `${f} – ${parseYmd(to).toLocaleDateString('en-US', { ...opts, year: 'numeric' })}`;
+};
+
+// A compact month calendar that selects a [from, to] range and highlights it.
+// Days present in `marked` (i.e. that have logged hours) get a dot.
+const RangeCalendar: React.FC<{
+  from: string; to: string;
+  onChange: (from: string, to: string) => void;
+  marked: Set<string>;
+  isDarkMode?: boolean;
+}> = ({ from, to, onChange, marked, isDarkMode }) => {
+  const [month, setMonth] = useState<Date>(() => parseYmd(from || to || ymd(new Date())));
+  // Jump the view to the start date whenever it changes (e.g. after entries load).
+  useEffect(() => { if (from) setMonth(parseYmd(from)); }, [from]);
+
+  const y = month.getFullYear();
+  const m = month.getMonth();
+  const firstDow = new Date(y, m, 1).getDay();
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  const cells: (string | null)[] = [];
+  for (let i = 0; i < firstDow; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(ymd(new Date(y, m, d)));
+
+  const pick = (day: string) => {
+    if (!from || (from && to)) onChange(day, '');          // begin a new range
+    else if (day < from) onChange(day, '');                 // clicked before start → restart
+    else onChange(from, day);                               // complete the range
+  };
+
+  const inRange = (d: string) => !!from && !!to && d >= from && d <= to;
+  const isEnd = (d: string) => d === from || d === to;
+  const stepMonth = (delta: number) => setMonth(new Date(y, m + delta, 1));
+
+  const navBtn = isDarkMode ? 'hover:bg-white/10 text-slate-300' : 'hover:bg-slate-200 text-slate-600';
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1.5">
+        <button type="button" onClick={() => stepMonth(-1)} className={`p-1 rounded-md ${navBtn}`} aria-label="Previous month"><ChevronLeft size={14} /></button>
+        <span className="text-[11px] font-black uppercase tracking-widest">{month.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>
+        <button type="button" onClick={() => stepMonth(1)} className={`p-1 rounded-md ${navBtn}`} aria-label="Next month"><ChevronRight size={14} /></button>
+      </div>
+      <div className="grid grid-cols-7 gap-0.5">
+        {WEEKDAY_LETTERS.map((w, i) => (
+          <div key={i} className={`text-center text-[8px] font-black uppercase ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>{w}</div>
+        ))}
+        {cells.map((d, i) => {
+          if (!d) return <div key={i} />;
+          const day = Number(d.slice(8, 10));
+          const selected = isEnd(d);
+          const between = inRange(d) && !selected;
+          const has = marked.has(d);
+          return (
+            <button
+              key={i}
+              type="button"
+              onClick={() => pick(d)}
+              className={`relative h-7 rounded-md text-[10px] font-bold flex items-center justify-center transition-colors
+                ${selected ? 'bg-brand text-[#0f172a]'
+                  : between ? 'bg-brand/20 text-brand'
+                  : isDarkMode ? 'hover:bg-white/10 text-slate-200' : 'hover:bg-slate-200 text-slate-700'}`}
+              title={has ? 'Has logged hours' : undefined}
+            >
+              {day}
+              {has && <span className={`absolute bottom-0.5 w-1 h-1 rounded-full ${selected ? 'bg-[#0f172a]' : 'bg-emerald-500'}`} />}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 };
 
 type CrewLine = WorkLogEntry['employees'][number];
@@ -151,6 +233,10 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
 
   const invoiceNumber = useMemo(() => `INV-${job.jobNumber}-${history.length + 1}`, [job.jobNumber, history.length]);
 
+  // Days that have logged hours — dotted on the calendar so the user can see
+  // which dates actually carry time before selecting a range.
+  const markedDays = useMemo(() => new Set(jobEntries.map(e => e.clockedInAt.slice(0, 10))), [jobEntries]);
+
   const buildServiceJob = (cn: string, addr: string): ServiceJob => ({
     id: 0, companyId, customerName: cn, jobName: job.jobName || '', jobNumber: job.jobNumber,
     address: addr, startDate: null, endDate: null, notes: '', status: 'active', foremanId: null,
@@ -265,23 +351,28 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
           <div>
             <SectionHead icon={<Users size={14} />} title="Crew Labor" addLabel="Add crew"
               onAdd={() => setCrew(prev => [...prev, { employeeId: employees[0]?.id ?? 0, hours: 0, rate: employees[0]?.hourlyRate ?? 0 }])} />
-            {/* Work-date range: pull employees + hours logged within the window. */}
-            <div className={`flex flex-wrap items-end gap-2 mb-3 p-3 rounded-xl border ${isDarkMode ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
-              <div className="space-y-1">
-                <label className={`text-[9px] font-black uppercase tracking-widest ${subtle}`}>Work From</label>
-                <input type="date" value={workFrom} onChange={e => setWorkFrom(e.target.value)} className={`${inputCls} w-full`} />
+            {/* Work-date range: pick a span on the calendar, then pull the crew
+                hours logged within it. Dotted days have logged time. */}
+            <div className={`mb-3 p-3 rounded-xl border ${isDarkMode ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+              <div className="flex items-center justify-between mb-2">
+                <label className={`text-[9px] font-black uppercase tracking-widest ${subtle}`}>Work Dates</label>
+                <span className="text-[10px] font-black text-brand">{fmtRange(workFrom, workTo)}</span>
               </div>
-              <div className="space-y-1">
-                <label className={`text-[9px] font-black uppercase tracking-widest ${subtle}`}>Work To</label>
-                <input type="date" value={workTo} onChange={e => setWorkTo(e.target.value)} className={`${inputCls} w-full`} />
+              <RangeCalendar
+                from={workFrom} to={workTo}
+                onChange={(f, t) => { setWorkFrom(f); setWorkTo(t); }}
+                marked={markedDays}
+                isDarkMode={isDarkMode}
+              />
+              <div className="flex items-center gap-2 mt-2.5">
+                <button onClick={pullCrewFromWorkDates} disabled={jobEntries.length === 0}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand text-[#0f172a] text-[9px] font-black uppercase tracking-widest disabled:opacity-40">
+                  <Clock size={12} /> Pull Hours
+                </button>
+                <span className={`text-[9px] font-bold ${subtle}`}>
+                  {jobEntries.length === 0 ? 'No time logged on this job' : `${jobEntries.length} entr${jobEntries.length === 1 ? 'y' : 'ies'} logged`}
+                </span>
               </div>
-              <button onClick={pullCrewFromWorkDates} disabled={jobEntries.length === 0}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand text-[#0f172a] text-[9px] font-black uppercase tracking-widest disabled:opacity-40">
-                <Clock size={12} /> Pull Hours
-              </button>
-              <span className={`text-[9px] font-bold ${subtle}`}>
-                {jobEntries.length === 0 ? 'No time logged on this job' : `${jobEntries.length} entr${jobEntries.length === 1 ? 'y' : 'ies'} logged`}
-              </span>
             </div>
             {crew.length === 0 ? <p className={`text-[11px] italic ${subtle}`}>No crew lines.</p> : (
               <div className="space-y-1.5">
