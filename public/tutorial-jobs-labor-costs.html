@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Video: Jobs &amp; Labor Costs — DigTrack Pro</title>
+  <meta name="description" content="Video walkthrough: navigating jobs and labor costs in the DigTrack Pro dashboard." />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --navy: #0d1b2a;
+      --navy-mid: #132237;
+      --navy-light: #1a2f4a;
+      --blue: #2563eb;
+      --blue-bright: #3b82f6;
+      --blue-glow: rgba(59,130,246,0.15);
+      --text: #e2e8f0;
+      --text-muted: #94a3b8;
+      --border: rgba(59,130,246,0.2);
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--navy);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      font-weight: 400;
+      line-height: 1.75;
+      min-height: 100vh;
+    }
+
+    header {
+      border-bottom: 1px solid var(--border);
+      background: var(--navy-mid);
+      padding: 1.25rem 2rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .logo-mark {
+      width: 32px; height: 32px;
+      background: var(--blue);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'Syne', sans-serif;
+      font-weight: 800;
+      font-size: 0.85rem;
+      color: #fff;
+      letter-spacing: -0.5px;
+    }
+    .logo-text {
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      font-size: 1.1rem;
+      color: #fff;
+      letter-spacing: -0.3px;
+    }
+    .logo-text span { color: var(--blue-bright); }
+    .header-spacer { flex: 1; }
+    .back-link {
+      font-size: 0.85rem;
+      color: var(--blue-bright);
+      border: 1px solid var(--border);
+      padding: 0.4rem 0.9rem;
+      border-radius: 99px;
+      white-space: nowrap;
+      text-decoration: none;
+    }
+    .back-link:hover { background: var(--blue-glow); text-decoration: none; }
+
+    .hero {
+      background: linear-gradient(135deg, var(--navy-mid) 0%, var(--navy-light) 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 3rem 2rem 2.5rem;
+      text-align: center;
+    }
+    .hero-badge {
+      display: inline-block;
+      background: var(--blue-glow);
+      border: 1px solid var(--border);
+      color: var(--blue-bright);
+      font-size: 0.75rem;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 0.3rem 0.85rem;
+      border-radius: 99px;
+      margin-bottom: 1rem;
+    }
+    .hero h1 {
+      font-family: 'Syne', sans-serif;
+      font-weight: 800;
+      font-size: clamp(1.75rem, 4vw, 2.5rem);
+      letter-spacing: -0.03em;
+      color: #fff;
+      margin-bottom: 0.5rem;
+    }
+    .hero p { color: var(--text-muted); font-size: 0.95rem; max-width: 620px; margin: 0 auto; }
+
+    .container {
+      max-width: 820px;
+      margin: 0 auto;
+      padding: 3rem 2rem 5rem;
+    }
+
+    .video-wrap {
+      position: relative;
+      padding-bottom: 56.25%;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: var(--navy-mid);
+      margin-bottom: 2.5rem;
+    }
+    .video-wrap iframe {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      left: 0;
+      top: 0;
+      border: none;
+    }
+
+    .section {
+      margin-bottom: 2.75rem;
+      padding-bottom: 2.75rem;
+      border-bottom: 1px solid var(--border);
+      scroll-margin-top: 80px;
+    }
+    .section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+
+    .section h2 {
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      font-size: 1.3rem;
+      color: #fff;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    .section h2::before {
+      content: '';
+      display: inline-block;
+      width: 4px; height: 1.3rem;
+      background: var(--blue);
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+
+    p { color: var(--text-muted); margin-bottom: 0.85rem; font-size: 0.95rem; }
+    p:last-child { margin-bottom: 0; }
+    strong { color: var(--text); font-weight: 600; }
+
+    .step-image {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      margin-top: 0.75rem;
+      display: block;
+    }
+
+    footer {
+      text-align: center;
+      padding: 1.5rem;
+      border-top: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 0.8rem;
+    }
+    footer a { color: var(--blue-bright); }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo-mark">DT</div>
+  <div class="logo-text">DigTrack <span>Pro</span></div>
+  <div class="header-spacer"></div>
+  <a class="back-link" href="/">← Back to app</a>
+</header>
+
+<div class="hero">
+  <div class="hero-badge">Video Guide</div>
+  <h1>Navigating Jobs and Labor Costs in the Dashboard</h1>
+  <p>This video demonstrates how to navigate the ticket dashboard and explore the Jobs tab. You'll learn how to view job details, track active tickets, and understand labor costs effectively.</p>
+</div>
+
+<div class="container">
+
+  <div class="video-wrap">
+    <iframe
+      src="https://embed.app.guidde.com/playbooks/fi7VuL7Dzm3G4RFeoWkFag?"
+      title="Navigating Jobs and Labor Costs in the Dashboard"
+      frameborder="0"
+      referrerpolicy="unsafe-url"
+      allowfullscreen="true"
+      allow="clipboard-write"
+      sandbox="allow-popups allow-popups-to-escape-sandbox allow-scripts allow-forms allow-same-origin allow-presentation"
+    ></iframe>
+  </div>
+
+  <div class="section" id="step-1">
+    <h2>1. Login Confirmation And Dashboard</h2>
+    <p>Okay, so now that you've logged in and you understand the ticket dashboard,</p>
+    <img class="step-image" src="https://static.guidde.com/v0/qg%2FIlDAjzNIMJd2uV6SOQOHW80rTFE3%2Ffi7VuL7Dzm3G4RFeoWkFag%2FnenDkRhsxGrkBTyyXDpFJf_doc.png?alt=media&amp;token=178e3f92-e3a7-4536-9084-553ddd07a263" alt="Login Confirmation And Dashboard" />
+  </div>
+
+  <div class="section" id="step-2">
+    <h2>2. Jobs Tab Overview</h2>
+    <p>The next tab down on the left side is Jobs. This is where you can see all of the jobs.</p>
+    <img class="step-image" src="https://static.guidde.com/v0/qg%2FIlDAjzNIMJd2uV6SOQOHW80rTFE3%2Ffi7VuL7Dzm3G4RFeoWkFag%2F51ia2Xa3vNDSDygLqXiBkL_doc.png?alt=media&amp;token=43629e66-2068-4234-bfd5-de5f11c2b4d2" alt="Jobs Tab Overview" />
+  </div>
+
+  <div class="section" id="step-3">
+    <h2>3. Jobs List Details And Labor Costs</h2>
+    <p>You can go down the list, see how many tickets are active, how many tickets need attention. If you have the time module activated, you'll be able to see how many hours were logged on that, how many dollars you guys are spending in labor costs.</p>
+    <img class="step-image" src="https://static.guidde.com/v0/qg%2FIlDAjzNIMJd2uV6SOQOHW80rTFE3%2Ffi7VuL7Dzm3G4RFeoWkFag%2FoAJtM9N4hHVY2bN8efU1XD_doc.png?alt=media&amp;token=e05dd09a-086f-469d-9749-28f7c349aa0e" alt="Jobs List Details And Labor Costs" />
+  </div>
+
+  <div class="section" id="step-4">
+    <h2>4. Jobs Hub Blueprint And Resources</h2>
+    <p>The blueprint, the cost codes assigned, crew or equipment on site, all from the jobs hub.</p>
+    <img class="step-image" src="https://static.guidde.com/v0/qg%2FIlDAjzNIMJd2uV6SOQOHW80rTFE3%2Ffi7VuL7Dzm3G4RFeoWkFag%2FvWkGxd3ZvP1wrvyNLBKEip_doc.png?alt=media&amp;token=bf3f99d3-4657-4632-aaa3-c822a6f226be" alt="Jobs Hub Blueprint And Resources" />
+    <p style="margin-top:1.25rem">Learn to use the Jobs tab to monitor active tickets, labor hours, and costs, while accessing job blueprints and resources from the dashboard.</p>
+  </div>
+
+</div>
+
+<footer>
+  &copy; 2026 DigTrack Pro · Operated by Elijah · <a href="/">Open the app</a> · <a href="/walkthrough">Full Walkthrough</a> · <a href="/terms">Terms &amp; Conditions</a> · <a href="/privacy">Privacy Policy</a>
+</footer>
+
+</body>
+</html>
