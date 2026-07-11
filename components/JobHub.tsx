@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Search, Plus, FileText, Upload, Clock, Package, Users, Truck,
-  CalendarDays, Activity, Trash2, Pencil, CheckCircle2, RotateCcw, X, Receipt,
+  CalendarDays, Activity, Trash2, Pencil, CheckCircle2, RotateCcw, X, Receipt, Eye,
 } from 'lucide-react';
 import { Job, DigTicket, TicketStatus, InventoryItem, InventoryItemType, InventoryMovement, JobPrint, User } from '../types.ts';
 import { getTicketStatus, getStatusColor, formatDateStr } from '../utils/dateUtils.ts';
@@ -12,6 +12,8 @@ import { CostCode, JobCostCodeAssignment, TimeEntry, entryRoundedHours } from '.
 import { Employee } from '../services/schedulingTypes.ts';
 import { jobInvoiceService } from '../services/jobInvoiceService.ts';
 import { JobInvoiceModal } from './JobInvoiceModal.tsx';
+import PdfMarkupEditor from './PdfMarkupEditor.tsx';
+import { PrintDownloadMenu } from './pdfExport.tsx';
 import { supabase } from '../lib/supabaseClient.ts';
 
 interface JobHubProps {
@@ -31,7 +33,6 @@ interface JobHubProps {
   onDeleteJob: (job: Job) => void;
   onToggleComplete: (job: Job) => Promise<void> | void;
   onUpdateJob: (job: Job) => Promise<void> | void;
-  onOpenMarkup: (job: Job) => void;
   onViewDoc: (url: string) => void;
   onViewMedia: (job: Job) => void;
 }
@@ -66,7 +67,7 @@ const HEALTH_DOT: Record<string, string> = {
 export const JobHub: React.FC<JobHubProps> = ({
   jobs, tickets, companyId, isAdmin, sessionUser, isDarkMode,
   schedulingEnabled, timeTrackingEnabled, inventoryEnabled, refreshKey,
-  onCreateJob, onEditJob, onDeleteJob, onToggleComplete, onUpdateJob, onOpenMarkup, onViewDoc, onViewMedia,
+  onCreateJob, onEditJob, onDeleteJob, onToggleComplete, onUpdateJob, onViewDoc, onViewMedia,
 }) => {
   const [search, setSearch] = useState('');
   const [hideCompleted, setHideCompleted] = useState(false);
@@ -92,6 +93,7 @@ export const JobHub: React.FC<JobHubProps> = ({
   const [prints, setPrints] = useState<JobPrint[]>([]);
   const [printsLoading, setPrintsLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [markupPrint, setMarkupPrint] = useState<JobPrint | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // ── invoicing ───────────────────────────────────────────────────────────────
@@ -536,10 +538,10 @@ export const JobHub: React.FC<JobHubProps> = ({
                 )}
               </Panel>
 
-              {/* Blueprints / PDFs */}
+              {/* Documents / PDFs */}
               <Panel>
                 <SectionTitle
-                  icon={<FileText size={14} />} title="Blueprints & Prints"
+                  icon={<FileText size={14} />} title="Documents & Prints"
                   right={isAdmin && (
                     <button onClick={() => fileRef.current?.click()} disabled={uploading}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand/10 text-brand text-[9px] font-black uppercase tracking-widest hover:bg-brand/20 disabled:opacity-50">
@@ -552,29 +554,49 @@ export const JobHub: React.FC<JobHubProps> = ({
                 {printsLoading ? (
                   <p className={`text-[11px] font-bold ${subtle}`}>Loading…</p>
                 ) : prints.length === 0 ? (
-                  <button onClick={() => isAdmin ? fileRef.current?.click() : onOpenMarkup(selectedJob)}
-                    className={`w-full py-6 rounded-xl border-2 border-dashed flex flex-col items-center gap-2 transition-all ${isDarkMode ? 'border-white/10 hover:border-brand/40' : 'border-slate-200 hover:border-brand/40'}`}>
-                    <FileText size={20} className="text-slate-400" />
-                    <span className={`text-[10px] font-black uppercase tracking-widest ${subtle}`}>{isAdmin ? 'Upload blueprint or PDF' : 'No prints yet'}</span>
-                  </button>
+                  isAdmin ? (
+                    <button onClick={() => fileRef.current?.click()}
+                      className={`w-full py-6 rounded-xl border-2 border-dashed flex flex-col items-center gap-2 transition-all ${isDarkMode ? 'border-white/10 hover:border-brand/40' : 'border-slate-200 hover:border-brand/40'}`}>
+                      <FileText size={20} className="text-slate-400" />
+                      <span className={`text-[10px] font-black uppercase tracking-widest ${subtle}`}>Upload blueprint or PDF</span>
+                    </button>
+                  ) : (
+                    <div className={`w-full py-6 rounded-xl border-2 border-dashed flex flex-col items-center gap-2 ${isDarkMode ? 'border-white/10' : 'border-slate-200'}`}>
+                      <FileText size={20} className="text-slate-400" />
+                      <span className={`text-[10px] font-black uppercase tracking-widest ${subtle}`}>No documents yet</span>
+                    </div>
+                  )
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {prints.map(p => (
-                      <button key={p.id} onClick={() => onOpenMarkup(selectedJob)}
-                        className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${isDarkMode ? 'border-white/10 hover:bg-white/5' : 'border-slate-200 hover:bg-slate-50'}`}>
-                        <FileText size={18} className="text-rose-500 shrink-0" />
-                        <div className="min-w-0">
-                          <p className="text-[11px] font-bold truncate">{p.fileName}</p>
-                          <p className={`text-[9px] font-semibold uppercase ${subtle}`}>{p.isPinned ? 'Pinned · ' : ''}{formatDateStr(new Date(p.createdAt).toISOString().slice(0, 10))}</p>
+                      <div key={p.id}
+                        className={`p-3 rounded-xl border transition-all ${isDarkMode ? 'border-white/10 hover:border-brand/30' : 'border-slate-200 hover:border-brand/30'}`}>
+                        <div className="flex items-center gap-3">
+                          <FileText size={18} className="text-rose-500 shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[11px] font-bold truncate" title={p.fileName}>{p.fileName}</p>
+                            <p className={`text-[9px] font-semibold uppercase ${subtle}`}>{p.isPinned ? 'Pinned · ' : ''}{formatDateStr(new Date(p.createdAt).toISOString().slice(0, 10))}</p>
+                          </div>
                         </div>
-                      </button>
+                        <div className="flex gap-1.5 mt-2.5">
+                          <button onClick={() => setMarkupPrint(p)}
+                            className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-lg bg-brand text-[#0f172a] text-[10px] font-black uppercase tracking-widest transition-all hover:scale-[1.03] active:scale-95">
+                            <Pencil size={12} className="shrink-0" /> Markup
+                          </button>
+                          <button onClick={() => p.url && window.open(p.url, '_blank')} disabled={!p.url}
+                            className={`flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg border text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 disabled:opacity-40 ${isDarkMode ? 'border-white/10 text-slate-200 hover:bg-white/5' : 'border-slate-200 text-slate-700 hover:bg-slate-50'}`}
+                            title="View this PDF in a new tab">
+                            <Eye size={12} className="shrink-0" /> View
+                          </button>
+                          <PrintDownloadMenu
+                            print={p}
+                            isDarkMode={isDarkMode}
+                            buttonClassName={`flex items-center justify-center gap-1.5 px-2.5 py-2 rounded-lg border text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 disabled:opacity-40 ${isDarkMode ? 'border-white/10 text-slate-200 hover:bg-white/5' : 'border-slate-200 text-slate-700 hover:bg-slate-50'}`}
+                          />
+                        </div>
+                      </div>
                     ))}
                   </div>
-                )}
-                {prints.length > 0 && (
-                  <button onClick={() => onOpenMarkup(selectedJob)} className="mt-3 text-[10px] font-black uppercase tracking-widest text-brand hover:underline">
-                    Open markup editor →
-                  </button>
                 )}
               </Panel>
 
@@ -737,6 +759,15 @@ export const JobHub: React.FC<JobHubProps> = ({
           )}
         </div>
       </div>
+
+      {markupPrint && (
+        <PdfMarkupEditor
+          print={markupPrint}
+          sessionUser={sessionUser}
+          isDarkMode={isDarkMode}
+          onClose={() => setMarkupPrint(null)}
+        />
+      )}
 
       {showInvoice && selectedJob && detail && (
         <JobInvoiceModal

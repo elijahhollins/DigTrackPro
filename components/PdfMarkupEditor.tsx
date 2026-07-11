@@ -14,7 +14,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 // Types & constants
 // ─────────────────────────────────────────────────────────────
 
-type ToolType =
+export type ToolType =
   | 'select' | 'pan'
   | 'pen' | 'highlighter'
   | 'text' | 'callout' | 'stamp'
@@ -25,7 +25,7 @@ type ToolType =
 const STAMP_TYPES = ['APPROVED', 'REVISED', 'FIELD CHANGE', 'AS BUILT', 'NOT APPROVED', 'VOID'] as const;
 type StampType = typeof STAMP_TYPES[number];
 
-const STAMP_COLORS: Record<StampType, string> = {
+export const STAMP_COLORS: Record<StampType, string> = {
   'APPROVED':      '#22c55e',
   'REVISED':       '#f59e0b',
   'FIELD CHANGE':  '#3b82f6',
@@ -34,7 +34,7 @@ const STAMP_COLORS: Record<StampType, string> = {
   'VOID':          '#6b7280',
 };
 
-interface AnyAnnotationData extends Record<string, unknown> {
+export interface AnyAnnotationData extends Record<string, unknown> {
   points?:    Array<{ x: number; y: number; pressure?: number }>;
   x?:         number;
   y?:         number;
@@ -47,7 +47,7 @@ interface AnyAnnotationData extends Record<string, unknown> {
   rotation?:  number;  // rotation in degrees (clockwise, 0 = no rotation)
 }
 
-interface ScaleInfo {
+export interface ScaleInfo {
   unitsPerNormDist: number;  // real units per canonical normalized distance
   aspectRatio: number;       // canvas W/H (fixed for PDF page)
   unit: string;
@@ -453,7 +453,7 @@ const getAnnotationAnchor = (ann: PdfAnnotation): { x: number; y: number } | nul
 const BBOX_TEXT_HALF_W   = 0.09;  // estimated half-width for a text/stamp label
 const BBOX_TEXT_HALF_H   = 0.03;  // estimated half-height for a text/stamp label
 const BBOX_TEXT_OFFSET_Y = 0.03;  // offset above the anchor point to account for label baseline
-const getAnnotationBBox = (ann: PdfAnnotation, data?: AnyAnnotationData): { x: number; y: number; w: number; h: number } | null => {
+export const getAnnotationBBox = (ann: PdfAnnotation, data?: AnyAnnotationData): { x: number; y: number; w: number; h: number } | null => {
   const d = (data ?? ann.data) as AnyAnnotationData;
   const t = ann.toolType as ToolType;
   if (t === 'pen' || t === 'highlighter') {
