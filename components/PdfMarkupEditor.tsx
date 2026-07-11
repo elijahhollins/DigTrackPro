@@ -1102,6 +1102,12 @@ const PageLayer = React.memo(function PageLayer(props: PageLayerProps) {
 // Component
 // ─────────────────────────────────────────────────────────────
 
+const MIN_ZOOM = 0.25;
+const MAX_ZOOM = 4.0;
+// Preset ladder the ± buttons and Ctrl+±/− shortcuts step through, like desktop
+// PDF viewers. Wheel/pinch zoom stays continuous between these stops.
+const ZOOM_STOPS = [0.25, 0.33, 0.5, 0.67, 0.75, 1, 1.25, 1.5, 2, 2.5, 3, 4];
+
 export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   print, sessionUser, onClose,
 }) => {
@@ -1479,6 +1485,61 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     });
   }, []);
 
+  // ── Zoom plumbing shared by wheel, buttons, keyboard, and pinch ──
+  // Resolve the page + normalized point under a client-space focal point, so a zoom
+  // can keep that exact spot stationary through the re-layout. Falls back to the
+  // nearest page when the point sits over a gap or margin.
+  const resolveZoomAnchor = useCallback((fx: number, fy: number): { pageNum: number; nx: number; ny: number } | null => {
+    let el = (document.elementFromPoint(fx, fy) as HTMLElement | null)?.closest('[data-page]') as HTMLElement | null;
+    if (!el) {
+      let bestDist = Infinity;
+      pageContainerRefs.current.forEach(c => {
+        const cr = c.getBoundingClientRect();
+        const dx = Math.max(cr.left - fx, 0, fx - cr.right);
+        const dy = Math.max(cr.top - fy, 0, fy - cr.bottom);
+        const d = dx * dx + dy * dy;
+        if (d < bestDist) { bestDist = d; el = c; }
+      });
+    }
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return {
+      pageNum: Number(el.dataset.page) || 1,
+      nx: r.width  ? Math.max(0, Math.min(1, (fx - r.left) / r.width))  : 0.5,
+      ny: r.height ? Math.max(0, Math.min(1, (fy - r.top)  / r.height)) : 0.5,
+    };
+  }, []);
+
+  const clearZoomTransform = useCallback(() => {
+    const layer = zoomLayerRef.current;
+    if (layer) { layer.style.transform = ''; layer.style.transformOrigin = ''; layer.style.willChange = ''; }
+  }, []);
+
+  // Commit a new zoom level anchored at a client point (defaulting to the viewport
+  // centre), so the content under that point stays put through the re-layout.
+  const commitZoom = useCallback((target: number, fx?: number, fy?: number) => {
+    const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, target));
+    if (Math.abs(newZoom - zoomRef.current) < 0.0005) return;
+    if (fx === undefined || fy === undefined) {
+      const r = mainRef.current?.getBoundingClientRect();
+      if (r) { fx = r.left + r.width / 2; fy = r.top + r.height / 2; }
+    }
+    if (fx !== undefined && fy !== undefined) {
+      const anchor = resolveZoomAnchor(fx, fy);
+      if (anchor) pendingZoomAnchorRef.current = { ...anchor, fx, fy };
+    }
+    setZoomLevel(newZoom);
+  }, [resolveZoomAnchor]);
+
+  // Step to the next/previous stop on the preset zoom ladder.
+  const stepZoom = useCallback((dir: 1 | -1) => {
+    const cur = zoomRef.current;
+    const next = dir > 0
+      ? ZOOM_STOPS.find(z => z > cur + 0.001) ?? MAX_ZOOM
+      : [...ZOOM_STOPS].reverse().find(z => z < cur - 0.001) ?? MIN_ZOOM;
+    commitZoom(next);
+  }, [commitZoom]);
+
   // Undo
   const handleUndo = useCallback(async () => {
     const entry = undoStackRef.current.pop();
@@ -1739,9 +1800,9 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
 
       // Intercept Ctrl/⌘ + Plus/Minus/0 browser zoom shortcuts and apply app zoom instead
       if (e.type === 'keydown' && (e.ctrlKey || e.metaKey)) {
-        if (e.key === '=' || e.key === '+') { e.preventDefault(); setZoomLevel(z => Math.min(4.0, z + 0.25)); return; }
-        if (e.key === '-')                  { e.preventDefault(); setZoomLevel(z => Math.max(0.25, z - 0.25)); return; }
-        if (e.key === '0')                  { e.preventDefault(); setZoomLevel(1.0); return; }
+        if (e.key === '=' || e.key === '+') { e.preventDefault(); stepZoom(1); return; }
+        if (e.key === '-')                  { e.preventDefault(); stepZoom(-1); return; }
+        if (e.key === '0')                  { e.preventDefault(); commitZoom(1.0); return; }
       }
 
       // Delete / Backspace → delete selected annotation (only when not typing in an input)
@@ -1793,19 +1854,70 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     window.addEventListener('keydown', onKey);
     window.addEventListener('keyup',   onKey);
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKey); };
-  }, [handleUndo, handleRedo, handleDeleteAnnotation, updateAnnotation, duplicateAnnotation]);
+  }, [handleUndo, handleRedo, handleDeleteAnnotation, updateAnnotation, duplicateAnnotation, stepZoom, commitZoom]);
 
-  // Block browser-level pinch/scroll zoom (Ctrl+wheel) while the editor is open.
-  // React's synthetic onWheel may be passive in some environments; a direct non-passive
-  // window listener is the most reliable way to prevent the browser from intercepting
-  // the gesture and resetting the viewport/scroll position.
+  // ── Ctrl/⌘ + wheel and trackpad-pinch zoom, anchored at the cursor ──
+  // A non-passive window listener both blocks the browser's own page zoom and drives
+  // the app zoom. Like the touch pinch, the gesture itself only applies a cheap CSS
+  // transform (smooth even while pdf.js is busy); the real zoom + re-rasterization
+  // commits once, shortly after the last wheel event, re-anchored so the content
+  // under the cursor stays exactly put.
   useEffect(() => {
-    const onWheel = (e: WheelEvent) => {
-      if (e.ctrlKey || e.metaKey) e.preventDefault();
+    let gesture: { scale: number; fx: number; fy: number; anchor: { pageNum: number; nx: number; ny: number } | null } | null = null;
+    let commitTimer = 0;
+
+    const commit = () => {
+      commitTimer = 0;
+      const g = gesture;
+      gesture = null;
+      if (!g) return;
+      const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomRef.current * g.scale));
+      if (Math.abs(g.scale - 1) < 0.002 || Math.abs(newZoom - zoomRef.current) < 0.0005) {
+        clearZoomTransform();
+        return;
+      }
+      if (g.anchor) pendingZoomAnchorRef.current = { ...g.anchor, fx: g.fx, fy: g.fy };
+      else clearZoomTransform();
+      setZoomLevel(newZoom);
     };
+
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault(); // never let the browser zoom the page while the editor is open
+      if (isPinchRef.current) return;
+      const main = mainRef.current;
+      const layer = zoomLayerRef.current;
+      if (!main || !layer) return;
+      // Anchor at the cursor when it's over the document, else at the viewport centre.
+      let fx = e.clientX, fy = e.clientY;
+      const mr = main.getBoundingClientRect();
+      if (fx < mr.left || fx > mr.right || fy < mr.top || fy > mr.bottom) {
+        fx = mr.left + mr.width / 2;
+        fy = mr.top + mr.height / 2;
+      }
+      if (!gesture) {
+        const zr = layer.getBoundingClientRect();
+        layer.style.transformOrigin = `${fx - zr.left}px ${fy - zr.top}px`;
+        layer.style.willChange = 'transform';
+        gesture = { scale: 1, fx, fy, anchor: resolveZoomAnchor(fx, fy) };
+      }
+      // Multiplicative factor from the wheel delta: small trackpad-pinch deltas zoom
+      // smoothly; a discrete mouse-wheel tick (±100, clamped) gives ≈×1.17 per notch.
+      const line = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1;
+      const dy = Math.max(-80, Math.min(80, e.deltaY * line));
+      const target = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomRef.current * gesture.scale * Math.exp(-dy * 0.002)));
+      gesture.scale = target / zoomRef.current;
+      layer.style.transform = `scale(${gesture.scale})`;
+      if (commitTimer) clearTimeout(commitTimer);
+      commitTimer = window.setTimeout(commit, 120);
+    };
+
     window.addEventListener('wheel', onWheel, { passive: false });
-    return () => window.removeEventListener('wheel', onWheel);
-  }, []);
+    return () => {
+      window.removeEventListener('wheel', onWheel);
+      if (commitTimer) clearTimeout(commitTimer);
+    };
+  }, [resolveZoomAnchor, clearZoomTransform]);
 
   // ── Pinch-to-zoom (driven by native touch events for accurate finger tracking) ──
   // During the gesture only a cheap CSS transform is applied to the page column; the
@@ -1823,23 +1935,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       setIsDrawing(false); setPenPoints([]); setPreviewData(null); setDrawStart(null);
     }
     // Resolve the page + normalized point under the focus for post-zoom re-anchoring.
-    let anchorEl = (document.elementFromPoint(fx, fy) as HTMLElement | null)?.closest('[data-page]') as HTMLElement | null;
-    if (!anchorEl) {
-      pageContainerRefs.current.forEach(c => {
-        const cr = c.getBoundingClientRect();
-        if (fx >= cr.left && fx <= cr.right && fy >= cr.top && fy <= cr.bottom) anchorEl = c;
-      });
-    }
-    if (anchorEl) {
-      const r = anchorEl.getBoundingClientRect();
-      pinchAnchorRef.current = {
-        pageNum: Number(anchorEl.dataset.page) || 1,
-        nx: r.width ? Math.max(0, Math.min(1, (fx - r.left) / r.width)) : 0.5,
-        ny: r.height ? Math.max(0, Math.min(1, (fy - r.top) / r.height)) : 0.5,
-      };
-    } else {
-      pinchAnchorRef.current = null;
-    }
+    pinchAnchorRef.current = resolveZoomAnchor(fx, fy);
     const layer = zoomLayerRef.current;
     if (layer) {
       const zr = layer.getBoundingClientRect();
@@ -1847,7 +1943,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       layer.style.transformOrigin = `${pinchOriginRef.current.x}px ${pinchOriginRef.current.y}px`;
       layer.style.willChange = 'transform';
     }
-  }, []);
+  }, [resolveZoomAnchor]);
 
   const updatePinch = useCallback((p1: { x: number; y: number }, p2: { x: number; y: number }) => {
     if (!isPinchRef.current) return;
@@ -1855,7 +1951,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
     pinchCurrentFocalRef.current = { x: fx, y: fy };
     const rawS = dist / (pinchDistRef.current || 1);
-    const targetZoom = Math.max(0.25, Math.min(4.0, (zoomRef.current || 1) * rawS));
+    const targetZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, (zoomRef.current || 1) * rawS));
     const s = targetZoom / (zoomRef.current || 1);
     pinchScaleRef.current = s;
     const layer = zoomLayerRef.current;
@@ -1873,11 +1969,6 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   // visible jump. Instead the transform is left in place and cleared inside the
   // zoom layout-effect, after the new page sizes are laid out — so the swap from
   // "scaled old layout" to "new layout" happens in a single paint with no flicker.
-  const clearZoomTransform = useCallback(() => {
-    const layer = zoomLayerRef.current;
-    if (layer) { layer.style.transform = ''; layer.style.transformOrigin = ''; layer.style.willChange = ''; }
-  }, []);
-
   const finalizePinch = useCallback(() => {
     if (!isPinchRef.current) return;
     isPinchRef.current = false;
@@ -1885,7 +1976,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     pinchScaleRef.current = 1;
     const anchor = pinchAnchorRef.current;
     pinchAnchorRef.current = null;
-    const newZoom = Math.max(0.25, Math.min(4.0, (zoomRef.current || 1) * s));
+    const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, (zoomRef.current || 1) * s));
     // No meaningful change (or clamped to the same level): drop the transient
     // transform now, since no re-render — and therefore no layout-effect — will run.
     if (Math.abs(s - 1) < 0.002 || Math.abs(newZoom - zoomRef.current) < 0.0005) {
@@ -1932,17 +2023,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       const targetZoom = curZoom > 1.05 ? 1.0 : 2.0; // toggle fit ⇄ 2×
       const ratio = targetZoom / (curZoom || 1);
       if (!layer || Math.abs(ratio - 1) < 0.01) return;
-      let targetEl = (document.elementFromPoint(clientX, clientY) as HTMLElement | null)?.closest('[data-page]') as HTMLElement | null;
-      if (!targetEl) { pageContainerRefs.current.forEach(c => { const r = c.getBoundingClientRect(); if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) targetEl = c; }); }
-      let anchor: { pageNum: number; nx: number; ny: number } | null = null;
-      if (targetEl) {
-        const r = targetEl.getBoundingClientRect();
-        anchor = {
-          pageNum: Number(targetEl.dataset.page) || 1,
-          nx: Math.max(0, Math.min(1, (clientX - r.left) / (r.width || 1))),
-          ny: Math.max(0, Math.min(1, (clientY - r.top) / (r.height || 1))),
-        };
-      }
+      const anchor = resolveZoomAnchor(clientX, clientY);
       const zr = layer.getBoundingClientRect();
       layer.style.transformOrigin = `${clientX - zr.left}px ${clientY - zr.top}px`;
       layer.style.willChange = 'transform';
@@ -2087,7 +2168,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       main.removeEventListener('touchend',    onTouchEnd);
       main.removeEventListener('touchcancel', onTouchEnd);
     };
-  }, [isLoadingPdf, beginPinch, updatePinch, finalizePinch]);
+  }, [isLoadingPdf, beginPinch, updatePinch, finalizePinch, resolveZoomAnchor]);
 
   // ── Pointer Events (Apple Pencil + palm rejection + pinch-to-zoom) ──
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -2397,13 +2478,6 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     }
   }, []);
 
-  // Ctrl+scroll to zoom
-  const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
-    if (!e.ctrlKey && !e.metaKey) return;
-    e.preventDefault();
-    setZoomLevel(z => Math.max(0.25, Math.min(4.0, z + (e.deltaY > 0 ? -0.1 : 0.1))));
-  }, []);
-
   // Text / callout submit
   const handleTextSubmit = useCallback(() => {
     if (!textInput) return;
@@ -2597,7 +2671,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
 
 
   return (
-    <div className="fixed inset-0 z-[300] bg-slate-950 flex flex-col select-none" onWheel={handleWheel}>
+    <div className="fixed inset-0 z-[300] bg-slate-950 flex flex-col select-none">
 
       {/* ── Row 1: Header ── */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10 bg-slate-900/90 backdrop-blur shrink-0 flex-wrap gap-y-1.5 min-h-[56px]">
@@ -2637,19 +2711,19 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
 
         {/* Zoom */}
         <div className="flex items-center gap-1 shrink-0">
-          <button onClick={() => setZoomLevel(z => Math.max(0.25, z - 0.25))}
+          <button onClick={() => stepZoom(-1)}
             className="p-2.5 bg-slate-800 text-white rounded-xl hover:bg-slate-700 transition-all min-w-[44px] min-h-[44px] flex items-center justify-center"
             title="Zoom out">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM13 10H7" />
             </svg>
           </button>
-          <button onClick={() => setZoomLevel(1.0)}
+          <button onClick={() => commitZoom(1.0)}
             className="px-2 bg-slate-800 text-white rounded-xl text-xs font-black hover:bg-slate-700 transition-all min-w-[52px] min-h-[44px] flex items-center justify-center"
             title="Reset zoom">
             {Math.round(zoomLevel * 100)}%
           </button>
-          <button onClick={() => setZoomLevel(z => Math.min(4.0, z + 0.25))}
+          <button onClick={() => stepZoom(1)}
             className="p-2.5 bg-slate-800 text-white rounded-xl hover:bg-slate-700 transition-all min-w-[44px] min-h-[44px] flex items-center justify-center"
             title="Zoom in">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -3069,10 +3143,15 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       )}
 
       {/* ── Canvas area ── */}
-      <div ref={mainRef} onScroll={handleScroll} className="relative flex-1 min-h-0 overflow-auto flex flex-col items-center p-4 gap-4">
+      {/* Scroll container. NOT items-center: a centered flex child wider than the
+          viewport overflows to the *left* of the scroll origin, making that half
+          unreachable and breaking zoom-anchor math — the zoom layer centers itself
+          via min-width instead. overflow-anchor is off because the browser's native
+          scroll anchoring fights our own focal-point restoration on zoom re-layout. */}
+      <div ref={mainRef} onScroll={handleScroll} className="relative flex-1 min-h-0 overflow-auto flex flex-col p-4 gap-4 [overflow-anchor:none]">
 
         {annLoadErr && (
-          <div className="w-full max-w-3xl flex items-center gap-3 px-4 py-3 bg-amber-500/10 border border-amber-500/30 rounded-xl shrink-0">
+          <div className="w-full max-w-3xl mx-auto flex items-center gap-3 px-4 py-3 bg-amber-500/10 border border-amber-500/30 rounded-xl shrink-0">
             <svg className="w-4 h-4 text-amber-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
             </svg>
@@ -3086,7 +3165,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
         )}
 
         {actionErr && (
-          <div className="w-full max-w-3xl flex items-center gap-3 px-4 py-3 bg-rose-500/10 border border-rose-500/30 rounded-xl shrink-0">
+          <div className="w-full max-w-3xl mx-auto flex items-center gap-3 px-4 py-3 bg-rose-500/10 border border-rose-500/30 rounded-xl shrink-0">
             <svg className="w-4 h-4 text-rose-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
@@ -3114,7 +3193,8 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
         )}
 
         {!isLoadingPdf && !pdfError && (
-          <div ref={zoomLayerRef} className="flex flex-col items-center origin-top" style={{ rowGap: `${16 * zoomLevel}px` }}>
+          <div ref={zoomLayerRef} className="flex flex-col items-center origin-top"
+            style={{ rowGap: `${16 * zoomLevel}px`, width: 'max-content', minWidth: '100%' }}>
           {Array.from({ length: numPages }, (_, i) => {
             const p = i + 1;
             const { width: w, height: h } = getDisplaySize(p);
