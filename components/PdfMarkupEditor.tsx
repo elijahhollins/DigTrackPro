@@ -25,7 +25,7 @@ export type ToolType =
 const STAMP_TYPES = ['APPROVED', 'REVISED', 'FIELD CHANGE', 'AS BUILT', 'NOT APPROVED', 'VOID'] as const;
 type StampType = typeof STAMP_TYPES[number];
 
-const STAMP_COLORS: Record<StampType, string> = {
+export const STAMP_COLORS: Record<StampType, string> = {
   'APPROVED':      '#22c55e',
   'REVISED':       '#f59e0b',
   'FIELD CHANGE':  '#3b82f6',
@@ -420,7 +420,7 @@ const renderAnnotationContent = (
 
 // Wraps renderAnnotationContent with an SVG rotation transform when the
 // annotation's data.rotation field is set.
-export const renderAnnotationSvg = (
+const renderAnnotationSvg = (
   ann: { toolType: ToolType; color: string; strokeWidth: number; data: AnyAnnotationData },
   w: number, h: number, key: string,
   scaleInfo?: ScaleInfo | null,
@@ -453,7 +453,7 @@ const getAnnotationAnchor = (ann: PdfAnnotation): { x: number; y: number } | nul
 const BBOX_TEXT_HALF_W   = 0.09;  // estimated half-width for a text/stamp label
 const BBOX_TEXT_HALF_H   = 0.03;  // estimated half-height for a text/stamp label
 const BBOX_TEXT_OFFSET_Y = 0.03;  // offset above the anchor point to account for label baseline
-const getAnnotationBBox = (ann: PdfAnnotation, data?: AnyAnnotationData): { x: number; y: number; w: number; h: number } | null => {
+export const getAnnotationBBox = (ann: PdfAnnotation, data?: AnyAnnotationData): { x: number; y: number; w: number; h: number } | null => {
   const d = (data ?? ann.data) as AnyAnnotationData;
   const t = ann.toolType as ToolType;
   if (t === 'pen' || t === 'highlighter') {
