@@ -22,7 +22,7 @@ This guide walks through **every feature** in DigTrack Pro and the exact steps t
 7. [Map](#7-map)
 8. [Field Docs (Photos & Documents)](#8-field-docs-photos--documents)
 9. [Jobs](#9-jobs)
-10. [As Built (PDF Markup)](#10-as-built-pdf-markup)
+10. [Documents & PDF Markup (in the Job Hub)](#10-documents--pdf-markup-in-the-job-hub)
 11. [Crew / Team Management](#11-crew--team-management)
 12. [Optional Module: Inbound Tickets](#12-optional-module-inbound-tickets)
 13. [Optional Module: Field Ops (Scheduling)](#13-optional-module-field-ops-scheduling)
@@ -67,7 +67,7 @@ DigTrack Pro is **multi-tenant**: every user belongs to one company and only see
 
 - **Top-left header** shows your **company name** (falls back to "DigTrack Pro" if none).
 - **Navigation tabs** switch between views. Core tabs are always present; optional-module tabs (Field Ops, Time, Inventory) appear only when an admin has enabled them:
-  - **Tickets** · **Schedule** · **Map** · **Field Docs** · **Crew** · **As Built**
+  - **Tickets** · **Jobs** · **Schedule** · **Map** · **Field Docs** · **Crew**
   - **Field Ops** · **Time** · **Inventory** *(optional)*
 - **Dark / Light mode** — toggle in the header; your choice is remembered.
 - **Document viewer** — clicking any ticket's document number opens the scanned PDF/image in an in-app viewer.
@@ -194,16 +194,18 @@ The **Jobs** tab reviews work organized by job rather than by ticket.
 
 ---
 
-## 10. As Built (PDF Markup)
+## 10. Documents & PDF Markup (in the Job Hub)
 
-The **As Built** tab manages job **prints** (plan PDFs) and lets you mark them up — turning plans into red-lined as-builts.
+Job **prints** (plan PDFs) live in the **Jobs** tab: select a job and use its **Documents & Prints** panel — turning plans into red-lined as-builts.
 
 ### Manage prints
-1. Find a job (search by job number, customer, or address). By default jobs **without** PDFs are hidden — toggle that off to see all.
-2. **Upload** a plan PDF to a job. **Pin** important prints to keep them at the top.
+1. Select a job in the Job Hub (search by job number, name, or city).
+2. **Upload** a plan PDF from the Documents & Prints panel.
+3. Each PDF offers **Markup** (open the annotation editor), **View** (open in a new tab), and **Download**.
+4. **Download** lets you choose the **Original PDF** or a copy **With Markup** — the saved annotations burned into every page.
 
 ### Mark up a print (PDF Markup Editor)
-Open a print to launch the full annotation editor. Tools include:
+Hit **Markup** on a print to launch the full annotation editor. Tools include:
 
 - **Navigation:** Select, Pan
 - **Freehand:** Pen, Highlighter
@@ -358,7 +360,7 @@ The **Inventory** tab has three sub-tabs plus an equipment map:
 | Request a refresh or log a no-show | **Tickets** row actions |
 | See tickets on a map | **Map** |
 | Upload site photos | **Field Docs** |
-| Red-line a plan PDF | **As Built** |
+| Red-line or download a plan PDF | **Jobs → Documents & Prints** |
 | Add a teammate / send an invite | **Crew** |
 | Dispatch incoming locate requests | **Inbound** *(if enabled)* |
 | Schedule crews & invoice work | **Field Ops** *(if enabled)* |

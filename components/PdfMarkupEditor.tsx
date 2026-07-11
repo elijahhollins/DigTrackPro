@@ -14,7 +14,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 // Types & constants
 // ─────────────────────────────────────────────────────────────
 
-type ToolType =
+export type ToolType =
   | 'select' | 'pan'
   | 'pen' | 'highlighter'
   | 'text' | 'callout' | 'stamp'
@@ -34,7 +34,7 @@ const STAMP_COLORS: Record<StampType, string> = {
   'VOID':          '#6b7280',
 };
 
-interface AnyAnnotationData extends Record<string, unknown> {
+export interface AnyAnnotationData extends Record<string, unknown> {
   points?:    Array<{ x: number; y: number; pressure?: number }>;
   x?:         number;
   y?:         number;
@@ -47,7 +47,7 @@ interface AnyAnnotationData extends Record<string, unknown> {
   rotation?:  number;  // rotation in degrees (clockwise, 0 = no rotation)
 }
 
-interface ScaleInfo {
+export interface ScaleInfo {
   unitsPerNormDist: number;  // real units per canonical normalized distance
   aspectRatio: number;       // canvas W/H (fixed for PDF page)
   unit: string;
@@ -420,7 +420,7 @@ const renderAnnotationContent = (
 
 // Wraps renderAnnotationContent with an SVG rotation transform when the
 // annotation's data.rotation field is set.
-const renderAnnotationSvg = (
+export const renderAnnotationSvg = (
   ann: { toolType: ToolType; color: string; strokeWidth: number; data: AnyAnnotationData },
   w: number, h: number, key: string,
   scaleInfo?: ScaleInfo | null,

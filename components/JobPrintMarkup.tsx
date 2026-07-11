@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Job, JobPrint, User } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
 import PdfMarkupEditor from './PdfMarkupEditor.tsx';
+import { PrintDownloadMenu } from './pdfExport.tsx';
 
 interface JobPrintMarkupProps {
   job: Job;
@@ -54,30 +55,6 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, isAdmin, se
       alert("Upload failed: " + msg);
     } finally {
       setIsUploading(false);
-    }
-  };
-
-  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-
-  const getDownloadUrl = (print: JobPrint): string => {
-    if (!print.url) return '';
-    const baseUrl = print.url.split('?')[0];
-    return `${baseUrl}?download=${encodeURIComponent(print.fileName)}`;
-  };
-
-  const handleDownload = (print: JobPrint) => {
-    if (!print.url) return;
-    const downloadUrl = getDownloadUrl(print);
-    const link = document.createElement('a');
-    link.href = downloadUrl;
-    link.download = print.fileName;
-    if (isMobile) {
-      link.style.display = 'none';
-      document.body.appendChild(link);
-      link.click();
-      setTimeout(() => document.body.removeChild(link), 100);
-    } else {
-      link.click();
     }
   };
 
@@ -202,12 +179,11 @@ export const JobPrintMarkup: React.FC<JobPrintMarkupProps> = ({ job, isAdmin, se
                   >
                     Open
                   </button>
-                  <button
-                    onClick={() => handleDownload(print)}
-                    className="px-3 py-2.5 bg-slate-800 text-white border border-white/10 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all hover:bg-slate-700 active:scale-95"
-                  >
-                    Download
-                  </button>
+                  <PrintDownloadMenu
+                    print={print}
+                    isDarkMode
+                    buttonClassName="flex items-center gap-1.5 px-3 py-2.5 bg-slate-800 text-white border border-white/10 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all hover:bg-slate-700 active:scale-95 disabled:opacity-50"
+                  />
                 </div>
               </div>
             ))}
