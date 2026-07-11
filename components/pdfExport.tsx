@@ -342,28 +342,15 @@ const drawAnnotation = (ctx: DrawCtx, ann: PdfAnnotation, scaleInfo: ScaleInfo |
   }
 };
 
-// Build a copy of the print with the saved annotations flattened into each
-// page as vector drawing operations. The original content stream is kept
-// as-is underneath.
-export const buildAnnotatedPdfBlob = async (print: JobPrint): Promise<Blob> => {
-  const [buffer, allAnnotations] = await Promise.all([
-    loadPrintBytes(print),
-    apiService.getAnnotations(print.id),
-  ]);
-
-  // Scale calibration is stored as a special 'scale' row — it feeds the
-  // dimension labels but must not render as a visible markup itself.
-  const scaleRows = allAnnotations.filter(a => a.toolType === 'scale');
-  const annotations = allAnnotations.filter(a => a.toolType !== 'scale');
-  let scaleInfo: ScaleInfo | null = null;
-  const latestScale = scaleRows[scaleRows.length - 1];
-  if (latestScale) {
-    const s = latestScale.data as Record<string, unknown>;
-    if (typeof s.unitsPerNormDist === 'number' && typeof s.aspectRatio === 'number' && typeof s.unit === 'string') {
-      scaleInfo = { unitsPerNormDist: s.unitsPerNormDist, aspectRatio: s.aspectRatio, unit: s.unit };
-    }
-  }
-
+// Flatten the given annotations into a copy of the PDF as vector drawing
+// operations. The original content stream is kept as-is underneath. Takes
+// already-loaded bytes + annotations so the markup editor can export its
+// in-memory state (including unsaved pending markups) without a refetch.
+export const flattenAnnotationsIntoPdf = async (
+  buffer: ArrayBuffer,
+  annotations: PdfAnnotation[],
+  scaleInfo: ScaleInfo | null,
+): Promise<Uint8Array> => {
   const doc = await PDFDocument.load(buffer, { ignoreEncryption: true });
   const helvBold = await doc.embedFont(StandardFonts.HelveticaBold);
   const courierBold = await doc.embedFont(StandardFonts.CourierBold);
@@ -388,7 +375,31 @@ export const buildAnnotatedPdfBlob = async (print: JobPrint): Promise<Blob> => {
     page.pushOperators(popGraphicsState());
   });
 
-  const bytes = await doc.save();
+  return doc.save();
+};
+
+// Build a copy of the print with the saved annotations flattened into each
+// page, fetching both the file and its annotations from storage.
+export const buildAnnotatedPdfBlob = async (print: JobPrint): Promise<Blob> => {
+  const [buffer, allAnnotations] = await Promise.all([
+    loadPrintBytes(print),
+    apiService.getAnnotations(print.id),
+  ]);
+
+  // Scale calibration is stored as a special 'scale' row — it feeds the
+  // dimension labels but must not render as a visible markup itself.
+  const scaleRows = allAnnotations.filter(a => a.toolType === 'scale');
+  const annotations = allAnnotations.filter(a => a.toolType !== 'scale');
+  let scaleInfo: ScaleInfo | null = null;
+  const latestScale = scaleRows[scaleRows.length - 1];
+  if (latestScale) {
+    const s = latestScale.data as Record<string, unknown>;
+    if (typeof s.unitsPerNormDist === 'number' && typeof s.aspectRatio === 'number' && typeof s.unit === 'string') {
+      scaleInfo = { unitsPerNormDist: s.unitsPerNormDist, aspectRatio: s.aspectRatio, unit: s.unit };
+    }
+  }
+
+  const bytes = await flattenAnnotationsIntoPdf(buffer, annotations, scaleInfo);
   return new Blob([bytes as BlobPart], { type: 'application/pdf' });
 };
 
