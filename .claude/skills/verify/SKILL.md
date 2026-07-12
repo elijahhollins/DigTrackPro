@@ -42,3 +42,10 @@ Gotchas that produced false failures before:
 - Zoom anchoring check: record `{page, nx, ny}` of the point under the cursor
   via `elementFromPoint(...).closest('[data-page]')` before and after; drift
   should be sub-pixel.
+- Multi-touch pinch via CDP `Input.dispatchTouchEvent`: for `touchEnd`,
+  `touchPoints` lists the fingers being **released** (empty = release all).
+  Listing the remaining finger instead silently re-registers it as a new
+  touch on the next `touchMove`, turning the tail of the gesture into a
+  second pinch — which masks release/handoff bugs. Always end a pinch by
+  lifting one finger (its id in touchEnd), drifting the survivor a few
+  hundred ms, then lifting it — that path is where release jumps live.

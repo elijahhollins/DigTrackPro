@@ -1204,6 +1204,10 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   // the new zoom is committed and the pages are re-rasterized.
   const pinchAnchorRef = useRef<{ pageNum: number; nx: number; ny: number } | null>(null);
   const pendingZoomAnchorRef = useRef<{ pageNum: number; nx: number; ny: number; fx: number; fy: number } | null>(null);
+  // Set by the touch-pan effect: re-baselines an in-progress one-finger pan after a
+  // zoom commit rewrites the scroll position (otherwise the pan's captured start
+  // offsets are stale and the first post-commit move yanks the view back).
+  const panRebaseRef = useRef<(() => void) | null>(null);
   const panStartRef   = useRef<{ x: number; y: number; sl: number; st: number } | null>(null);
   const undoStackRef  = useRef<PdfAnnotation[]>([]);
   const redoStackRef  = useRef<Omit<PdfAnnotation, 'id' | 'createdAt'>[]>([]);
@@ -1444,11 +1448,13 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
         main.scrollTop  = Math.max(0, Math.min(maxT, focalContentY - (anchor.fy - cr.top)));
         const sh = main.scrollHeight - main.clientHeight;
         scrollRatioRef.current = sh > 0 ? main.scrollTop / sh : 0;
+        panRebaseRef.current?.();
         return;
       }
     }
     const sh = main.scrollHeight - main.clientHeight;
     if (sh > 0) main.scrollTop = scrollRatioRef.current * sh;
+    panRebaseRef.current?.();
   }, [zoomLevel, availWidth]);
 
   // Track the page most centered in the viewport so the header indicator stays accurate
@@ -2106,6 +2112,14 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       if (!panning || e.touches.length !== 1 || drawingPtrRef.current !== null) { panning = false; return; }
       e.preventDefault();
       const cx = e.touches[0].clientX, cy = e.touches[0].clientY;
+      // A zoom commit from a just-released pinch (or double-tap) hasn't re-laid-out
+      // yet: our captured scroll baseline is about to be rewritten, so don't pan
+      // from it — just track the finger; the zoom layout-effect re-baselines us.
+      if (pendingZoomAnchorRef.current) {
+        startX = cx; startY = cy; startSL = main.scrollLeft; startST = main.scrollTop;
+        lastX = cx; lastY = cy; lastT = performance.now(); vx = 0; vy = 0;
+        return;
+      }
       main.scrollLeft = startSL - (cx - startX);
       main.scrollTop  = startST - (cy - startY);
       const now = performance.now();
@@ -2156,6 +2170,16 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       }
     };
 
+    // Called by the zoom layout-effect right after it rewrites the scroll position,
+    // so a pan that straddles the commit continues from the new position instead of
+    // yanking the view back to the pre-commit scroll offsets.
+    panRebaseRef.current = () => {
+      if (!panning) return;
+      startX = lastX; startY = lastY;
+      startSL = main.scrollLeft; startST = main.scrollTop;
+      vx = 0; vy = 0;
+    };
+
     main.addEventListener('touchstart',  onTouchStart, { passive: false });
     main.addEventListener('touchmove',   onTouchMove,  { passive: false });
     main.addEventListener('touchend',    onTouchEnd,   { passive: true });
@@ -2163,6 +2187,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
 
     return () => {
       stopMomentum();
+      panRebaseRef.current = null;
       main.removeEventListener('touchstart',  onTouchStart);
       main.removeEventListener('touchmove',   onTouchMove);
       main.removeEventListener('touchend',    onTouchEnd);
