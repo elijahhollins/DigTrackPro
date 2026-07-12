@@ -4,6 +4,7 @@ import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { PdfAnnotation, JobPrint, User, UserRole } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
+import { flattenAnnotationsIntoPdf } from './pdfExport.tsx';
 
 // Use workerSrc (URL) so pdfjs manages its own Worker lifecycle.
 // This is the standard approach: avoids shared-worker bad-state after errors
@@ -420,7 +421,7 @@ const renderAnnotationContent = (
 
 // Wraps renderAnnotationContent with an SVG rotation transform when the
 // annotation's data.rotation field is set.
-const renderAnnotationSvg = (
+export const renderAnnotationSvg = (
   ann: { toolType: ToolType; color: string; strokeWidth: number; data: AnyAnnotationData },
   w: number, h: number, key: string,
   scaleInfo?: ScaleInfo | null,
@@ -695,8 +696,417 @@ const nudgeAnnotationData = (data: AnyAnnotationData, toolType: ToolType, dx: nu
 };
 
 // ─────────────────────────────────────────────────────────────
+// Page layer (memoized)
+// ─────────────────────────────────────────────────────────────
+
+type PenPoint = { x: number; y: number; pressure?: number };
+type TextInputState = { px: number; py: number; rx: number; ry: number; calloutData?: AnyAnnotationData };
+type ScaleInputState = { lineStart: { x: number; y: number }; lineEnd: { x: number; y: number } };
+
+// Shared stable references so memoized pages with no annotations / no active drawing
+// receive referentially-equal props and skip re-rendering.
+const EMPTY_ANNS: PdfAnnotation[] = [];
+const EMPTY_POINTS: PenPoint[] = [];
+
+interface PageLayerProps {
+  pageNum: number;
+  w: number;
+  h: number;
+  toolCursor: string;
+  pageAnns: PdfAnnotation[];
+  selectedAnnId: string | null;
+  liveEditData: AnyAnnotationData | null;
+  sel: PdfAnnotation | null;
+  scaleInfo: ScaleInfo | null;
+  currentTool: ToolType;
+  currentColor: string;
+  strokeWidth: number;
+  opacity: number;
+  isActive: boolean;
+  previewData: AnyAnnotationData | null;
+  penPoints: PenPoint[];
+  drawStart: { x: number; y: number } | null;
+  isDrawing: boolean;
+  textInput: TextInputState | null;
+  textValue: string;
+  fontSize: number;
+  scaleInput: ScaleInputState | null;
+  scaleValue: string;
+  scaleUnit: string;
+  onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onPointerMove: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onPointerUp: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onPointerCancel: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onDoubleClick: (e: React.MouseEvent<HTMLDivElement>) => void;
+  registerContainer: (p: number, el: HTMLDivElement | null) => void;
+  registerCanvas: (p: number, el: HTMLCanvasElement | null) => void;
+  textFieldRef: React.RefObject<HTMLInputElement | null>;
+  scaleInputRef: React.RefObject<HTMLInputElement | null>;
+  setTextValue: (v: string) => void;
+  setTextInput: (v: TextInputState | null) => void;
+  handleTextSubmit: () => void;
+  setScaleValue: (v: string) => void;
+  setScaleUnit: (v: string) => void;
+  setScaleInput: (v: ScaleInputState | null) => void;
+  handleScaleConfirm: () => void;
+}
+
+// A single stacked page: canvas + SVG annotation overlay. Wrapped in React.memo so
+// that high-frequency updates (drawing previews, scroll) only re-render the one page
+// being interacted with, keeping large documents responsive.
+const PageLayer = React.memo(function PageLayer(props: PageLayerProps) {
+  const {
+    pageNum, w, h, toolCursor, pageAnns, selectedAnnId, liveEditData, sel, scaleInfo,
+    currentTool, currentColor, strokeWidth, opacity, isActive,
+    previewData, penPoints, drawStart, isDrawing, textInput, textValue, fontSize,
+    scaleInput, scaleValue, scaleUnit,
+    onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onDoubleClick,
+    registerContainer, registerCanvas, textFieldRef, scaleInputRef,
+    setTextValue, setTextInput, handleTextSubmit, setScaleValue, setScaleUnit, setScaleInput, handleScaleConfirm,
+  } = props;
+
+  const containerCb = useCallback((el: HTMLDivElement | null) => registerContainer(pageNum, el), [registerContainer, pageNum]);
+  const canvasCb = useCallback((el: HTMLCanvasElement | null) => registerCanvas(pageNum, el), [registerCanvas, pageNum]);
+
+  const penPreviewPath = isActive && (currentTool === 'pen' || currentTool === 'highlighter') && penPoints.length > 1 && isDrawing
+    ? penPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x * w} ${p.y * h}`).join(' ')
+    : null;
+
+  return (
+    <div
+      data-page={pageNum}
+      ref={containerCb}
+      className={`relative shadow-2xl rounded-lg overflow-hidden shrink-0 ${toolCursor}`}
+      style={{ width: w || '100%', height: h || undefined, touchAction: 'none' }}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+      onDoubleClick={onDoubleClick}
+    >
+      {/* Loading placeholder. Sits BEHIND the canvas: when the PDF bitmap is painted
+          it is opaque white and fully covers this layer; while the page is not yet
+          rendered the canvas is empty/transparent and this shows through. Needs no
+          render state — the canvas paint hides it for free. Kept static (no per-page
+          animation) so a document with hundreds of pages has no idle GPU/battery cost. */}
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gradient-to-b from-slate-800/40 to-slate-800/25 pointer-events-none select-none">
+        <svg className="w-8 h-8 text-slate-600/70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+        {w > 0 && h > 0 && (
+          <span className="text-[11px] font-black uppercase tracking-widest text-slate-500">
+            Page {pageNum}
+          </span>
+        )}
+      </div>
+
+      {/* Canvas is absolutely positioned and stretched to the container so the
+          reserved page height is independent of whether the bitmap is painted. */}
+      <canvas
+        ref={canvasCb}
+        className="absolute inset-0 w-full h-full block"
+      />
+
+      <svg className="absolute inset-0 pointer-events-none"
+        width={w} height={h}
+        viewBox={`0 0 ${w} ${h}`}>
+
+        {pageAnns.map(ann => {
+          const data = (ann.id === selectedAnnId && liveEditData !== null)
+            ? liveEditData
+            : ann.data as AnyAnnotationData;
+          return renderAnnotationSvg({ ...ann, data }, w, h, ann.id, scaleInfo);
+        })}
+
+        {sel && currentTool === 'select' && (() => {
+          const displayData = liveEditData ?? sel.data as AnyAnnotationData;
+          const rotation    = (displayData.rotation as number | undefined) ?? 0;
+          const handles     = getHandlesNorm({ ...sel, data: displayData });
+          const bbox        = getAnnotationBBox(sel, displayData);
+          const SELECTION_BOX_PADDING = 8;
+          // Pixel coordinates of the bbox centre (used for the rotation transform)
+          const bboxCxPx = bbox ? (bbox.x + bbox.w / 2) * w : 0;
+          const bboxCyPx = bbox ? (bbox.y + bbox.h / 2) * h : 0;
+          const rotateHandle = handles.find(hh => hh.isRotateHandle);
+          return (
+            <g>
+              {/* Dashed bounding box — rotated with the annotation */}
+              {bbox && bbox.w > 0.005 && (
+                <g transform={rotation ? `rotate(${rotation}, ${bboxCxPx}, ${bboxCyPx})` : undefined}>
+                  <rect
+                    x={bbox.x * w - SELECTION_BOX_PADDING}
+                    y={bbox.y * h - SELECTION_BOX_PADDING}
+                    width={bbox.w * w + SELECTION_BOX_PADDING * 2}
+                    height={bbox.h * h + SELECTION_BOX_PADDING * 2}
+                    fill="none" stroke="white" strokeWidth="1.5"
+                    strokeDasharray="5 3" opacity="0.5" rx="3" />
+                </g>
+              )}
+              {/* Stem line from bbox top-centre to the rotate handle */}
+              {bbox && bbox.w > 0.005 && rotateHandle && (() => {
+                // Compute the rotated top-centre of the bounding box
+                const stemBaseX = bbox.x * w + (bbox.w * w) / 2;
+                const stemBaseY = bbox.y * h - SELECTION_BOX_PADDING;
+                if (rotation) {
+                  const rad = (rotation * Math.PI) / 180;
+                  const cos = Math.cos(rad), sin = Math.sin(rad);
+                  const dx = stemBaseX - bboxCxPx, dy = stemBaseY - bboxCyPx;
+                  const rx = bboxCxPx + dx * cos - dy * sin;
+                  const ry = bboxCyPx + dx * sin + dy * cos;
+                  return <line x1={rx} y1={ry} x2={rotateHandle.nx * w} y2={rotateHandle.ny * h}
+                    stroke="white" strokeWidth="1" strokeDasharray="3 2" opacity="0.35" />;
+                }
+                return <line x1={stemBaseX} y1={stemBaseY} x2={rotateHandle.nx * w} y2={rotateHandle.ny * h}
+                  stroke="white" strokeWidth="1" strokeDasharray="3 2" opacity="0.35" />;
+              })()}
+              {handles.map(hh => {
+                const cx = hh.nx * w;
+                const cy = hh.ny * h;
+                const isCalloutArrowTip = sel.toolType === 'callout' && !hh.isMoveHandle && !hh.isRotateHandle && hh.index === 1;
+                const handleFill = hh.isRotateHandle ? '#22c55e'
+                  : hh.isMoveHandle ? '#6366f1'
+                  : hh.isEdgeHandle ? '#0ea5e9'
+                  : isCalloutArrowTip ? '#f59e0b'
+                  : '#3b82f6';
+                const edgeLabel = hh.index === EDGE_HANDLE_TOP ? 'top' : hh.index === EDGE_HANDLE_RIGHT ? 'right' : hh.index === EDGE_HANDLE_BOTTOM ? 'bottom' : 'left';
+                const handleTitle = hh.isRotateHandle
+                  ? `Rotate — drag to rotate (${Math.round(rotation)}°), hold Shift for 15° snapping`
+                  : hh.isMoveHandle
+                    ? 'Move annotation'
+                    : hh.isEdgeHandle
+                      ? `Resize ${edgeLabel} edge — drag to resize on one axis`
+                      : sel.toolType === 'callout'
+                        ? hh.index === 0 ? 'Text box — drag to reposition' : 'Arrow tip — drag to repoint'
+                        : sel.toolType === 'arrow' || sel.toolType === 'double_arrow'
+                          ? hh.index === 0 ? 'Line start — drag to adjust' : 'Arrow head — drag to adjust'
+                          : `Endpoint ${hh.index + 1} — drag to reshape`;
+                const r = hh.isRotateHandle || hh.isMoveHandle ? 9 : 8;
+                return (
+                  <g key={`handle-${hh.index}`}>
+                    {/* Hit-area circle (invisible, larger) */}
+                    <circle cx={cx} cy={cy} r="18" fill="transparent">
+                      <title>{handleTitle}</title>
+                    </circle>
+                    {/* Edge handles: diamond (rotated square) shape */}
+                    {hh.isEdgeHandle ? (
+                      <rect
+                        x={cx - 6} y={cy - 6} width={12} height={12}
+                        fill={handleFill} stroke="white" strokeWidth="2"
+                        transform={`rotate(45, ${cx}, ${cy})`}
+                      />
+                    ) : (
+                      /* Visible handle circle */
+                      <circle cx={cx} cy={cy} r={r} fill={handleFill} stroke="white" strokeWidth="2.5" />
+                    )}
+                    {/* Rotate handle: circular-arrow icon */}
+                    {hh.isRotateHandle && (
+                      <g transform={`translate(${cx}, ${cy})`} stroke="white" strokeWidth="1.5" strokeLinecap="round" fill="none">
+                        <path d="M -4 -3 A 5 5 0 1 1 3.5 -3.5" />
+                        <polyline points="3.5,-3.5 5.5,-1.5 5.5,-5" />
+                      </g>
+                    )}
+                    {/* Move handle: cross icon */}
+                    {hh.isMoveHandle && (
+                      <g stroke="white" strokeWidth="1.5" strokeLinecap="round">
+                        <line x1={cx - 4} y1={cy} x2={cx + 4} y2={cy} />
+                        <line x1={cx} y1={cy - 4} x2={cx} y2={cy + 4} />
+                      </g>
+                    )}
+                  </g>
+                );
+              })}
+            </g>
+          );
+        })()}
+
+        {pageAnns.map(ann => {
+          const anchor = getAnnotationAnchor(ann);
+          if (!anchor) return null;
+          const initials  = getInitials(ann.authorName);
+          const bw        = initials.length * 7 + 10;
+          const bx        = anchor.x * w;
+          const by        = anchor.y * h;
+          const isPending = ann.id.startsWith('tmp-');
+          return (
+            <g key={`badge-${ann.id}`}>
+              <rect x={bx} y={by - 17} width={bw} height={17} rx="3"
+                fill={ann.color} opacity={isPending ? 0.5 : 0.88}
+                stroke={isPending ? 'white' : 'none'} strokeWidth={isPending ? 1 : 0}
+                strokeDasharray={isPending ? '3 2' : undefined} />
+              <text x={bx + 5} y={by - 3} fontSize="11" fontFamily="monospace" fontWeight="bold" fill="white">
+                {initials}
+              </text>
+            </g>
+          );
+        })}
+
+        {penPreviewPath && (
+          <path d={penPreviewPath} stroke={currentColor}
+            strokeWidth={currentTool === 'highlighter' ? strokeWidth * 5 : strokeWidth}
+            fill="none" strokeLinecap="round" strokeLinejoin="round"
+            opacity={currentTool === 'highlighter' ? opacity * 0.35 : opacity * 0.75} />
+        )}
+
+        {isActive && previewData && currentTool !== 'pen' && currentTool !== 'highlighter' && currentTool !== 'scale' &&
+          renderAnnotationSvg({ toolType: currentTool, color: currentColor, strokeWidth, data: previewData },
+            w, h, 'preview', scaleInfo)
+        }
+
+        {isActive && isDrawing && currentTool === 'scale' && previewData && (
+          <line
+            x1={(previewData.x1 ?? 0) * w} y1={(previewData.y1 ?? 0) * h}
+            x2={(previewData.x2 ?? 0) * w} y2={(previewData.y2 ?? 0) * h}
+            stroke="#fbbf24" strokeWidth="2" strokeDasharray="6 3" strokeLinecap="round" opacity="0.9"
+          />
+        )}
+
+        {isActive && scaleInput && (
+          <line
+            x1={scaleInput.lineStart.x * w} y1={scaleInput.lineStart.y * h}
+            x2={scaleInput.lineEnd.x * w} y2={scaleInput.lineEnd.y * h}
+            stroke="#fbbf24" strokeWidth="2.5" strokeDasharray="6 3" strokeLinecap="round"
+          />
+        )}
+
+        {/* Start-point crosshair while drawing lines / callout / shapes */}
+        {isActive && isDrawing && drawStart && !['pen', 'highlighter', 'text', 'stamp', 'select', 'pan'].includes(currentTool) && (
+          <g>
+            <circle cx={drawStart.x * w} cy={drawStart.y * h}
+              r="5" fill={currentColor} stroke="white" strokeWidth="2" opacity="0.9" />
+            <line x1={drawStart.x * w - 10} y1={drawStart.y * h}
+              x2={drawStart.x * w + 10} y2={drawStart.y * h}
+              stroke="white" strokeWidth="1.5" strokeLinecap="round" opacity="0.6" />
+            <line x1={drawStart.x * w} y1={drawStart.y * h - 10}
+              x2={drawStart.x * w} y2={drawStart.y * h + 10}
+              stroke="white" strokeWidth="1.5" strokeLinecap="round" opacity="0.6" />
+          </g>
+        )}
+
+        {/* Angle badge for line-type tools while drawing */}
+        {isActive && isDrawing && previewData && (
+          currentTool === 'line' || currentTool === 'dashed_line' ||
+          currentTool === 'arrow' || currentTool === 'double_arrow' ||
+          currentTool === 'dimension' || currentTool === 'callout'
+        ) && (() => {
+          const x2px = (previewData.x2 ?? 0) * w;
+          const y2px = (previewData.y2 ?? 0) * h;
+          const dx = ((previewData.x2 ?? 0) - (previewData.x1 ?? 0)) * w;
+          const dy = ((previewData.y2 ?? 0) - (previewData.y1 ?? 0)) * h;
+          const angleDeg = ((Math.round(Math.atan2(dy, dx) * 180 / Math.PI) % 360) + 360) % 360;
+          const bx = Math.min(x2px + 12, w - 52);
+          const by = y2px > 20 ? y2px - 8 : y2px + 26;
+          return (
+            <g opacity="0.92">
+              <rect x={bx} y={by - 13} width={44} height={16} rx="4" fill="rgba(0,0,0,0.72)" />
+              <text x={bx + 5} y={by - 1} fontSize="11" fill="white" fontFamily="monospace" fontWeight="bold">
+                {angleDeg}°
+              </text>
+            </g>
+          );
+        })()}
+
+        {/* Ghost callout preview while the text input is open */}
+        {isActive && textInput && textInput.calloutData && (
+          renderAnnotationSvg({
+            toolType: 'callout', color: currentColor, strokeWidth,
+            data: { ...textInput.calloutData, text: textValue.trim() || ' ', fontSize },
+          }, w, h, 'callout-ghost')
+        )}
+
+        {/* Scale bar */}
+        {scaleInfo && w > 0 && (() => {
+          const targetPx = w * 0.15;
+          const rawUnits = (targetPx / h) * scaleInfo.unitsPerNormDist;
+          const nices = [0.25,0.5,1,2,5,10,20,25,50,100,200,500,1000];
+          const nice = nices.reduce((a, b) => Math.abs(b - rawUnits) < Math.abs(a - rawUnits) ? b : a);
+          const barPx = (nice / scaleInfo.unitsPerNormDist) * h;
+          const barX = 16, barY = h - 16;
+          const label = `${nice} ${scaleInfo.unit}`;
+          const lblW = label.length * 6 + 12;
+          return (
+            <g opacity="0.9">
+              <rect x={barX - 4} y={barY - 24} width={Math.max(barPx + 8, lblW + 8)} height={28} rx="4" fill="rgba(0,0,0,0.72)" />
+              <line x1={barX} y1={barY - 10} x2={barX + barPx} y2={barY - 10} stroke="white" strokeWidth="2" />
+              <line x1={barX} y1={barY - 16} x2={barX} y2={barY - 4} stroke="white" strokeWidth="2" />
+              <line x1={barX + barPx} y1={barY - 16} x2={barX + barPx} y2={barY - 4} stroke="white" strokeWidth="2" />
+              <text x={barX + barPx / 2} y={barY} textAnchor="middle" fill="white" fontSize="9" fontFamily="monospace" fontWeight="bold">{label}</text>
+            </g>
+          );
+        })()}
+      </svg>
+
+      {isActive && scaleInput && (
+        <div className="absolute bg-slate-900 border border-white/20 rounded-xl p-4 shadow-2xl z-20 w-60"
+          style={{ left: Math.min(w - 248, Math.max(0, scaleInput.lineEnd.x * w - 120)),
+                   top: Math.min(h - 120, Math.max(0, scaleInput.lineEnd.y * h + 16)) }}>
+          <p className="text-[10px] text-brand font-black uppercase tracking-widest mb-3">Set Scale Reference</p>
+          <p className="text-[9px] text-slate-400 mb-2">What length does this line represent?</p>
+          <div className="flex gap-2 mb-3">
+            <input ref={scaleInputRef} type="number" min="0.001" step="any" value={scaleValue}
+              onChange={e => setScaleValue(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleScaleConfirm(); if (e.key === 'Escape') setScaleInput(null); }}
+              placeholder="Distance"
+              className="flex-1 bg-slate-800 text-white rounded-lg px-2 py-1.5 text-sm border border-white/10 outline-none focus:border-brand min-w-0" />
+            <select value={scaleUnit} onChange={e => setScaleUnit(e.target.value)}
+              className="bg-slate-800 text-white rounded-lg px-2 text-sm border border-white/10 outline-none focus:border-brand shrink-0">
+              <option value="ft">ft</option>
+              <option value="in">in</option>
+              <option value="yd">yd</option>
+              <option value="m">m</option>
+              <option value="cm">cm</option>
+              <option value="mm">mm</option>
+            </select>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={handleScaleConfirm}
+              className="flex-1 bg-brand text-slate-900 rounded-lg py-1.5 text-[11px] font-black hover:brightness-110 transition-all">
+              Set Scale
+            </button>
+            <button onClick={() => { setScaleInput(null); setScaleValue(''); }}
+              className="px-3 bg-slate-800 text-slate-300 hover:bg-slate-700 rounded-lg py-1.5 text-[11px] font-black transition-all">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {isActive && textInput && (
+        <input
+          ref={textFieldRef}
+          type="text"
+          value={textValue}
+          onChange={e => setTextValue(e.target.value)}
+          onBlur={handleTextSubmit}
+          onKeyDown={e => {
+            if (e.key === 'Enter') handleTextSubmit();
+            if (e.key === 'Escape') { setTextInput(null); setTextValue(''); }
+          }}
+          className="absolute bg-black/50 backdrop-blur rounded px-2 py-1 border border-dashed outline-none z-10 font-bold"
+          style={{
+            left: textInput.calloutData
+              ? Math.min(w - 172, Math.max(4, textInput.rx * w - 80))
+              : textInput.px,
+            top: textInput.calloutData
+              ? Math.min(h - 40, Math.max(4, textInput.ry * h - fontSize - 14))
+              : textInput.py - 16,
+            color: currentColor, borderColor: currentColor, fontSize: fontSize + 'px', minWidth: '160px',
+          }}
+          placeholder={textInput.calloutData ? 'Callout text, then Enter…' : 'Type, then Enter…'}
+        />
+      )}
+    </div>
+  );
+});
+
+// ─────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────
+
+const MIN_ZOOM = 0.25;
+const MAX_ZOOM = 4.0;
+// Preset ladder the ± buttons and Ctrl+±/− shortcuts step through, like desktop
+// PDF viewers. Wheel/pinch zoom stays continuous between these stops.
+const ZOOM_STOPS = [0.25, 0.33, 0.5, 0.67, 0.75, 1, 1.25, 1.5, 2, 2.5, 3, 4];
 
 export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   print, sessionUser, onClose,
@@ -708,9 +1118,17 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   const [fontSize, setFontSize]         = useState(DEFAULT_FONT_SIZE);
   const [stampType, setStampType]       = useState<StampType>('APPROVED');
   const [pageNumber, setPageNumber]     = useState(1);
+  // Page the current gesture is acting on (drives which page renders drawing previews
+  // and inputs). Separate from pageNumber so scrolling doesn't re-render page layers.
+  const [activePage, setActivePage]     = useState(1);
   const [numPages, setNumPages]         = useState(0);
   const [zoomLevel, setZoomLevel]       = useState(1.0);
-  const [canvasSize, setCanvasSize]     = useState({ width: 0, height: 0 });
+  // Intrinsic (scale-1) dimensions of each page, indexed by (page number − 1).
+  // The on-screen size is derived from these + the column width + zoom, so every
+  // page reserves correct scroll height even before its canvas is lazily rendered.
+  const [pageDims, setPageDims]         = useState<Array<{ width: number; height: number }>>([]);
+  // Width available for the page column (container width minus padding/scrollbar).
+  const [availWidth, setAvailWidth]     = useState(0);
   const [isDrawing, setIsDrawing]       = useState(false);
   const [drawStart, setDrawStart]       = useState<{ x: number; y: number } | null>(null);
   const [penPoints, setPenPoints]       = useState<Array<{ x: number; y: number; pressure?: number }>>([]);
@@ -724,6 +1142,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   const [annLoadErr, setAnnLoadErr]     = useState<string | null>(null);
   const [actionErr, setActionErr]       = useState<string | null>(null);
   const [isSaving, setIsSaving]         = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [showLog, setShowLog]           = useState(false);
   const [isLoadingPdf, setIsLoadingPdf] = useState(true);
   const [pdfError, setPdfError]         = useState<string | null>(null);
@@ -739,18 +1158,56 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   const [scaleUnit, setScaleUnit] = useState('ft');
   const [editingAnnId, setEditingAnnId] = useState<string | null>(null);
 
-  const canvasRef     = useRef<HTMLCanvasElement>(null);
-  const containerRef  = useRef<HTMLDivElement>(null);
+  // Per-page DOM refs (continuous-scroll mode renders every page at once).
+  const pageCanvasRefs    = useRef<Map<number, HTMLCanvasElement>>(new Map());
+  const pageContainerRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  // The lazy-render IntersectionObserver, held in a ref so pages can be observed the
+  // moment they mount (not only when the observer effect runs).
+  const pageObserverRef = useRef<IntersectionObserver | null>(null);
+  // The page the current pointer gesture is acting on — resolved at pointer-down
+  // from the target page container's data-page attribute. Drives getCoords, new
+  // annotation placement, and which page renders live drawing previews.
+  const activePageRef = useRef(1);
   const mainRef       = useRef<HTMLDivElement>(null);
   const textFieldRef  = useRef<HTMLInputElement>(null);
   const scaleInputRef = useRef<HTMLInputElement>(null);
   const pdfDocRef     = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
-  const renderTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
+  // Raw bytes of the source PDF, kept for exporting a flattened/marked-up copy.
+  const pdfBytesRef = useRef<ArrayBuffer | null>(null);
+  // Active pdf.js render tasks keyed by page number, so re-renders can cancel cleanly.
+  const renderTasksRef = useRef<Map<number, pdfjsLib.RenderTask>>(new Map());
+  // Render signature (zoom + column width) at which each page's canvas was last
+  // painted, so redundant re-renders are skipped but stale-resolution ones are not.
+  const renderedZoomRef = useRef<Map<number, string>>(new Map());
+  // Pages currently intersecting the viewport (plus the observer's prerender buffer).
+  const visiblePagesRef = useRef<Set<number>>(new Set());
+  // Scroll position as a fraction of scrollable height, kept current so zoom can restore it.
+  const scrollRatioRef = useRef(0);
+  // Pending requestAnimationFrame id for throttling scroll-driven work.
+  const scrollRafRef = useRef(0);
   const drawingPtrRef = useRef<number | null>(null);
   const touchPtsRef   = useRef<Map<number, { x: number; y: number }>>(new Map());
+  // Authoritative count of fingers on screen, maintained from native touch events
+  // (e.touches). Pinch is driven from this, never inferred from pointer-event tracking,
+  // so a single-finger scroll can never be mistaken for a two-finger pinch.
+  const activeTouchCountRef = useRef(0);
   const isPinchRef    = useRef(false);
   const pinchDistRef  = useRef(0);
-  const pinchZoomRef  = useRef(1.0);
+  // Wrapper around the page column that receives a transient CSS transform during a
+  // pinch (smooth, GPU-composited) so we don't re-rasterize pages on every frame.
+  const zoomLayerRef  = useRef<HTMLDivElement>(null);
+  const pinchStartFocalRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const pinchCurrentFocalRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const pinchOriginRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const pinchScaleRef = useRef(1);
+  // The page + normalized point under the pinch focus, used to re-anchor scroll once
+  // the new zoom is committed and the pages are re-rasterized.
+  const pinchAnchorRef = useRef<{ pageNum: number; nx: number; ny: number } | null>(null);
+  const pendingZoomAnchorRef = useRef<{ pageNum: number; nx: number; ny: number; fx: number; fy: number } | null>(null);
+  // Set by the touch-pan effect: re-baselines an in-progress one-finger pan after a
+  // zoom commit rewrites the scroll position (otherwise the pan's captured start
+  // offsets are stale and the first post-commit move yanks the view back).
+  const panRebaseRef = useRef<(() => void) | null>(null);
   const panStartRef   = useRef<{ x: number; y: number; sl: number; st: number } | null>(null);
   const undoStackRef  = useRef<PdfAnnotation[]>([]);
   const redoStackRef  = useRef<Omit<PdfAnnotation, 'id' | 'createdAt'>[]>([]);
@@ -770,10 +1227,13 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
   // Stable ref to currentTool for use in non-reactive callbacks (e.g., touch listeners)
   const currentToolRef = useRef<ToolType>(currentTool);
   currentToolRef.current = currentTool;
-  // Scroll ratio saved just before canvas resize so useLayoutEffect can restore it
-  const scrollRestoreRef = useRef<{ ratioX: number; ratioY: number } | null>(null);
-  // Tracks the page number of the last completed render to detect page-change vs zoom-change
-  const lastRenderedPageRef = useRef(0);
+  // Stable refs to zoom / column width / page dims for use in non-reactive render callbacks.
+  const zoomRef = useRef(zoomLevel);
+  zoomRef.current = zoomLevel;
+  const availWidthRef = useRef(availWidth);
+  availWidthRef.current = availWidth;
+  const pageDimsRef = useRef(pageDims);
+  pageDimsRef.current = pageDims;
   // Id of the persisted scale-calibration row (tool_type 'scale') so it can be replaced/cleared
   const scaleAnnIdRef = useRef<string | null>(null);
 
@@ -838,8 +1298,22 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
         return;
       }
       try {
+        // Keep an independent copy of the raw bytes for export — pdf.js may transfer
+        // (detach) the buffer it is handed to its worker.
+        pdfBytesRef.current = buffer.slice(0);
         const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
-        if (!cancelled) { pdfDocRef.current = pdf; setNumPages(pdf.numPages); setPageNumber(1); }
+        if (!cancelled) {
+          pdfDocRef.current = pdf;
+          setNumPages(pdf.numPages);
+          setPageNumber(1);
+          // Seed every page's size from page 1 so placeholders reserve height
+          // immediately; each page's real size is refined when it first renders.
+          try {
+            const first = await pdf.getPage(1);
+            const vp = first.getViewport({ scale: 1 });
+            if (!cancelled) setPageDims(Array.from({ length: pdf.numPages }, () => ({ width: vp.width, height: vp.height })));
+          } catch { /* dims refined lazily */ }
+        }
       } catch (e: unknown) {
         if (!cancelled) setPdfError(e instanceof Error ? e.message : 'Failed to parse PDF');
       } finally {
@@ -851,55 +1325,226 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     return () => { cancelled = true; };
   }, [print.storagePath, print.url]);
 
-  // Render page at current zoom
-  const renderPage = useCallback(async (pageNum: number, zoom: number) => {
-    if (!pdfDocRef.current || !canvasRef.current) return;
-    if (renderTaskRef.current) { renderTaskRef.current.cancel(); renderTaskRef.current = null; }
+  // Paint a single page's canvas at the current zoom. Only on-screen pages (plus a
+  // prerender buffer) are ever rendered, so very large documents stay light: off-screen
+  // pages keep their reserved height but hold no canvas bitmap.
+  const renderPage = useCallback(async (pageNum: number, force = false) => {
+    const pdf = pdfDocRef.current;
+    const canvas = pageCanvasRefs.current.get(pageNum);
+    if (!pdf || !canvas) return;
+    const zoom = zoomRef.current;
+    const avail = (availWidthRef.current || (mainRef.current?.clientWidth ?? window.innerWidth) - 48);
+    // Cache key includes width so a column-width change (rotation, resize) re-rasterizes
+    // even at the same zoom level, never leaving a stale-resolution bitmap.
+    const sig = `${zoom}:${Math.round(avail)}`;
+    if (!force && renderedZoomRef.current.get(pageNum) === sig) return;
+    const prev = renderTasksRef.current.get(pageNum);
+    if (prev) { prev.cancel(); renderTasksRef.current.delete(pageNum); }
     try {
-      const page  = await pdfDocRef.current.getPage(pageNum);
-      const avail = (mainRef.current?.clientWidth ?? window.innerWidth) - 48;
-      const base  = page.getViewport({ scale: 1 });
-      const scale = (Math.min(avail, 1400) / base.width) * zoom;
-      const vp    = page.getViewport({ scale });
-      const canvas = canvasRef.current;
-      // Only preserve scroll when re-rendering the same page (zoom change). When the
-      // page number changes the scroll container should reset to the top naturally.
-      if (mainRef.current && pageNum === lastRenderedPageRef.current) {
-        const m = mainRef.current;
-        const scrollH = m.scrollHeight - m.clientHeight;
-        const scrollW = m.scrollWidth  - m.clientWidth;
-        scrollRestoreRef.current = {
-          ratioX: scrollW > 0 ? m.scrollLeft / scrollW : 0,
-          ratioY: scrollH > 0 ? m.scrollTop  / scrollH : 0,
-        };
-      } else {
-        scrollRestoreRef.current = null;
-      }
-      lastRenderedPageRef.current = pageNum;
+      const page = await pdf.getPage(pageNum);
+      const base = page.getViewport({ scale: 1 });
+      // Refine the seeded dimensions if this page differs in size from page 1.
+      setPageDims(prevDims => {
+        const cur = prevDims[pageNum - 1];
+        if (cur && Math.abs(cur.width - base.width) < 0.5 && Math.abs(cur.height - base.height) < 0.5) return prevDims;
+        const next = [...prevDims];
+        next[pageNum - 1] = { width: base.width, height: base.height };
+        return next;
+      });
+      // Render at the device pixel ratio so pages are crisp on Retina/mobile screens.
+      // The CSS size stays the display size (canvas is stretched to its container), while
+      // the bitmap is denser. Cap the longest side so high zoom can't allocate a huge
+      // canvas (which would exhaust memory or exceed the browser's max canvas size).
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const MAX_CANVAS_PX = 4096;
+      const fitScale = (Math.min(avail, 1400) / base.width) * zoom;
+      let renderScale = fitScale * dpr;
+      const over = Math.max((base.width * renderScale) / MAX_CANVAS_PX, (base.height * renderScale) / MAX_CANVAS_PX, 1);
+      renderScale /= over;
+      const vp = page.getViewport({ scale: renderScale });
       canvas.width = vp.width; canvas.height = vp.height;
-      setCanvasSize({ width: vp.width, height: vp.height });
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
       const task = page.render({ canvasContext: ctx, viewport: vp });
-      renderTaskRef.current = task;
+      renderTasksRef.current.set(pageNum, task);
       await task.promise;
-      renderTaskRef.current = null;
+      renderTasksRef.current.delete(pageNum);
+      renderedZoomRef.current.set(pageNum, sig);
     } catch { /* cancelled */ }
   }, []);
 
-  useEffect(() => {
-    if (!isLoadingPdf && pdfDocRef.current) renderPage(pageNumber, zoomLevel);
-  }, [pageNumber, zoomLevel, isLoadingPdf, renderPage]);
+  // Release a page's canvas bitmap when it scrolls far out of view (frees memory).
+  const clearPage = useCallback((pageNum: number) => {
+    const prev = renderTasksRef.current.get(pageNum);
+    if (prev) { prev.cancel(); renderTasksRef.current.delete(pageNum); }
+    const canvas = pageCanvasRefs.current.get(pageNum);
+    if (canvas) { canvas.width = 0; canvas.height = 0; }
+    renderedZoomRef.current.delete(pageNum);
+  }, []);
 
-  // Restore scroll position after canvas resize (runs synchronously before paint)
+  // Track the column width available for pages and react to container resizes.
+  useEffect(() => {
+    const main = mainRef.current;
+    if (!main) return;
+    const update = () => setAvailWidth(Math.max(0, main.clientWidth - 48));
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(main);
+    return () => ro.disconnect();
+  }, []);
+
+  // Lazily render pages as they enter the viewport (with a generous prerender buffer)
+  // and clear them as they leave, so memory use is bounded regardless of page count.
+  useEffect(() => {
+    if (isLoadingPdf || !numPages) return;
+    const main = mainRef.current;
+    if (!main) return;
+    const io = new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        const p = Number((entry.target as HTMLElement).dataset.page);
+        if (!p) continue;
+        if (entry.isIntersecting) { visiblePagesRef.current.add(p); renderPage(p); }
+        else { visiblePagesRef.current.delete(p); clearPage(p); }
+      }
+    }, { root: main, rootMargin: '1200px 0px 1200px 0px', threshold: 0 });
+    pageObserverRef.current = io;
+    pageContainerRefs.current.forEach(el => io.observe(el));
+    return () => { io.disconnect(); pageObserverRef.current = null; };
+  }, [isLoadingPdf, numPages, renderPage, clearPage]);
+
+  // Re-render the currently visible pages when zoom or column width changes.
+  useEffect(() => {
+    if (isLoadingPdf) return;
+    visiblePagesRef.current.forEach(p => renderPage(p, true));
+  }, [zoomLevel, availWidth, isLoadingPdf, renderPage]);
+
+  // Keep the same scroll anchor when page sizes change (zoom / resize). After a pinch
+  // we re-anchor on the focal point so the spot under the fingers stays fixed; for
+  // button/keyboard zoom and resizes we preserve the vertical scroll fraction.
   useLayoutEffect(() => {
-    if (!scrollRestoreRef.current || !mainRef.current) return;
-    const { ratioX, ratioY } = scrollRestoreRef.current;
-    scrollRestoreRef.current = null;
-    const m = mainRef.current;
-    m.scrollLeft = ratioX * Math.max(0, m.scrollWidth  - m.clientWidth);
-    m.scrollTop  = ratioY * Math.max(0, m.scrollHeight - m.clientHeight);
-  }, [canvasSize]);
+    const main = mainRef.current;
+    if (!main) return;
+    // Clear any leftover pinch / double-tap transform now that the new zoom has laid
+    // out. Doing it here (before reading any rects, and before the browser paints)
+    // means the view goes straight from "scaled old layout" to "new layout" with no
+    // intermediate old-zoom frame, and getBoundingClientRect below reads true sizes.
+    const layer = zoomLayerRef.current;
+    if (layer && layer.style.transform) {
+      layer.style.transform = ''; layer.style.transformOrigin = ''; layer.style.willChange = '';
+    }
+    const anchor = pendingZoomAnchorRef.current;
+    if (anchor) {
+      pendingZoomAnchorRef.current = null;
+      const el = pageContainerRefs.current.get(anchor.pageNum);
+      if (el) {
+        const cr = main.getBoundingClientRect();
+        const r  = el.getBoundingClientRect();
+        // Focal point in scroll-content coordinates (invariant under the current scroll).
+        const focalContentX = (r.left - cr.left) + main.scrollLeft + anchor.nx * r.width;
+        const focalContentY = (r.top  - cr.top)  + main.scrollTop  + anchor.ny * r.height;
+        const maxL = Math.max(0, main.scrollWidth  - main.clientWidth);
+        const maxT = Math.max(0, main.scrollHeight - main.clientHeight);
+        main.scrollLeft = Math.max(0, Math.min(maxL, focalContentX - (anchor.fx - cr.left)));
+        main.scrollTop  = Math.max(0, Math.min(maxT, focalContentY - (anchor.fy - cr.top)));
+        const sh = main.scrollHeight - main.clientHeight;
+        scrollRatioRef.current = sh > 0 ? main.scrollTop / sh : 0;
+        panRebaseRef.current?.();
+        return;
+      }
+    }
+    const sh = main.scrollHeight - main.clientHeight;
+    if (sh > 0) main.scrollTop = scrollRatioRef.current * sh;
+    panRebaseRef.current?.();
+  }, [zoomLevel, availWidth]);
+
+  // Track the page most centered in the viewport so the header indicator stays accurate
+  // as the user scrolls through the document. Throttled to once per frame and computed
+  // analytically from page sizes (no per-page DOM reads) so scrolling stays smooth even
+  // for documents with hundreds of pages.
+  const handleScroll = useCallback(() => {
+    if (scrollRafRef.current) return;
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = 0;
+      const main = mainRef.current;
+      if (!main) return;
+      const sh = main.scrollHeight - main.clientHeight;
+      scrollRatioRef.current = sh > 0 ? main.scrollTop / sh : 0;
+
+      // Walk cumulative page heights to find the page under the viewport centre without
+      // forcing layout per page. Seed the starting offset from the page column's actual
+      // position so error banners above it don't skew it. The inter-page gap scales with
+      // zoom (see the page column's rowGap) so the pinch transform and the committed
+      // layout stay geometrically identical.
+      const GAP = 16 * zoomRef.current;
+      const colW = Math.min(availWidthRef.current || 0, 1400) * zoomRef.current;
+      const dims = pageDimsRef.current;
+      const center = main.scrollTop + main.clientHeight / 2;
+      let top = zoomLayerRef.current ? zoomLayerRef.current.offsetTop : 16, best = 1;
+      for (let i = 0; i < dims.length; i++) {
+        const dim = dims[i];
+        const hgt = dim && colW > 0 ? colW * (dim.height / dim.width) : 0;
+        best = i + 1;
+        if (center <= top + hgt) break;
+        top += hgt + GAP;
+      }
+      setPageNumber(prev => (prev === best ? prev : best));
+    });
+  }, []);
+
+  // ── Zoom plumbing shared by wheel, buttons, keyboard, and pinch ──
+  // Resolve the page + normalized point under a client-space focal point, so a zoom
+  // can keep that exact spot stationary through the re-layout. Falls back to the
+  // nearest page when the point sits over a gap or margin.
+  const resolveZoomAnchor = useCallback((fx: number, fy: number): { pageNum: number; nx: number; ny: number } | null => {
+    let el = (document.elementFromPoint(fx, fy) as HTMLElement | null)?.closest('[data-page]') as HTMLElement | null;
+    if (!el) {
+      let bestDist = Infinity;
+      pageContainerRefs.current.forEach(c => {
+        const cr = c.getBoundingClientRect();
+        const dx = Math.max(cr.left - fx, 0, fx - cr.right);
+        const dy = Math.max(cr.top - fy, 0, fy - cr.bottom);
+        const d = dx * dx + dy * dy;
+        if (d < bestDist) { bestDist = d; el = c; }
+      });
+    }
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return {
+      pageNum: Number(el.dataset.page) || 1,
+      nx: r.width  ? Math.max(0, Math.min(1, (fx - r.left) / r.width))  : 0.5,
+      ny: r.height ? Math.max(0, Math.min(1, (fy - r.top)  / r.height)) : 0.5,
+    };
+  }, []);
+
+  const clearZoomTransform = useCallback(() => {
+    const layer = zoomLayerRef.current;
+    if (layer) { layer.style.transform = ''; layer.style.transformOrigin = ''; layer.style.willChange = ''; }
+  }, []);
+
+  // Commit a new zoom level anchored at a client point (defaulting to the viewport
+  // centre), so the content under that point stays put through the re-layout.
+  const commitZoom = useCallback((target: number, fx?: number, fy?: number) => {
+    const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, target));
+    if (Math.abs(newZoom - zoomRef.current) < 0.0005) return;
+    if (fx === undefined || fy === undefined) {
+      const r = mainRef.current?.getBoundingClientRect();
+      if (r) { fx = r.left + r.width / 2; fy = r.top + r.height / 2; }
+    }
+    if (fx !== undefined && fy !== undefined) {
+      const anchor = resolveZoomAnchor(fx, fy);
+      if (anchor) pendingZoomAnchorRef.current = { ...anchor, fx, fy };
+    }
+    setZoomLevel(newZoom);
+  }, [resolveZoomAnchor]);
+
+  // Step to the next/previous stop on the preset zoom ladder.
+  const stepZoom = useCallback((dir: 1 | -1) => {
+    const cur = zoomRef.current;
+    const next = dir > 0
+      ? ZOOM_STOPS.find(z => z > cur + 0.001) ?? MAX_ZOOM
+      : [...ZOOM_STOPS].reverse().find(z => z < cur - 0.001) ?? MIN_ZOOM;
+    commitZoom(next);
+  }, [commitZoom]);
 
   // Undo
   const handleUndo = useCallback(async () => {
@@ -930,11 +1575,28 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     setCanUndo(true);
   }, []);
 
-  const getCoords = useCallback((clientX: number, clientY: number) => {
-    // Use the canvas element directly so coordinates map exactly to the
-    // rendered surface — avoids any potential size mismatch with the wrapper div.
-    if (!canvasRef.current) return { x: 0, y: 0 };
-    return getRelativeCoords(clientX, clientY, canvasRef.current);
+  const getCoords = useCallback((clientX: number, clientY: number, pageNum?: number) => {
+    // Map to the canvas of the page being interacted with so coordinates align
+    // exactly with the rendered surface, regardless of which stacked page it is.
+    const canvas = pageCanvasRefs.current.get(pageNum ?? activePageRef.current);
+    if (!canvas) return { x: 0, y: 0 };
+    return getRelativeCoords(clientX, clientY, canvas);
+  }, []);
+
+  // Stable ref-registration callbacks so memoized PageLayers never re-render from
+  // receiving a fresh ref function each render.
+  const registerContainer = useCallback((p: number, el: HTMLDivElement | null) => {
+    if (el) {
+      pageContainerRefs.current.set(p, el);
+      pageObserverRef.current?.observe(el); // observe immediately if the observer exists
+    } else {
+      const prev = pageContainerRefs.current.get(p);
+      if (prev) pageObserverRef.current?.unobserve(prev);
+      pageContainerRefs.current.delete(p);
+    }
+  }, []);
+  const registerCanvas = useCallback((p: number, el: HTMLCanvasElement | null) => {
+    if (el) pageCanvasRefs.current.set(p, el); else pageCanvasRefs.current.delete(p);
   }, []);
 
   // Stage annotation locally; persisted to DB only when the user clicks Save.
@@ -946,7 +1608,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       id: generateTempId(), createdAt: Date.now(),
       printId: print.id, companyId: sessionUser.companyId,
       authorId: sessionUser.id, authorName: sessionUser.name,
-      pageNumber, toolType: tool, color: currentColor, strokeWidth,
+      pageNumber: activePageRef.current, toolType: tool, color: currentColor, strokeWidth,
       data: finalData as Record<string, unknown>,
     };
     setPendingAnnotations(prev => [...prev, staged]);
@@ -955,7 +1617,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     redoStackRef.current = [];
     setCanUndo(true); setCanRedo(false);
     return staged;
-  }, [print.id, sessionUser, pageNumber, currentTool, currentColor, strokeWidth, opacity]);
+  }, [print.id, sessionUser, currentTool, currentColor, strokeWidth, opacity]);
 
   // Delete annotation — handle both staged (tmp-) and persisted items
   const handleDeleteAnnotation = useCallback(async (id: string) => {
@@ -1079,6 +1741,37 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     setIsSaving(false);
   }, [pendingAnnotations]);
 
+  // Download a flattened copy of the PDF with all current markups burned in
+  // as vector graphics (same renderer the Job Hub download menu uses).
+  const handleExport = useCallback(async () => {
+    const bytes = pdfBytesRef.current;
+    if (!bytes || isExporting) return;
+    const marks = [...annotationsRef.current, ...pendingAnnotationsRef.current]
+      .filter(a => (a.toolType as string) !== 'scale');
+    if (marks.length === 0) {
+      setActionErr('No markups to export yet — add some annotations first.');
+      return;
+    }
+    setIsExporting(true);
+    try {
+      const out = await flattenAnnotationsIntoPdf(bytes, marks, scaleInfo ?? null);
+      // pdf-lib returns a Uint8Array; copy into a fresh buffer so Blob gets a clean ArrayBuffer.
+      const blob = new Blob([out.slice()], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const base = print.fileName.replace(/\.pdf$/i, '');
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${base} (marked up).pdf`;
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => { document.body.removeChild(link); URL.revokeObjectURL(url); }, 1000);
+    } catch (e: unknown) {
+      setActionErr('Export failed: ' + (e instanceof Error ? e.message : 'unknown error'));
+    } finally {
+      setIsExporting(false);
+    }
+  }, [isExporting, scaleInfo, print.fileName]);
+
   const duplicateAnnotation = useCallback(() => {
     const selId = selectedAnnIdRef.current;
     if (!selId) return;
@@ -1113,9 +1806,9 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
 
       // Intercept Ctrl/⌘ + Plus/Minus/0 browser zoom shortcuts and apply app zoom instead
       if (e.type === 'keydown' && (e.ctrlKey || e.metaKey)) {
-        if (e.key === '=' || e.key === '+') { e.preventDefault(); setZoomLevel(z => Math.min(4.0, z + 0.25)); return; }
-        if (e.key === '-')                  { e.preventDefault(); setZoomLevel(z => Math.max(0.25, z - 0.25)); return; }
-        if (e.key === '0')                  { e.preventDefault(); setZoomLevel(1.0); return; }
+        if (e.key === '=' || e.key === '+') { e.preventDefault(); stepZoom(1); return; }
+        if (e.key === '-')                  { e.preventDefault(); stepZoom(-1); return; }
+        if (e.key === '0')                  { e.preventDefault(); commitZoom(1.0); return; }
       }
 
       // Delete / Backspace → delete selected annotation (only when not typing in an input)
@@ -1167,35 +1860,231 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     window.addEventListener('keydown', onKey);
     window.addEventListener('keyup',   onKey);
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKey); };
-  }, [handleUndo, handleRedo, handleDeleteAnnotation, updateAnnotation, duplicateAnnotation]);
+  }, [handleUndo, handleRedo, handleDeleteAnnotation, updateAnnotation, duplicateAnnotation, stepZoom, commitZoom]);
 
-  // Block browser-level pinch/scroll zoom (Ctrl+wheel) while the editor is open.
-  // React's synthetic onWheel may be passive in some environments; a direct non-passive
-  // window listener is the most reliable way to prevent the browser from intercepting
-  // the gesture and resetting the viewport/scroll position.
+  // ── Ctrl/⌘ + wheel and trackpad-pinch zoom, anchored at the cursor ──
+  // A non-passive window listener both blocks the browser's own page zoom and drives
+  // the app zoom. Like the touch pinch, the gesture itself only applies a cheap CSS
+  // transform (smooth even while pdf.js is busy); the real zoom + re-rasterization
+  // commits once, shortly after the last wheel event, re-anchored so the content
+  // under the cursor stays exactly put.
   useEffect(() => {
-    const onWheel = (e: WheelEvent) => {
-      if (e.ctrlKey || e.metaKey) e.preventDefault();
+    let gesture: { scale: number; fx: number; fy: number; anchor: { pageNum: number; nx: number; ny: number } | null } | null = null;
+    let commitTimer = 0;
+
+    const commit = () => {
+      commitTimer = 0;
+      const g = gesture;
+      gesture = null;
+      if (!g) return;
+      const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomRef.current * g.scale));
+      if (Math.abs(g.scale - 1) < 0.002 || Math.abs(newZoom - zoomRef.current) < 0.0005) {
+        clearZoomTransform();
+        return;
+      }
+      if (g.anchor) pendingZoomAnchorRef.current = { ...g.anchor, fx: g.fx, fy: g.fy };
+      else clearZoomTransform();
+      setZoomLevel(newZoom);
     };
+
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault(); // never let the browser zoom the page while the editor is open
+      if (isPinchRef.current) return;
+      const main = mainRef.current;
+      const layer = zoomLayerRef.current;
+      if (!main || !layer) return;
+      // Anchor at the cursor when it's over the document, else at the viewport centre.
+      let fx = e.clientX, fy = e.clientY;
+      const mr = main.getBoundingClientRect();
+      if (fx < mr.left || fx > mr.right || fy < mr.top || fy > mr.bottom) {
+        fx = mr.left + mr.width / 2;
+        fy = mr.top + mr.height / 2;
+      }
+      if (!gesture) {
+        const zr = layer.getBoundingClientRect();
+        layer.style.transformOrigin = `${fx - zr.left}px ${fy - zr.top}px`;
+        layer.style.willChange = 'transform';
+        gesture = { scale: 1, fx, fy, anchor: resolveZoomAnchor(fx, fy) };
+      }
+      // Multiplicative factor from the wheel delta: small trackpad-pinch deltas zoom
+      // smoothly; a discrete mouse-wheel tick (±100, clamped) gives ≈×1.17 per notch.
+      const line = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1;
+      const dy = Math.max(-80, Math.min(80, e.deltaY * line));
+      const target = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomRef.current * gesture.scale * Math.exp(-dy * 0.002)));
+      gesture.scale = target / zoomRef.current;
+      layer.style.transform = `scale(${gesture.scale})`;
+      if (commitTimer) clearTimeout(commitTimer);
+      commitTimer = window.setTimeout(commit, 120);
+    };
+
     window.addEventListener('wheel', onWheel, { passive: false });
-    return () => window.removeEventListener('wheel', onWheel);
+    return () => {
+      window.removeEventListener('wheel', onWheel);
+      if (commitTimer) clearTimeout(commitTimer);
+    };
+  }, [resolveZoomAnchor, clearZoomTransform]);
+
+  // ── Pinch-to-zoom (driven by native touch events for accurate finger tracking) ──
+  // During the gesture only a cheap CSS transform is applied to the page column; the
+  // real zoom + re-rasterization happens once, on release, anchored at the focus.
+  const beginPinch = useCallback((p1: { x: number; y: number }, p2: { x: number; y: number }) => {
+    const fx = (p1.x + p2.x) / 2, fy = (p1.y + p2.y) / 2;
+    isPinchRef.current = true;
+    pinchDistRef.current = Math.hypot(p1.x - p2.x, p1.y - p2.y) || 1;
+    pinchScaleRef.current = 1;
+    pinchStartFocalRef.current = { x: fx, y: fy };
+    pinchCurrentFocalRef.current = { x: fx, y: fy };
+    // Cancel any single-finger draw that was in progress when the pinch began.
+    if (drawingPtrRef.current !== null) {
+      drawingPtrRef.current = null;
+      setIsDrawing(false); setPenPoints([]); setPreviewData(null); setDrawStart(null);
+    }
+    // Resolve the page + normalized point under the focus for post-zoom re-anchoring.
+    pinchAnchorRef.current = resolveZoomAnchor(fx, fy);
+    const layer = zoomLayerRef.current;
+    if (layer) {
+      const zr = layer.getBoundingClientRect();
+      pinchOriginRef.current = { x: fx - zr.left, y: fy - zr.top };
+      layer.style.transformOrigin = `${pinchOriginRef.current.x}px ${pinchOriginRef.current.y}px`;
+      layer.style.willChange = 'transform';
+    }
+  }, [resolveZoomAnchor]);
+
+  const updatePinch = useCallback((p1: { x: number; y: number }, p2: { x: number; y: number }) => {
+    if (!isPinchRef.current) return;
+    const fx = (p1.x + p2.x) / 2, fy = (p1.y + p2.y) / 2;
+    const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+    pinchCurrentFocalRef.current = { x: fx, y: fy };
+    const rawS = dist / (pinchDistRef.current || 1);
+    const targetZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, (zoomRef.current || 1) * rawS));
+    const s = targetZoom / (zoomRef.current || 1);
+    pinchScaleRef.current = s;
+    const layer = zoomLayerRef.current;
+    if (layer) {
+      const dx = fx - pinchStartFocalRef.current.x;
+      const dy = fy - pinchStartFocalRef.current.y;
+      layer.style.transform = `translate(${dx}px, ${dy}px) scale(${s})`;
+    }
   }, []);
 
-  // Touch-based pan for mobile: attach direct touch listeners on the canvas container.
-  // iOS Safari can fire pointercancel instead of pointermove when setPointerCapture is
-  // combined with touchAction:'none', making the pointer-event pan unreliable.
-  // Single-finger touch ALWAYS scrolls regardless of the active tool — drawing only
-  // happens via pen/stylus (pointerType==='pen') or mouse events.  Scroll is suppressed
-  // only while a pen/mouse draw gesture is actively in progress (drawingPtrRef !== null).
+  // Commit a pinch: turn the transient transform into a real zoom level and queue a
+  // focal re-anchor so the point under the fingers stays put after re-layout.
+  // IMPORTANT: we do NOT clear the transform here. If we did, the view would snap
+  // back to the *old* zoom for one frame before the new zoom renders, causing a
+  // visible jump. Instead the transform is left in place and cleared inside the
+  // zoom layout-effect, after the new page sizes are laid out — so the swap from
+  // "scaled old layout" to "new layout" happens in a single paint with no flicker.
+  const finalizePinch = useCallback(() => {
+    if (!isPinchRef.current) return;
+    isPinchRef.current = false;
+    const s = pinchScaleRef.current;
+    pinchScaleRef.current = 1;
+    const anchor = pinchAnchorRef.current;
+    pinchAnchorRef.current = null;
+    const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, (zoomRef.current || 1) * s));
+    // No meaningful change (or clamped to the same level): drop the transient
+    // transform now, since no re-render — and therefore no layout-effect — will run.
+    if (Math.abs(s - 1) < 0.002 || Math.abs(newZoom - zoomRef.current) < 0.0005) {
+      clearZoomTransform();
+      return;
+    }
+    if (anchor) {
+      const f = pinchCurrentFocalRef.current;
+      pendingZoomAnchorRef.current = { pageNum: anchor.pageNum, nx: anchor.nx, ny: anchor.ny, fx: f.x, fy: f.y };
+    } else {
+      // No focal page resolved — clear now and just re-zoom without re-anchoring.
+      clearZoomTransform();
+    }
+    setZoomLevel(newZoom);
+  }, [clearZoomTransform]);
+
+  // Touch-based pan + pinch for mobile (native touch events: e.touches is authoritative).
+  // Single finger over a nav tool scrolls; two fingers pinch-zoom. Pen/mouse drawing is
+  // handled separately via pointer events.
   useEffect(() => {
     if (isLoadingPdf) return;
-    const container = containerRef.current;
     const main = mainRef.current;
-    if (!container || !main) return;
+    if (!main) return;
 
     let startX = 0, startY = 0, startSL = 0, startST = 0, panning = false;
+    // Velocity tracking for flick momentum (finger px / ms).
+    let lastX = 0, lastY = 0, lastT = 0, vx = 0, vy = 0;
+    let touchStartT = 0;
+    // Double-tap tracking (pan tool only).
+    let lastTapT = 0, lastTapX = 0, lastTapY = 0;
+    let momentumId = 0;
+    const stopMomentum = () => {
+      if (momentumId) { cancelAnimationFrame(momentumId); momentumId = 0; }
+      // Clear any leftover zoom-animation transform so an interrupted gesture is clean.
+      const layer = zoomLayerRef.current;
+      if (layer && !isPinchRef.current) { layer.style.transform = ''; layer.style.transformOrigin = ''; layer.style.willChange = ''; }
+    };
+
+    // Smoothly zoom toward a point (double-tap). Animates a transform, then commits
+    // the real zoom + focal anchor, reusing momentumId so a new touch cancels it.
+    const animateZoomTo = (clientX: number, clientY: number) => {
+      const layer = zoomLayerRef.current;
+      const curZoom = zoomRef.current;
+      const targetZoom = curZoom > 1.05 ? 1.0 : 2.0; // toggle fit ⇄ 2×
+      const ratio = targetZoom / (curZoom || 1);
+      if (!layer || Math.abs(ratio - 1) < 0.01) return;
+      const anchor = resolveZoomAnchor(clientX, clientY);
+      const zr = layer.getBoundingClientRect();
+      layer.style.transformOrigin = `${clientX - zr.left}px ${clientY - zr.top}px`;
+      layer.style.willChange = 'transform';
+      const dur = 200, t0 = performance.now();
+      const ease = (t: number) => 1 - Math.pow(1 - t, 3);
+      const step = (now: number) => {
+        const t = Math.min(1, (now - t0) / dur);
+        layer.style.transform = `scale(${1 + (ratio - 1) * ease(t)})`;
+        if (t < 1) { momentumId = requestAnimationFrame(step); return; }
+        momentumId = 0;
+        // Leave the transform applied; the zoom layout-effect clears it after the new
+        // size lays out, so there's no one-frame snap back to the old zoom.
+        if (anchor) pendingZoomAnchorRef.current = { ...anchor, fx: clientX, fy: clientY };
+        setZoomLevel(targetZoom);
+      };
+      momentumId = requestAnimationFrame(step);
+    };
+
+    // After a flick, keep scrolling with decaying velocity for a native feel.
+    const startMomentum = () => {
+      // Scroll moves opposite to the finger; ignore tiny/slow releases.
+      let sx = -vx, sy = -vy;
+      if (Math.hypot(sx, sy) < 0.05) return;
+      const FRICTION = 0.94;           // velocity retained per 16ms frame
+      const MIN_SPEED = 0.015;         // px/ms — stop threshold
+      let prev = performance.now();
+      const step = (now: number) => {
+        const dt = Math.min(now - prev, 32); prev = now;
+        const decay = Math.pow(FRICTION, dt / 16);
+        sx *= decay; sy *= decay;
+        const maxL = Math.max(0, main.scrollWidth - main.clientWidth);
+        const maxT = Math.max(0, main.scrollHeight - main.clientHeight);
+        const nextL = Math.max(0, Math.min(maxL, main.scrollLeft + sx * dt));
+        const nextT = Math.max(0, Math.min(maxT, main.scrollTop + sy * dt));
+        if (nextL === main.scrollLeft) sx = 0;
+        if (nextT === main.scrollTop) sy = 0;
+        main.scrollLeft = nextL; main.scrollTop = nextT;
+        if (Math.hypot(sx, sy) < MIN_SPEED) { momentumId = 0; return; }
+        momentumId = requestAnimationFrame(step);
+      };
+      momentumId = requestAnimationFrame(step);
+    };
 
     const onTouchStart = (e: TouchEvent) => {
+      activeTouchCountRef.current = e.touches.length;
+      stopMomentum();
+      if (e.touches.length >= 2) {
+        panning = false;
+        beginPinch(
+          { x: e.touches[0].clientX, y: e.touches[0].clientY },
+          { x: e.touches[1].clientX, y: e.touches[1].clientY },
+        );
+        e.preventDefault();
+        return;
+      }
       // Only scroll for nav tools (pan/select). When a drawing tool is active, let
       // pointer events handle the gesture so the user can draw with their finger.
       const isNavTool = currentToolRef.current === 'pan' || currentToolRef.current === 'select';
@@ -1205,47 +2094,124 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       startY  = e.touches[0].clientY;
       startSL = main.scrollLeft;
       startST = main.scrollTop;
+      lastX = startX; lastY = startY; lastT = performance.now(); vx = 0; vy = 0;
+      touchStartT = performance.now();
     };
 
     const onTouchMove = (e: TouchEvent) => {
-      // If a handle drag has claimed the pointer, stop scrolling and let pointer events handle it.
+      activeTouchCountRef.current = e.touches.length;
+      // Two fingers → pinch-zoom.
+      if (e.touches.length >= 2) {
+        const p1 = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        const p2 = { x: e.touches[1].clientX, y: e.touches[1].clientY };
+        if (!isPinchRef.current) beginPinch(p1, p2); else updatePinch(p1, p2);
+        e.preventDefault();
+        return;
+      }
+      // One finger → scroll (only while a pan/select gesture is active).
       if (!panning || e.touches.length !== 1 || drawingPtrRef.current !== null) { panning = false; return; }
       e.preventDefault();
-      main.scrollLeft = startSL - (e.touches[0].clientX - startX);
-      main.scrollTop  = startST - (e.touches[0].clientY - startY);
+      const cx = e.touches[0].clientX, cy = e.touches[0].clientY;
+      // A zoom commit from a just-released pinch (or double-tap) hasn't re-laid-out
+      // yet: our captured scroll baseline is about to be rewritten, so don't pan
+      // from it — just track the finger; the zoom layout-effect re-baselines us.
+      if (pendingZoomAnchorRef.current) {
+        startX = cx; startY = cy; startSL = main.scrollLeft; startST = main.scrollTop;
+        lastX = cx; lastY = cy; lastT = performance.now(); vx = 0; vy = 0;
+        return;
+      }
+      main.scrollLeft = startSL - (cx - startX);
+      main.scrollTop  = startST - (cy - startY);
+      const now = performance.now();
+      const dt = now - lastT;
+      if (dt > 0) {
+        // Blend for a slightly smoothed velocity estimate.
+        vx = 0.7 * ((cx - lastX) / dt) + 0.3 * vx;
+        vy = 0.7 * ((cy - lastY) / dt) + 0.3 * vy;
+        lastX = cx; lastY = cy; lastT = now;
+      }
     };
 
-    const onTouchEnd = () => { panning = false; };
+    const onTouchEnd = (e: TouchEvent) => {
+      activeTouchCountRef.current = e.touches.length;
+      // A finger lifting out of a two-finger gesture commits the zoom.
+      if (isPinchRef.current && e.touches.length < 2) finalizePinch();
+      // After a pinch leaves exactly one finger down, hand off to scrolling so that
+      // finger isn't "dead" until lifted and re-touched.
+      if (e.touches.length === 1) {
+        const isNavTool = currentToolRef.current === 'pan' || currentToolRef.current === 'select';
+        if (isNavTool && drawingPtrRef.current === null) {
+          panning = true;
+          startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+          startSL = main.scrollLeft; startST = main.scrollTop;
+          lastX = startX; lastY = startY; lastT = performance.now(); vx = 0; vy = 0;
+        }
+      }
+      if (e.touches.length === 0) {
+        const t = e.changedTouches[0];
+        const now = performance.now();
+        // Detect a tap: a short, near-stationary single-finger touch.
+        const moved = t ? Math.hypot(t.clientX - startX, t.clientY - startY) : Infinity;
+        const wasTap = panning && t != null && moved < 12 && now - touchStartT < 250;
+        // Double-tap (pan tool only) zooms toward the tapped point.
+        if (wasTap && currentToolRef.current === 'pan') {
+          if (now - lastTapT < 300 && Math.hypot(t.clientX - lastTapX, t.clientY - lastTapY) < 40) {
+            lastTapT = 0;
+            animateZoomTo(t.clientX, t.clientY);
+            panning = false;
+            return;
+          }
+          lastTapT = now; lastTapX = t.clientX; lastTapY = t.clientY;
+        }
+        // Released a single-finger scroll — fling with momentum if it was moving and
+        // the gesture didn't go stale (last sample within ~50ms of release).
+        if (panning && !wasTap && now - lastT < 50) startMomentum();
+        panning = false;
+      }
+    };
 
-    container.addEventListener('touchstart',  onTouchStart, { passive: false });
-    container.addEventListener('touchmove',   onTouchMove,  { passive: false });
-    container.addEventListener('touchend',    onTouchEnd,   { passive: true });
-    container.addEventListener('touchcancel', onTouchEnd,   { passive: true });
+    // Called by the zoom layout-effect right after it rewrites the scroll position,
+    // so a pan that straddles the commit continues from the new position instead of
+    // yanking the view back to the pre-commit scroll offsets.
+    panRebaseRef.current = () => {
+      if (!panning) return;
+      startX = lastX; startY = lastY;
+      startSL = main.scrollLeft; startST = main.scrollTop;
+      vx = 0; vy = 0;
+    };
+
+    main.addEventListener('touchstart',  onTouchStart, { passive: false });
+    main.addEventListener('touchmove',   onTouchMove,  { passive: false });
+    main.addEventListener('touchend',    onTouchEnd,   { passive: true });
+    main.addEventListener('touchcancel', onTouchEnd,   { passive: true });
 
     return () => {
-      container.removeEventListener('touchstart',  onTouchStart);
-      container.removeEventListener('touchmove',   onTouchMove);
-      container.removeEventListener('touchend',    onTouchEnd);
-      container.removeEventListener('touchcancel', onTouchEnd);
+      stopMomentum();
+      panRebaseRef.current = null;
+      main.removeEventListener('touchstart',  onTouchStart);
+      main.removeEventListener('touchmove',   onTouchMove);
+      main.removeEventListener('touchend',    onTouchEnd);
+      main.removeEventListener('touchcancel', onTouchEnd);
     };
-  }, [isLoadingPdf]);
+  }, [isLoadingPdf, beginPinch, updatePinch, finalizePinch, resolveZoomAnchor]);
 
   // ── Pointer Events (Apple Pencil + palm rejection + pinch-to-zoom) ──
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     setInputDevice(e.pointerType);
     touchPtsRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
+    // Resolve which stacked page this gesture is acting on so coordinates,
+    // previews, and new annotations all bind to the correct page.
+    const pageNum = Number(e.currentTarget.dataset.page) || 1;
+    activePageRef.current = pageNum;
+    setActivePage(pageNum);
+
+    // Two or more fingers down → the native touch listener owns the gesture (pinch).
+    // Ignore the pointer event so it never starts a draw/select.
+    if (e.pointerType === 'touch' && activeTouchCountRef.current >= 2) return;
+
     // Palm rejection: if pen is active, ignore new touch contacts
     if (drawingPtrRef.current !== null && e.pointerType === 'touch') return;
-
-    // Two touch fingers → start pinch, cancel draw
-    if (e.pointerType === 'touch' && touchPtsRef.current.size === 2) {
-      if (drawingPtrRef.current !== null) {
-        setIsDrawing(false); setPenPoints([]); setPreviewData(null); setDrawStart(null);
-        drawingPtrRef.current = null;
-      }
-      return;
-    }
 
     // Touch + pan always yields to the touch-scroll listener.
     if (e.pointerType === 'touch' && currentTool === 'pan') return;
@@ -1265,7 +2231,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       drawingPtrRef.current = e.pointerId;
     }
 
-    const coords = getCoords(e.clientX, e.clientY);
+    const coords = getCoords(e.clientX, e.clientY, pageNum);
 
     if (currentTool === 'pan') {
       panStartRef.current = {
@@ -1277,7 +2243,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     }
 
     if (currentTool === 'select') {
-      const pageAnns = [...annotations, ...pendingAnnotations].filter(a => a.pageNumber === pageNumber);
+      const pageAnns = [...annotations, ...pendingAnnotations].filter(a => a.pageNumber === pageNum);
       // 1. Check if tapping a control-point handle on the selected annotation.
       //    Use selectedAnnIdRef (stable ref) so this callback never reads a stale closure value.
       //    Find the NEAREST handle (not the first) and only capture the event if the tap is NOT
@@ -1346,7 +2312,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     }
 
     if (currentTool === 'text') {
-      const container = containerRef.current;
+      const container = pageContainerRefs.current.get(pageNum);
       if (!container) return;
       const r = container.getBoundingClientRect();
       setTextInput({ px: e.clientX - r.left, py: e.clientY - r.top, rx: coords.x, ry: coords.y });
@@ -1365,24 +2331,14 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     setDrawStart(coords);
     if (currentTool === 'pen' || currentTool === 'highlighter')
       setPenPoints([{ x: coords.x, y: coords.y, pressure: e.pressure }]);
-  }, [currentTool, annotations, pendingAnnotations, pageNumber, getCoords]);
+  }, [currentTool, annotations, pendingAnnotations, getCoords]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    // While two or more fingers are down, the native touch listener owns the gesture
+    // (pinch-zoom) — ignore pointer moves so nothing else reacts to it.
+    if (e.pointerType === 'touch' && activeTouchCountRef.current >= 2) return;
     touchPtsRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     shiftPressedRef.current = e.shiftKey;
-
-    // Pinch-to-zoom: two touch points
-    if (touchPtsRef.current.size >= 2) {
-      const [a, b] = [...touchPtsRef.current.values()];
-      const dist = Math.hypot(a.x - b.x, a.y - b.y);
-      if (!isPinchRef.current) {
-        isPinchRef.current = true; pinchDistRef.current = dist; pinchZoomRef.current = zoomLevel;
-      } else {
-        setZoomLevel(Math.max(0.25, Math.min(4.0, pinchZoomRef.current * (dist / (pinchDistRef.current || 1)))));
-      }
-      return;
-    }
-    isPinchRef.current = false;
 
     // Handle drag: update annotation geometry live while dragging a control point
     if (dragHandleRef.current && drawingPtrRef.current === e.pointerId) {
@@ -1444,11 +2400,13 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     } else if (currentTool !== 'stamp' && currentTool !== 'select' && currentTool !== 'text') {
       setPreviewData({ x1: drawStart.x, y1: drawStart.y, x2: coords.x, y2: coords.y });
     }
-  }, [currentTool, isDrawing, drawStart, getCoords, zoomLevel, annotations, pendingAnnotations]);
+  }, [currentTool, isDrawing, drawStart, getCoords, annotations, pendingAnnotations]);
 
   const handlePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     touchPtsRef.current.delete(e.pointerId);
-    isPinchRef.current = false;
+    // Pinch is owned by the native touch listener; a touch pointer-up during a pinch
+    // just cleans up here (it never started a draw, so there is nothing else to do).
+    if (isPinchRef.current) return;
     if (drawingPtrRef.current !== e.pointerId) return;
     drawingPtrRef.current = null; panStartRef.current = null;
 
@@ -1518,7 +2476,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
 
     // Callout: show text input at the text-box location (draw start = x1,y1)
     if (currentTool === 'callout') {
-      const container = containerRef.current;
+      const container = pageContainerRefs.current.get(activePageRef.current);
       if (!container) { setDrawStart(null); return; }
       const r = container.getBoundingClientRect();
       setTextInput({ px: e.clientX - r.left, py: e.clientY - r.top, rx: drawStart.x, ry: drawStart.y, calloutData: data });
@@ -1535,19 +2493,14 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
 
   const handlePointerCancel = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     touchPtsRef.current.delete(e.pointerId);
+    // Pinch lifecycle is owned by the native touch listener; nothing to do here for it.
+    if (isPinchRef.current) return;
     if (drawingPtrRef.current === e.pointerId) {
       drawingPtrRef.current = null;
       setIsDrawing(false); setPenPoints([]); setPreviewData(null); setDrawStart(null);
-      isPinchRef.current = false; panStartRef.current = null;
+      panStartRef.current = null;
       dragHandleRef.current = null; setLiveEditData(null);
     }
-  }, []);
-
-  // Ctrl+scroll to zoom
-  const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
-    if (!e.ctrlKey && !e.metaKey) return;
-    e.preventDefault();
-    setZoomLevel(z => Math.max(0.25, Math.min(4.0, z + (e.deltaY > 0 ? -0.1 : 0.1))));
   }, []);
 
   // Text / callout submit
@@ -1600,7 +2553,8 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     if (!scaleInput || !scaleValue) { setScaleInput(null); return; }
     const inputVal = parseFloat(scaleValue);
     if (isNaN(inputVal) || inputVal <= 0) { setScaleInput(null); return; }
-    const ar = canvasSize.width / (canvasSize.height || 1);
+    const dim = pageDimsRef.current[activePageRef.current - 1];
+    const ar = dim ? dim.width / (dim.height || 1) : 1;
     const dx = scaleInput.lineEnd.x - scaleInput.lineStart.x;
     const dy = scaleInput.lineEnd.y - scaleInput.lineStart.y;
     const normDist = Math.sqrt((dx * ar) ** 2 + dy ** 2);
@@ -1611,7 +2565,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     // Switch straight to the Measure (dimension) tool so the calibrated scale is
     // immediately usable to measure other things on the print.
     setScaleInput(null); setScaleValue(''); setCurrentTool('dimension');
-  }, [scaleInput, scaleValue, scaleUnit, canvasSize, persistScale]);
+  }, [scaleInput, scaleValue, scaleUnit, persistScale]);
 
   const flipAnnotationH = useCallback(() => {
     const selId = selectedAnnIdRef.current;
@@ -1654,8 +2608,11 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
 
   const handleDoubleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (currentTool !== 'select') return;
-    const coords = getCoords(e.clientX, e.clientY);
-    const pageAnns = [...annotations, ...pendingAnnotations].filter(a => a.pageNumber === pageNumber);
+    const pageNum = Number(e.currentTarget.dataset.page) || activePageRef.current;
+    activePageRef.current = pageNum;
+    setActivePage(pageNum);
+    const coords = getCoords(e.clientX, e.clientY, pageNum);
+    const pageAnns = [...annotations, ...pendingAnnotations].filter(a => a.pageNumber === pageNum);
     let nearest: PdfAnnotation | null = null;
     let nearestScore = 0.06;
     for (const ann of [...pageAnns].reverse()) {
@@ -1664,7 +2621,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       if (score < nearestScore) { nearestScore = score; nearest = ann; }
     }
     if (!nearest) return;
-    const container = containerRef.current;
+    const container = pageContainerRefs.current.get(pageNum);
     if (!container) return;
     const r = container.getBoundingClientRect();
     const d = nearest.data as AnyAnnotationData;
@@ -1676,7 +2633,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       setTextInput({ px: e.clientX - r.left, py: e.clientY - r.top, rx: d.x1 ?? coords.x, ry: d.y1 ?? coords.y, calloutData: { x1: d.x1, y1: d.y1, x2: d.x2, y2: d.y2 } as AnyAnnotationData });
     }
     setTimeout(() => textFieldRef.current?.focus(), 30);
-  }, [currentTool, annotations, pendingAnnotations, pageNumber, getCoords]);
+  }, [currentTool, annotations, pendingAnnotations, getCoords]);
 
   // Derived
   const allDisplayAnnotations = useMemo(
@@ -1696,13 +2653,19 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     }
     return map;
   }, [allDisplayAnnotations]);
-  const pageAnnotations = allDisplayAnnotations.filter(
-    a => a.pageNumber === pageNumber && (filterAuthorId === null || a.authorId === filterAuthorId)
-  );
-  const selectedAnn     = pageAnnotations.find(a => a.id === selectedAnnId) ?? null;
-  const penPreviewPath  = (currentTool === 'pen' || currentTool === 'highlighter') && penPoints.length > 1 && isDrawing
-    ? penPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x * canvasSize.width} ${p.y * canvasSize.height}`).join(' ')
-    : null;
+  // Group annotations by page once per render so each stacked page is an O(1) lookup
+  // instead of scanning every annotation — keeps re-renders cheap on large documents.
+  const annotationsByPage = useMemo(() => {
+    const map = new Map<number, PdfAnnotation[]>();
+    for (const ann of allDisplayAnnotations) {
+      if (filterAuthorId !== null && ann.authorId !== filterAuthorId) continue;
+      const list = map.get(ann.pageNumber);
+      if (list) list.push(ann); else map.set(ann.pageNumber, [ann]);
+    }
+    return map;
+  }, [allDisplayAnnotations, filterAuthorId]);
+  // Selected annotation may live on any page; resolve it globally for the toolbar.
+  const selectedAnn     = allDisplayAnnotations.find(a => a.id === selectedAnnId) ?? null;
   const canDeleteAnn = (ann: PdfAnnotation) =>
     ann.authorId === sessionUser.id || sessionUser.role === UserRole.ADMIN || sessionUser.role === UserRole.SUPER_ADMIN;
   const isNavTool  = currentTool === 'select' || currentTool === 'pan' || currentTool === 'scale';
@@ -1721,8 +2684,19 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     }
   };
 
+  // On-screen size of a page: a shared column width (fit-to-width × zoom) and a
+  // height from the page's own aspect ratio. Derived, so it is known for every page
+  // up front and stays correct without the page having been rendered yet.
+  const columnWidth = Math.min(availWidth || 0, 1400) * zoomLevel;
+  const getDisplaySize = (pageNum: number) => {
+    const dim = pageDims[pageNum - 1];
+    if (!dim || columnWidth <= 0) return { width: 0, height: 0 };
+    return { width: columnWidth, height: columnWidth * (dim.height / dim.width) };
+  };
+
+
   return (
-    <div className="fixed inset-0 z-[300] bg-slate-950 flex flex-col select-none" onWheel={handleWheel}>
+    <div className="fixed inset-0 z-[300] bg-slate-950 flex flex-col select-none">
 
       {/* ── Row 1: Header ── */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10 bg-slate-900/90 backdrop-blur shrink-0 flex-wrap gap-y-1.5 min-h-[56px]">
@@ -1762,19 +2736,19 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
 
         {/* Zoom */}
         <div className="flex items-center gap-1 shrink-0">
-          <button onClick={() => setZoomLevel(z => Math.max(0.25, z - 0.25))}
+          <button onClick={() => stepZoom(-1)}
             className="p-2.5 bg-slate-800 text-white rounded-xl hover:bg-slate-700 transition-all min-w-[44px] min-h-[44px] flex items-center justify-center"
             title="Zoom out">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM13 10H7" />
             </svg>
           </button>
-          <button onClick={() => setZoomLevel(1.0)}
+          <button onClick={() => commitZoom(1.0)}
             className="px-2 bg-slate-800 text-white rounded-xl text-xs font-black hover:bg-slate-700 transition-all min-w-[52px] min-h-[44px] flex items-center justify-center"
             title="Reset zoom">
             {Math.round(zoomLevel * 100)}%
           </button>
-          <button onClick={() => setZoomLevel(z => Math.min(4.0, z + 0.25))}
+          <button onClick={() => stepZoom(1)}
             className="p-2.5 bg-slate-800 text-white rounded-xl hover:bg-slate-700 transition-all min-w-[44px] min-h-[44px] flex items-center justify-center"
             title="Zoom in">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1783,22 +2757,14 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
           </button>
         </div>
 
-        {/* Page navigation */}
+        {/* Page indicator — pages scroll continuously; this reflects the page in view */}
         {numPages > 1 && (
-          <div className="flex items-center gap-1 shrink-0">
-            <button onClick={() => setPageNumber(p => Math.max(1, p - 1))} disabled={pageNumber <= 1}
-              className="p-2.5 bg-slate-800 text-white rounded-xl disabled:opacity-40 hover:bg-slate-700 transition-all min-w-[44px] min-h-[44px] flex items-center justify-center">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
-            <span className="text-white text-xs font-bold min-w-[3.5rem] text-center">{pageNumber}/{numPages}</span>
-            <button onClick={() => setPageNumber(p => Math.min(numPages, p + 1))} disabled={pageNumber >= numPages}
-              className="p-2.5 bg-slate-800 text-white rounded-xl disabled:opacity-40 hover:bg-slate-700 transition-all min-w-[44px] min-h-[44px] flex items-center justify-center">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
+          <div className="flex items-center gap-1.5 shrink-0 px-3 min-h-[44px] bg-slate-800 rounded-xl"
+            title="Scroll to move through pages">
+            <svg className="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7M4 5v14" transform="rotate(90 12 12)" />
+            </svg>
+            <span className="text-white text-xs font-bold whitespace-nowrap">Page {pageNumber} / {numPages}</span>
           </div>
         )}
 
@@ -1818,6 +2784,26 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
           </svg>
           {pendingAnnotations.length > 0 ? `Save (${pendingAnnotations.length})` : 'Save'}
+        </button>
+
+        {/* Download marked-up PDF */}
+        <button onClick={handleExport}
+          disabled={isLoadingPdf || !!pdfError || isExporting}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shrink-0 min-h-[44px] bg-brand text-slate-900 hover:brightness-110 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+          title="Download a copy of this PDF with the markups burned in">
+          {isExporting ? (
+            <>
+              <span className="w-3.5 h-3.5 border-2 border-slate-900/40 border-t-slate-900 rounded-full animate-spin" />
+              Preparing…
+            </>
+          ) : (
+            <>
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Download
+            </>
+          )}
         </button>
 
         {scaleInfo && (
@@ -2182,10 +3168,15 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       )}
 
       {/* ── Canvas area ── */}
-      <div ref={mainRef} className="flex-1 min-h-0 overflow-auto flex flex-col items-center p-4 gap-4">
+      {/* Scroll container. NOT items-center: a centered flex child wider than the
+          viewport overflows to the *left* of the scroll origin, making that half
+          unreachable and breaking zoom-anchor math — the zoom layer centers itself
+          via min-width instead. overflow-anchor is off because the browser's native
+          scroll anchoring fights our own focal-point restoration on zoom re-layout. */}
+      <div ref={mainRef} onScroll={handleScroll} className="relative flex-1 min-h-0 overflow-auto flex flex-col p-4 gap-4 [overflow-anchor:none]">
 
         {annLoadErr && (
-          <div className="w-full max-w-3xl flex items-center gap-3 px-4 py-3 bg-amber-500/10 border border-amber-500/30 rounded-xl shrink-0">
+          <div className="w-full max-w-3xl mx-auto flex items-center gap-3 px-4 py-3 bg-amber-500/10 border border-amber-500/30 rounded-xl shrink-0">
             <svg className="w-4 h-4 text-amber-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
             </svg>
@@ -2199,7 +3190,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
         )}
 
         {actionErr && (
-          <div className="w-full max-w-3xl flex items-center gap-3 px-4 py-3 bg-rose-500/10 border border-rose-500/30 rounded-xl shrink-0">
+          <div className="w-full max-w-3xl mx-auto flex items-center gap-3 px-4 py-3 bg-rose-500/10 border border-rose-500/30 rounded-xl shrink-0">
             <svg className="w-4 h-4 text-rose-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
@@ -2227,305 +3218,45 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
         )}
 
         {!isLoadingPdf && !pdfError && (
-          <div
-            ref={containerRef}
-            className={`relative shadow-2xl rounded-lg overflow-hidden shrink-0 ${toolCursor}`}
-            style={{ width: canvasSize.width || '100%', touchAction: 'none' }}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerCancel={handlePointerCancel}
-            onDoubleClick={handleDoubleClick}
-          >
-            <canvas ref={canvasRef} className="block" />
-
-            <svg className="absolute inset-0 pointer-events-none"
-              width={canvasSize.width} height={canvasSize.height}
-              viewBox={`0 0 ${canvasSize.width} ${canvasSize.height}`}>
-
-              {pageAnnotations.map(ann => {
-                const data = (ann.id === selectedAnnId && liveEditData !== null)
-                  ? liveEditData
-                  : ann.data as AnyAnnotationData;
-                return renderAnnotationSvg({ ...ann, data }, canvasSize.width, canvasSize.height, ann.id, scaleInfo);
-              })}
-
-              {selectedAnn && currentTool === 'select' && (() => {
-                const displayData = liveEditData ?? selectedAnn.data as AnyAnnotationData;
-                const rotation    = (displayData.rotation as number | undefined) ?? 0;
-                const handles     = getHandlesNorm({ ...selectedAnn, data: displayData });
-                const bbox        = getAnnotationBBox(selectedAnn, displayData);
-                const SELECTION_BOX_PADDING = 8;
-                // Pixel coordinates of the bbox centre (used for the rotation transform)
-                const bboxCxPx = bbox ? (bbox.x + bbox.w / 2) * canvasSize.width  : 0;
-                const bboxCyPx = bbox ? (bbox.y + bbox.h / 2) * canvasSize.height : 0;
-                const rotateHandle = handles.find(h => h.isRotateHandle);
-                return (
-                  <g>
-                    {/* Dashed bounding box — rotated with the annotation */}
-                    {bbox && bbox.w > 0.005 && (
-                      <g transform={rotation ? `rotate(${rotation}, ${bboxCxPx}, ${bboxCyPx})` : undefined}>
-                        <rect
-                          x={bbox.x * canvasSize.width - SELECTION_BOX_PADDING}
-                          y={bbox.y * canvasSize.height - SELECTION_BOX_PADDING}
-                          width={bbox.w * canvasSize.width + SELECTION_BOX_PADDING * 2}
-                          height={bbox.h * canvasSize.height + SELECTION_BOX_PADDING * 2}
-                          fill="none" stroke="white" strokeWidth="1.5"
-                          strokeDasharray="5 3" opacity="0.5" rx="3" />
-                      </g>
-                    )}
-                    {/* Stem line from bbox top-centre to the rotate handle */}
-                    {bbox && bbox.w > 0.005 && rotateHandle && (() => {
-                      // Compute the rotated top-centre of the bounding box
-                      const stemBaseX = bbox.x * canvasSize.width + (bbox.w * canvasSize.width) / 2;
-                      const stemBaseY = bbox.y * canvasSize.height - SELECTION_BOX_PADDING;
-                      if (rotation) {
-                        const rad = (rotation * Math.PI) / 180;
-                        const cos = Math.cos(rad), sin = Math.sin(rad);
-                        const dx = stemBaseX - bboxCxPx, dy = stemBaseY - bboxCyPx;
-                        const rx = bboxCxPx + dx * cos - dy * sin;
-                        const ry = bboxCyPx + dx * sin + dy * cos;
-                        return <line x1={rx} y1={ry} x2={rotateHandle.nx * canvasSize.width} y2={rotateHandle.ny * canvasSize.height}
-                          stroke="white" strokeWidth="1" strokeDasharray="3 2" opacity="0.35" />;
-                      }
-                      return <line x1={stemBaseX} y1={stemBaseY} x2={rotateHandle.nx * canvasSize.width} y2={rotateHandle.ny * canvasSize.height}
-                        stroke="white" strokeWidth="1" strokeDasharray="3 2" opacity="0.35" />;
-                    })()}
-                    {handles.map(h => {
-                      const cx = h.nx * canvasSize.width;
-                      const cy = h.ny * canvasSize.height;
-                      const isCalloutArrowTip = selectedAnn.toolType === 'callout' && !h.isMoveHandle && !h.isRotateHandle && h.index === 1;
-                      const handleFill = h.isRotateHandle ? '#22c55e'
-                        : h.isMoveHandle ? '#6366f1'
-                        : h.isEdgeHandle ? '#0ea5e9'
-                        : isCalloutArrowTip ? '#f59e0b'
-                        : '#3b82f6';
-                      const edgeLabel = h.index === EDGE_HANDLE_TOP ? 'top' : h.index === EDGE_HANDLE_RIGHT ? 'right' : h.index === EDGE_HANDLE_BOTTOM ? 'bottom' : 'left';
-                      const handleTitle = h.isRotateHandle
-                        ? `Rotate — drag to rotate (${Math.round(rotation)}°), hold Shift for 15° snapping`
-                        : h.isMoveHandle
-                          ? 'Move annotation'
-                          : h.isEdgeHandle
-                            ? `Resize ${edgeLabel} edge — drag to resize on one axis`
-                            : selectedAnn.toolType === 'callout'
-                              ? h.index === 0 ? 'Text box — drag to reposition' : 'Arrow tip — drag to repoint'
-                              : selectedAnn.toolType === 'arrow' || selectedAnn.toolType === 'double_arrow'
-                                ? h.index === 0 ? 'Line start — drag to adjust' : 'Arrow head — drag to adjust'
-                                : `Endpoint ${h.index + 1} — drag to reshape`;
-                      const r = h.isRotateHandle || h.isMoveHandle ? 9 : 8;
-                      return (
-                        <g key={`handle-${h.index}`}>
-                          {/* Hit-area circle (invisible, larger) */}
-                          <circle cx={cx} cy={cy} r="18" fill="transparent">
-                            <title>{handleTitle}</title>
-                          </circle>
-                          {/* Edge handles: diamond (rotated square) shape */}
-                          {h.isEdgeHandle ? (
-                            <rect
-                              x={cx - 6} y={cy - 6} width={12} height={12}
-                              fill={handleFill} stroke="white" strokeWidth="2"
-                              transform={`rotate(45, ${cx}, ${cy})`}
-                            />
-                          ) : (
-                            /* Visible handle circle */
-                            <circle cx={cx} cy={cy} r={r} fill={handleFill} stroke="white" strokeWidth="2.5" />
-                          )}
-                          {/* Rotate handle: circular-arrow icon */}
-                          {h.isRotateHandle && (
-                            <g transform={`translate(${cx}, ${cy})`} stroke="white" strokeWidth="1.5" strokeLinecap="round" fill="none">
-                              <path d="M -4 -3 A 5 5 0 1 1 3.5 -3.5" />
-                              <polyline points="3.5,-3.5 5.5,-1.5 5.5,-5" />
-                            </g>
-                          )}
-                          {/* Move handle: cross icon */}
-                          {h.isMoveHandle && (
-                            <g stroke="white" strokeWidth="1.5" strokeLinecap="round">
-                              <line x1={cx - 4} y1={cy} x2={cx + 4} y2={cy} />
-                              <line x1={cx} y1={cy - 4} x2={cx} y2={cy + 4} />
-                            </g>
-                          )}
-                        </g>
-                      );
-                    })}
-                  </g>
-                );
-              })()}
-
-              {pageAnnotations.map(ann => {
-                const anchor = getAnnotationAnchor(ann);
-                if (!anchor) return null;
-                const initials  = getInitials(ann.authorName);
-                const bw        = initials.length * 7 + 10;
-                const bx        = anchor.x * canvasSize.width;
-                const by        = anchor.y * canvasSize.height;
-                const isPending = ann.id.startsWith('tmp-');
-                return (
-                  <g key={`badge-${ann.id}`}>
-                    <rect x={bx} y={by - 17} width={bw} height={17} rx="3"
-                      fill={ann.color} opacity={isPending ? 0.5 : 0.88}
-                      stroke={isPending ? 'white' : 'none'} strokeWidth={isPending ? 1 : 0}
-                      strokeDasharray={isPending ? '3 2' : undefined} />
-                    <text x={bx + 5} y={by - 3} fontSize="11" fontFamily="monospace" fontWeight="bold" fill="white">
-                      {initials}
-                    </text>
-                  </g>
-                );
-              })}
-
-              {penPreviewPath && (
-                <path d={penPreviewPath} stroke={currentColor}
-                  strokeWidth={currentTool === 'highlighter' ? strokeWidth * 5 : strokeWidth}
-                  fill="none" strokeLinecap="round" strokeLinejoin="round"
-                  opacity={currentTool === 'highlighter' ? opacity * 0.35 : opacity * 0.75} />
-              )}
-
-              {previewData && currentTool !== 'pen' && currentTool !== 'highlighter' && currentTool !== 'scale' &&
-                renderAnnotationSvg({ toolType: currentTool, color: currentColor, strokeWidth, data: previewData },
-                  canvasSize.width, canvasSize.height, 'preview', scaleInfo)
-              }
-
-              {isDrawing && currentTool === 'scale' && previewData && (
-                <line
-                  x1={(previewData.x1 ?? 0) * canvasSize.width} y1={(previewData.y1 ?? 0) * canvasSize.height}
-                  x2={(previewData.x2 ?? 0) * canvasSize.width} y2={(previewData.y2 ?? 0) * canvasSize.height}
-                  stroke="#fbbf24" strokeWidth="2" strokeDasharray="6 3" strokeLinecap="round" opacity="0.9"
-                />
-              )}
-
-              {scaleInput && (
-                <line
-                  x1={scaleInput.lineStart.x * canvasSize.width} y1={scaleInput.lineStart.y * canvasSize.height}
-                  x2={scaleInput.lineEnd.x * canvasSize.width} y2={scaleInput.lineEnd.y * canvasSize.height}
-                  stroke="#fbbf24" strokeWidth="2.5" strokeDasharray="6 3" strokeLinecap="round"
-                />
-              )}
-
-              {/* Start-point crosshair while drawing lines / callout / shapes */}
-              {isDrawing && drawStart && !['pen', 'highlighter', 'text', 'stamp', 'select', 'pan'].includes(currentTool) && (
-                <g>
-                  <circle cx={drawStart.x * canvasSize.width} cy={drawStart.y * canvasSize.height}
-                    r="5" fill={currentColor} stroke="white" strokeWidth="2" opacity="0.9" />
-                  <line x1={drawStart.x * canvasSize.width - 10} y1={drawStart.y * canvasSize.height}
-                    x2={drawStart.x * canvasSize.width + 10} y2={drawStart.y * canvasSize.height}
-                    stroke="white" strokeWidth="1.5" strokeLinecap="round" opacity="0.6" />
-                  <line x1={drawStart.x * canvasSize.width} y1={drawStart.y * canvasSize.height - 10}
-                    x2={drawStart.x * canvasSize.width} y2={drawStart.y * canvasSize.height + 10}
-                    stroke="white" strokeWidth="1.5" strokeLinecap="round" opacity="0.6" />
-                </g>
-              )}
-
-              {/* Angle badge for line-type tools while drawing */}
-              {isDrawing && previewData && (
-                currentTool === 'line' || currentTool === 'dashed_line' ||
-                currentTool === 'arrow' || currentTool === 'double_arrow' ||
-                currentTool === 'dimension' || currentTool === 'callout'
-              ) && (() => {
-                const x2px = (previewData.x2 ?? 0) * canvasSize.width;
-                const y2px = (previewData.y2 ?? 0) * canvasSize.height;
-                const dx = ((previewData.x2 ?? 0) - (previewData.x1 ?? 0)) * canvasSize.width;
-                const dy = ((previewData.y2 ?? 0) - (previewData.y1 ?? 0)) * canvasSize.height;
-                const angleDeg = ((Math.round(Math.atan2(dy, dx) * 180 / Math.PI) % 360) + 360) % 360;
-                const bx = Math.min(x2px + 12, canvasSize.width - 52);
-                const by = y2px > 20 ? y2px - 8 : y2px + 26;
-                return (
-                  <g opacity="0.92">
-                    <rect x={bx} y={by - 13} width={44} height={16} rx="4" fill="rgba(0,0,0,0.72)" />
-                    <text x={bx + 5} y={by - 1} fontSize="11" fill="white" fontFamily="monospace" fontWeight="bold">
-                      {angleDeg}°
-                    </text>
-                  </g>
-                );
-              })()}
-
-              {/* Ghost callout preview while the text input is open */}
-              {textInput && textInput.calloutData && (
-                renderAnnotationSvg({
-                  toolType: 'callout', color: currentColor, strokeWidth,
-                  data: { ...textInput.calloutData, text: textValue.trim() || '\u00a0', fontSize },
-                }, canvasSize.width, canvasSize.height, 'callout-ghost')
-              )}
-
-              {/* Scale bar */}
-              {scaleInfo && canvasSize.width > 0 && (() => {
-                const targetPx = canvasSize.width * 0.15;
-                const rawUnits = (targetPx / canvasSize.height) * scaleInfo.unitsPerNormDist;
-                const nices = [0.25,0.5,1,2,5,10,20,25,50,100,200,500,1000];
-                const nice = nices.reduce((a, b) => Math.abs(b - rawUnits) < Math.abs(a - rawUnits) ? b : a);
-                const barPx = (nice / scaleInfo.unitsPerNormDist) * canvasSize.height;
-                const barX = 16, barY = canvasSize.height - 16;
-                const label = `${nice} ${scaleInfo.unit}`;
-                const lblW = label.length * 6 + 12;
-                return (
-                  <g opacity="0.9">
-                    <rect x={barX - 4} y={barY - 24} width={Math.max(barPx + 8, lblW + 8)} height={28} rx="4" fill="rgba(0,0,0,0.72)" />
-                    <line x1={barX} y1={barY - 10} x2={barX + barPx} y2={barY - 10} stroke="white" strokeWidth="2" />
-                    <line x1={barX} y1={barY - 16} x2={barX} y2={barY - 4} stroke="white" strokeWidth="2" />
-                    <line x1={barX + barPx} y1={barY - 16} x2={barX + barPx} y2={barY - 4} stroke="white" strokeWidth="2" />
-                    <text x={barX + barPx / 2} y={barY} textAnchor="middle" fill="white" fontSize="9" fontFamily="monospace" fontWeight="bold">{label}</text>
-                  </g>
-                );
-              })()}
-            </svg>
-
-            {scaleInput && (
-              <div className="absolute bg-slate-900 border border-white/20 rounded-xl p-4 shadow-2xl z-20 w-60"
-                style={{ left: Math.min(canvasSize.width - 248, Math.max(0, scaleInput.lineEnd.x * canvasSize.width - 120)),
-                         top: Math.min(canvasSize.height - 120, Math.max(0, scaleInput.lineEnd.y * canvasSize.height + 16)) }}>
-                <p className="text-[10px] text-brand font-black uppercase tracking-widest mb-3">Set Scale Reference</p>
-                <p className="text-[9px] text-slate-400 mb-2">What length does this line represent?</p>
-                <div className="flex gap-2 mb-3">
-                  <input ref={scaleInputRef} type="number" min="0.001" step="any" value={scaleValue}
-                    onChange={e => setScaleValue(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') handleScaleConfirm(); if (e.key === 'Escape') setScaleInput(null); }}
-                    placeholder="Distance"
-                    className="flex-1 bg-slate-800 text-white rounded-lg px-2 py-1.5 text-sm border border-white/10 outline-none focus:border-brand min-w-0" />
-                  <select value={scaleUnit} onChange={e => setScaleUnit(e.target.value)}
-                    className="bg-slate-800 text-white rounded-lg px-2 text-sm border border-white/10 outline-none focus:border-brand shrink-0">
-                    <option value="ft">ft</option>
-                    <option value="in">in</option>
-                    <option value="yd">yd</option>
-                    <option value="m">m</option>
-                    <option value="cm">cm</option>
-                    <option value="mm">mm</option>
-                  </select>
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={handleScaleConfirm}
-                    className="flex-1 bg-brand text-slate-900 rounded-lg py-1.5 text-[11px] font-black hover:brightness-110 transition-all">
-                    Set Scale
-                  </button>
-                  <button onClick={() => { setScaleInput(null); setScaleValue(''); }}
-                    className="px-3 bg-slate-800 text-slate-300 hover:bg-slate-700 rounded-lg py-1.5 text-[11px] font-black transition-all">
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {textInput && (
-              <input
-                ref={textFieldRef}
-                type="text"
-                value={textValue}
-                onChange={e => setTextValue(e.target.value)}
-                onBlur={handleTextSubmit}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') handleTextSubmit();
-                  if (e.key === 'Escape') { setTextInput(null); setTextValue(''); }
-                }}
-                className="absolute bg-black/50 backdrop-blur rounded px-2 py-1 border border-dashed outline-none z-10 font-bold"
-                style={{
-                  left: textInput.calloutData
-                    ? Math.min(canvasSize.width - 172, Math.max(4, textInput.rx * canvasSize.width - 80))
-                    : textInput.px,
-                  top: textInput.calloutData
-                    ? Math.min(canvasSize.height - 40, Math.max(4, textInput.ry * canvasSize.height - fontSize - 14))
-                    : textInput.py - 16,
-                  color: currentColor, borderColor: currentColor, fontSize: fontSize + 'px', minWidth: '160px',
-                }}
-                placeholder={textInput.calloutData ? 'Callout text, then Enter…' : 'Type, then Enter…'}
+          <div ref={zoomLayerRef} className="flex flex-col items-center origin-top"
+            style={{ rowGap: `${16 * zoomLevel}px`, width: 'max-content', minWidth: '100%' }}>
+          {Array.from({ length: numPages }, (_, i) => {
+            const p = i + 1;
+            const { width: w, height: h } = getDisplaySize(p);
+            const active = activePage === p;
+            // Only the page holding the selection needs the live-edit data; gating it
+            // keeps every other page from re-rendering during a handle drag.
+            const isSelectedPage = selectedAnn !== null && selectedAnn.pageNumber === p;
+            return (
+              <PageLayer
+                key={p}
+                pageNum={p} w={w} h={h} toolCursor={toolCursor}
+                pageAnns={annotationsByPage.get(p) ?? EMPTY_ANNS}
+                selectedAnnId={isSelectedPage ? selectedAnnId : null} liveEditData={isSelectedPage ? liveEditData : null}
+                sel={isSelectedPage ? selectedAnn : null}
+                scaleInfo={scaleInfo}
+                currentTool={currentTool} currentColor={currentColor} strokeWidth={strokeWidth} opacity={opacity}
+                isActive={active}
+                previewData={active ? previewData : null}
+                penPoints={active ? penPoints : EMPTY_POINTS}
+                drawStart={active ? drawStart : null}
+                isDrawing={active ? isDrawing : false}
+                textInput={active ? textInput : null}
+                textValue={active ? textValue : ''}
+                fontSize={fontSize}
+                scaleInput={active ? scaleInput : null}
+                scaleValue={scaleValue} scaleUnit={scaleUnit}
+                onPointerDown={handlePointerDown} onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp} onPointerCancel={handlePointerCancel}
+                onDoubleClick={handleDoubleClick}
+                registerContainer={registerContainer} registerCanvas={registerCanvas}
+                textFieldRef={textFieldRef} scaleInputRef={scaleInputRef}
+                setTextValue={setTextValue} setTextInput={setTextInput} handleTextSubmit={handleTextSubmit}
+                setScaleValue={setScaleValue} setScaleUnit={setScaleUnit} setScaleInput={setScaleInput}
+                handleScaleConfirm={handleScaleConfirm}
               />
-            )}
+            );
+          })}
           </div>
         )}
 
