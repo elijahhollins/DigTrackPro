@@ -281,13 +281,22 @@ function shiftAfter(
   });
 }
 
+/** Working days a job has completed between its start and the interruption date (exclusive). */
+const daysBeforeInterruption = (
+  jobStart: string, interruptAt: string, skip: boolean,
+): number =>
+  skip ? countWorkingDays(jobStart, addDays(interruptAt, -1)) : diffDays(interruptAt, jobStart);
+
 /**
- * Push crew blocks that overlap with a newly inserted/moved block to start
- * right after it ends, then cascade only as far as needed to close any
- * chain of newly-created overlaps. Blocks already beyond the pushed region
- * are left untouched.
+ * Make room for a newly inserted/moved block by interrupting the schedule at
+ * `newStart`. A job the new block lands inside of is *split* at the interruption:
+ * the head keeps the days already worked, and a tail carrying the remaining days
+ * resumes right after the new block ends. Every other crew block that starts on
+ * or after the interruption is pushed forward by the inserted block's span, so
+ * the whole downstream schedule slides into the future by the same amount and
+ * relative gaps are preserved.
  */
-function pushConflictingForward(
+function splitAndPushForward(
   blocks: ScheduleBlock[],
   crewId: string,
   newStart: string,
@@ -295,27 +304,45 @@ function pushConflictingForward(
   skip: boolean,
   excludeId?: string,
 ): ScheduleBlock[] {
-  const newEnd = blockEndExclusive(newStart, newDuration, skip);
+  // Where the tail (and anything that used to sit at the interruption) resumes:
+  // the first available day after the inserted block ends. This equals shifting
+  // the interruption point forward by the inserted block's working-day span.
+  const resumeAt = blockEndExclusive(newStart, newDuration, skip);
 
-  const crewBlocks = blocks
-    .filter(b => b.crewId === crewId && b.id !== excludeId)
-    .sort((a, b) => a.startDate.localeCompare(b.startDate));
+  const result: ScheduleBlock[] = [];
+  const tails:  ScheduleBlock[] = [];
 
-  let pushBoundary = newEnd;
-  const updates = new Map<string, string>();
+  for (const b of blocks) {
+    if (b.crewId !== crewId || b.id === excludeId) {
+      result.push(b);
+      continue;
+    }
 
-  for (const b of crewBlocks) {
-    if (b.startDate >= newStart && b.startDate < pushBoundary) {
-      const placed = skip ? snapToWeekday(pushBoundary) : pushBoundary;
-      updates.set(b.id, placed);
-      pushBoundary = blockEndExclusive(placed, b.durationDays, skip);
+    const bEnd = blockEndExclusive(b.startDate, b.durationDays, skip);
+
+    if (b.type === 'job' && b.startDate < newStart && bEnd > newStart) {
+      // The new block lands inside this job — split it at the interruption.
+      const before    = Math.max(1, daysBeforeInterruption(b.startDate, newStart, skip));
+      const remaining = b.durationDays - before;
+      result.push({ ...b, durationDays: before });
+      if (remaining > 0) {
+        tails.push({
+          ...b,
+          id: `block-${crypto.randomUUID()}`,
+          startDate: resumeAt,
+          durationDays: remaining,
+        });
+      }
+    } else if (b.startDate >= newStart) {
+      // Starts at or after the interruption — slide it forward by the inserted span.
+      result.push({ ...b, startDate: shiftSchedDays(b.startDate, newDuration, skip) });
+    } else {
+      // Finishes before the interruption — untouched.
+      result.push(b);
     }
   }
 
-  return blocks.map(b => {
-    const updated = updates.get(b.id);
-    return updated ? { ...b, startDate: updated } : b;
-  });
+  return [...result, ...tails];
 }
 
 function reducer(state: ScheduleBlock[], action: Action): ScheduleBlock[] {
@@ -329,14 +356,14 @@ function reducer(state: ScheduleBlock[], action: Action): ScheduleBlock[] {
       );
 
     case 'MOVE_BLOCK_PUSH': {
-      // Move the block to its new position, then push only the crew blocks
-      // that actually overlap with it (cascading as needed) to make room.
+      // Move the block to its new position, then split any job it lands inside
+      // and slide the rest of the crew's schedule forward to make room.
       const moved = state.map(b =>
         b.id === action.id
           ? { ...b, crewId: action.crewId, startDate: action.startDate }
           : b,
       );
-      return pushConflictingForward(moved, action.crewId, action.startDate, action.shiftDays, skip, action.id);
+      return splitAndPushForward(moved, action.crewId, action.startDate, action.shiftDays, skip, action.id);
     }
 
     case 'INSERT_DELAY': {
@@ -376,9 +403,9 @@ function reducer(state: ScheduleBlock[], action: Action): ScheduleBlock[] {
       return [...state, ...action.blocks];
 
     case 'ADD_BLOCK_PUSH': {
-      // Push only crew blocks that actually overlap with the new block
-      // (cascading as needed), then insert the new block.
-      const shifted = pushConflictingForward(
+      // Split any job the new block lands inside and slide the rest of the
+      // crew's schedule forward, then insert the new block in the gap.
+      const shifted = splitAndPushForward(
         state, action.block.crewId, action.block.startDate, action.block.durationDays, skip,
       );
       return [...shifted, action.block];
@@ -607,6 +634,7 @@ const OverlapConfirmModal = ({
   newDate,
   crewName,
   conflictCount,
+  willSplit,
   onConfirm,
   onCancel,
 }: {
@@ -614,6 +642,7 @@ const OverlapConfirmModal = ({
   newDate: string;
   crewName: string;
   conflictCount: number;
+  willSplit: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }) => (
@@ -630,8 +659,9 @@ const OverlapConfirmModal = ({
         for <span className="font-semibold text-slate-800">{crewName}</span>.
         <br />
         <br />
-        Push the conflicting block{conflictCount !== 1 ? 's' : ''} and everything after
-        them into the future?
+        {willSplit
+          ? 'Split the interrupted job at this date, insert the new one in between, and push the remainder and everything after it into the future?'
+          : `Push the conflicting block${conflictCount !== 1 ? 's' : ''} and everything after them into the future?`}
       </p>
       <div className="flex gap-3">
         <button
@@ -1816,6 +1846,7 @@ export default function Scheduler({
     crewName: string;
     conflictCount: number;
     shiftDays: number;
+    willSplit: boolean;
   } | null>(null);
 
   // Pending overlap-conflict confirmation (add-block)
@@ -1824,6 +1855,7 @@ export default function Scheduler({
     crewName: string;
     conflictCount: number;
     shiftDays: number;
+    willSplit: boolean;
   } | null>(null);
 
   // Ref to the outer scroll container (needed for drop position calc)
@@ -1967,6 +1999,7 @@ export default function Scheduler({
         crewName:  crew?.name ?? crewId,
         conflictCount: conflicts.length,
         shiftDays: movingBlock.durationDays,
+        willSplit: conflicts.some(c => c.type === 'job' && c.startDate < newStart),
       });
     } else {
       dispatchWithHistory({ type: 'MOVE_BLOCK', id: blockId, crewId, startDate: newStart });
@@ -2100,6 +2133,7 @@ export default function Scheduler({
               crewName:      targetCrew.name,
               conflictCount: conflicts.length,
               shiftDays:     movingBlock.durationDays,
+              willSplit:     conflicts.some(c => c.type === 'job' && c.startDate < newStart),
             });
           } else {
             dispatchWithHistory({ type: 'MOVE_BLOCK', id: drag.blockId, crewId: targetCrew.id, startDate: newStart });
@@ -3140,6 +3174,7 @@ export default function Scheduler({
           newDate={pendingMove.startDate}
           crewName={pendingMove.crewName}
           conflictCount={pendingMove.conflictCount}
+          willSplit={pendingMove.willSplit}
           onConfirm={() => {
             dispatchWithHistory({
               type: 'MOVE_BLOCK_PUSH',
@@ -3161,6 +3196,7 @@ export default function Scheduler({
           newDate={pendingAdd.block.startDate}
           crewName={pendingAdd.crewName}
           conflictCount={pendingAdd.conflictCount}
+          willSplit={pendingAdd.willSplit}
           onConfirm={() => {
             dispatchWithHistory({
               type:      'ADD_BLOCK_PUSH',
@@ -3193,6 +3229,7 @@ export default function Scheduler({
                 crewName:      crew?.name ?? block.crewId,
                 conflictCount: conflicts.length,
                 shiftDays:     block.durationDays,
+                willSplit:     conflicts.some(c => c.type === 'job' && c.startDate < block.startDate),
               });
             } else {
               dispatchWithHistory({ type: 'ADD_BLOCK', block });
