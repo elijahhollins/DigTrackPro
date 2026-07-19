@@ -11,33 +11,31 @@ import {
 } from './PdfMarkupEditor.tsx';
 
 // ─────────────────────────────────────────────────────────────
-// PDF download helpers — the original file, or a flattened copy
-// with the saved markup drawn into each page as vector graphics.
-// The original page content (text, line work) is left untouched,
-// so the flattened copy stays searchable and crisp at any zoom.
+// PDF open/view helpers — open the original file, or a flattened
+// copy with the saved markup drawn into each page as vector
+// graphics, in a new browser tab. The original page content (text,
+// line work) is left untouched, so the flattened copy stays
+// searchable and crisp at any zoom.
 // ─────────────────────────────────────────────────────────────
 
-const isMobile = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-
+// Direct download fallback for when a new tab can't be opened (popup blocked).
 const triggerDownload = (href: string, fileName: string) => {
   const link = document.createElement('a');
   link.href = href;
   link.download = fileName;
-  if (isMobile()) {
-    link.style.display = 'none';
-    document.body.appendChild(link);
-    link.click();
-    setTimeout(() => document.body.removeChild(link), 100);
-  } else {
-    link.click();
-  }
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  link.click();
+  setTimeout(() => document.body.removeChild(link), 100);
 };
 
-// Download the print exactly as it was uploaded (no annotations).
-export const downloadPrintOriginal = (print: JobPrint) => {
+// Open the print exactly as it was uploaded (no annotations) in a new tab.
+export const openPrintOriginal = (print: JobPrint) => {
   if (!print.url) return;
   const baseUrl = print.url.split('?')[0];
-  triggerDownload(`${baseUrl}?download=${encodeURIComponent(print.fileName)}`, print.fileName);
+  const win = window.open(baseUrl, '_blank', 'noopener,noreferrer');
+  // Popup blocked — fall back to a direct download so the file isn't lost.
+  if (!win) triggerDownload(`${baseUrl}?download=${encodeURIComponent(print.fileName)}`, print.fileName);
 };
 
 // Same dual-path loading the markup editor uses: authenticated storage
@@ -409,11 +407,25 @@ const annotatedFileName = (fileName: string) => {
   return `${stem} (markup).pdf`;
 };
 
-export const downloadPrintWithMarkup = async (print: JobPrint) => {
-  const blob = await buildAnnotatedPdfBlob(print);
-  const url = URL.createObjectURL(blob);
-  triggerDownload(url, annotatedFileName(print.fileName));
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+// Open a flattened copy (markup burned in) in a new tab. The caller opens the
+// tab synchronously inside the click handler and passes it in, so the popup
+// isn't blocked while the blob is being built.
+export const openPrintWithMarkup = async (print: JobPrint, targetWindow?: Window | null) => {
+  const win = targetWindow ?? window.open('', '_blank');
+  try {
+    const blob = await buildAnnotatedPdfBlob(print);
+    const url = URL.createObjectURL(blob);
+    if (win) {
+      win.location.href = url;
+    } else {
+      // Popup blocked — fall back to a direct download.
+      triggerDownload(url, annotatedFileName(print.fileName));
+    }
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch (e) {
+    if (win) win.close();
+    throw e;
+  }
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -449,10 +461,13 @@ export const PrintDownloadMenu: React.FC<PrintDownloadMenuProps> = ({
 
   const handleWithMarkup = async () => {
     setOpen(false);
+    // Open the tab synchronously (inside the click) so the popup isn't blocked.
+    const win = window.open('', '_blank');
     setExporting(true);
     try {
-      await downloadPrintWithMarkup(print);
+      await openPrintWithMarkup(print, win);
     } catch (e: unknown) {
+      if (win) win.close();
       alert('Export failed: ' + (e instanceof Error ? e.message : 'unknown error'));
     } finally {
       setExporting(false);
@@ -469,7 +484,7 @@ export const PrintDownloadMenu: React.FC<PrintDownloadMenuProps> = ({
         onClick={() => setOpen(v => !v)}
         disabled={exporting || !print.url}
         className={buttonClassName}
-        title="Download this PDF"
+        title="Open this PDF in a new tab"
       >
         <Download size={iconSize} className="shrink-0" />
         {exporting ? 'Preparing…' : label}
@@ -478,7 +493,7 @@ export const PrintDownloadMenu: React.FC<PrintDownloadMenuProps> = ({
         <div className={`absolute right-0 bottom-full mb-1 z-30 min-w-[190px] rounded-xl border shadow-xl overflow-hidden ${
           isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white border-slate-200'
         }`}>
-          <button onClick={() => { setOpen(false); downloadPrintOriginal(print); }} className={itemClass}>
+          <button onClick={() => { setOpen(false); openPrintOriginal(print); }} className={itemClass}>
             Original PDF
           </button>
           <button onClick={handleWithMarkup} className={`${itemClass} border-t ${isDarkMode ? 'border-white/10' : 'border-slate-100'}`}>

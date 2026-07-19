@@ -1741,8 +1741,10 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
     setIsSaving(false);
   }, [pendingAnnotations]);
 
-  // Download a flattened copy of the PDF with all current markups burned in
-  // as vector graphics (same renderer the Job Hub download menu uses).
+  // Open a flattened copy of the PDF (all current markups burned in as vector
+  // graphics) in a new browser tab for viewing — the same renderer the Job Hub
+  // download menu uses. The tab is opened synchronously inside this click
+  // handler so popup blockers don't kill it before the blob is ready.
   const handleExport = useCallback(async () => {
     const bytes = pdfBytesRef.current;
     if (!bytes || isExporting) return;
@@ -1753,19 +1755,28 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
       return;
     }
     setIsExporting(true);
+    const win = window.open('', '_blank');
     try {
       const out = await flattenAnnotationsIntoPdf(bytes, marks, scaleInfo ?? null);
       // pdf-lib returns a Uint8Array; copy into a fresh buffer so Blob gets a clean ArrayBuffer.
       const blob = new Blob([out.slice()], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       const base = print.fileName.replace(/\.pdf$/i, '');
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${base} (marked up).pdf`;
-      document.body.appendChild(link);
-      link.click();
-      setTimeout(() => { document.body.removeChild(link); URL.revokeObjectURL(url); }, 1000);
+      if (win) {
+        win.location.href = url;
+      } else {
+        // Popup blocked — fall back to a direct download so the export isn't lost.
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${base} (marked up).pdf`;
+        document.body.appendChild(link);
+        link.click();
+        setTimeout(() => document.body.removeChild(link), 1000);
+      }
+      // Keep the object URL alive long enough for the new tab to load it.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch (e: unknown) {
+      if (win) win.close();
       setActionErr('Export failed: ' + (e instanceof Error ? e.message : 'unknown error'));
     } finally {
       setIsExporting(false);
@@ -2790,7 +2801,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
         <button onClick={handleExport}
           disabled={isLoadingPdf || !!pdfError || isExporting}
           className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shrink-0 min-h-[44px] bg-brand text-slate-900 hover:brightness-110 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
-          title="Download a copy of this PDF with the markups burned in">
+          title="Open a copy of this PDF with the markups burned in, in a new tab">
           {isExporting ? (
             <>
               <span className="w-3.5 h-3.5 border-2 border-slate-900/40 border-t-slate-900 rounded-full animate-spin" />
@@ -2969,19 +2980,7 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
         <div className="flex items-center gap-3 px-3 py-2 border-b border-white/10 bg-slate-900/40 shrink-0 min-h-[52px] overflow-x-auto">
           {selectedAnn ? (
             <>
-              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest shrink-0">
-                {selectedAnn.toolType.replace(/_/g, ' ')} selected
-                {selectedAnn.toolType === 'callout' && getHandlesNorm(selectedAnn).length >= 2
-                  ? ' — drag amber dot to repoint arrow · blue dot to move text box · green dot to rotate'
-                  : getHandlesNorm(selectedAnn).some(h => h.isRotateHandle) && getHandlesNorm(selectedAnn).some(h => !h.isMoveHandle && !h.isRotateHandle && !h.isEdgeHandle)
-                    ? ' — blue corners to resize · sky diamonds for single-axis · purple dot to move · green dot to rotate (hold Shift for 15° snap)'
-                    : getHandlesNorm(selectedAnn).some(h => h.isRotateHandle)
-                      ? ' — drag purple dot to move · green dot to rotate (hold Shift for 15° snap)'
-                      : ''}
-              </span>
-
               {/* Color picker for selected annotation */}
-              <div className="w-px h-6 bg-white/10 shrink-0" />
               <span className="text-[9px] text-slate-400 font-black uppercase tracking-widest shrink-0">Color</span>
               <div className="flex items-center gap-1 shrink-0">
                 {COLORS.map(c => (
@@ -3142,6 +3141,18 @@ export const PdfMarkupEditor: React.FC<PdfMarkupEditorProps> = ({
                   Delete <span className="opacity-50 font-normal normal-case">⌫</span>
                 </button>
               )}
+
+              {/* Desktop interaction hint — pushed to the far right so the tools sit on the left */}
+              <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest shrink-0 ml-auto pl-3">
+                {selectedAnn.toolType.replace(/_/g, ' ')} selected
+                {selectedAnn.toolType === 'callout' && getHandlesNorm(selectedAnn).length >= 2
+                  ? ' — drag amber dot to repoint arrow · blue dot to move text box · green dot to rotate'
+                  : getHandlesNorm(selectedAnn).some(h => h.isRotateHandle) && getHandlesNorm(selectedAnn).some(h => !h.isMoveHandle && !h.isRotateHandle && !h.isEdgeHandle)
+                    ? ' — blue corners to resize · sky diamonds for single-axis · purple dot to move · green dot to rotate (hold Shift for 15° snap)'
+                    : getHandlesNorm(selectedAnn).some(h => h.isRotateHandle)
+                      ? ' — drag purple dot to move · green dot to rotate (hold Shift for 15° snap)'
+                      : ''}
+              </span>
             </>
           ) : (
             <span className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Tap any annotation to select it · Switch to Select to adjust handles · Esc to deselect</span>
