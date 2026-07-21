@@ -141,14 +141,6 @@ tbody tr { transition: background-color 0.12s ease; }
     linear-gradient(135deg, #0b1326 0%, #111d3d 48%, #0d1730 100%);
 }
 
-/* Crew roster workload meter — animated fill on first paint. */
-@keyframes dispatch-meter-grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
-.dispatch-meter-fill {
-  transform-origin: left center;
-  animation: dispatch-meter-grow 0.55s cubic-bezier(0.16,1,0.3,1);
-}
-@media (prefers-reduced-motion: reduce) { .dispatch-meter-fill { animation: none; } }
-
 /* Crew lane row — the colored identity wash + hover lift on the sticky cell. */
 .dispatch-lane-cell { transition: background 0.16s ease, box-shadow 0.16s ease; }
 .dispatch-lane:hover .dispatch-lane-cell { box-shadow: inset 0 0 0 1px rgba(15,23,42,0.04); }
