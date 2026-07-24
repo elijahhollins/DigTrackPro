@@ -283,6 +283,7 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
       const editBtnId = `map-edit-${ticket.id}`;
       const adjustBtnId = `map-adjust-${ticket.id}`;
       const dashboardBtnId = `map-dashboard-${ticket.id}`;
+      const directionsBtnId = `map-directions-${ticket.id}`;
 
       // Leaflet popups are rendered as raw HTML strings (not React JSX), so
       // inline styles are required here — Tailwind utility classes are not available
@@ -303,6 +304,7 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
             ${onEditTicket ? `<button id="${editBtnId}" style="padding:4px 10px;background:#475569;color:white;border:none;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer">Edit</button>` : ''}
             ${onPinMoved ? `<button id="${adjustBtnId}" style="padding:4px 10px;background:#7c3aed;color:white;border:none;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer">Adjust Pin</button>` : ''}
             ${onOpenInDashboard ? `<button id="${dashboardBtnId}" style="padding:4px 10px;background:#0ea5e9;color:white;border:none;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer">Open in Dashboard</button>` : ''}
+            <button id="${directionsBtnId}" style="padding:4px 10px;background:#16a34a;color:white;border:none;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer">Directions</button>
           </div>
         </div>
       `;
@@ -335,6 +337,21 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
             onOpenInDashboard(ticket);
           }, { once: true });
         }
+        // "Directions" opens the platform's maps app. Prefer the persisted geocoded
+        // coordinates; fall back to the street/city/state address when a ticket has
+        // not been geocoded yet. Both are universal https links, so mobile opens the
+        // native app (Apple Maps on iOS/iPadOS/Mac, Google Maps elsewhere).
+        document.getElementById(directionsBtnId)?.addEventListener('click', () => {
+          const destination = (ticket.lat != null && ticket.lng != null)
+            ? `${ticket.lat},${ticket.lng}`
+            : [ticket.street, ticket.city, ticket.state].filter(Boolean).join(', ');
+          const q = encodeURIComponent(destination);
+          const isApple = /iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent);
+          const url = isApple
+            ? `https://maps.apple.com/?daddr=${q}&dirflg=d`
+            : `https://www.google.com/maps/dir/?api=1&destination=${q}`;
+          window.open(url, '_blank', 'noopener,noreferrer');
+        }, { once: true });
       });
 
       marker.on('popupclose', () => {
