@@ -632,8 +632,12 @@ export const apiService = {
   },
 
   async deleteNoShow(ticketId: string): Promise<void> {
-    await supabase.from('no_shows').delete().eq('ticket_id', ticketId);
-    await supabase.from('tickets').update({ no_show_requested: false }).eq('id', ticketId);
+    // Surface failures instead of swallowing them — a silent RLS/permission
+    // error here previously left the alert un-clearable with no feedback.
+    const { error: delError } = await supabase.from('no_shows').delete().eq('ticket_id', ticketId);
+    if (delError) throw delError;
+    const { error: updError } = await supabase.from('tickets').update({ no_show_requested: false }).eq('id', ticketId);
+    if (updError) throw updError;
   },
 
   async getJobPrints(jobNumber: string): Promise<JobPrint[]> {
