@@ -16,6 +16,7 @@ import CalendarView from './components/CalendarView.tsx';
 import TeamManagement from './components/TeamManagement.tsx';
 import NoShowForm from './components/NoShowForm.tsx';
 import RefreshRequestForm from './components/RefreshRequestForm.tsx';
+import ConfirmDialog from './components/ConfirmDialog.tsx';
 import TicketNotesModal from './components/TicketNotesModal.tsx';
 import Login from './components/Login.tsx';
 import CompanyRegistration from './components/CompanyRegistration.tsx';
@@ -97,6 +98,7 @@ const App: React.FC = () => {
   const [noShowTicket, setNoShowTicket] = useState<DigTicket | null>(null);
   const [refreshTicket, setRefreshTicket] = useState<DigTicket | null>(null);
   const [notesTicket, setNotesTicket] = useState<DigTicket | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{ message: string; confirmLabel?: string; onConfirm: () => void | Promise<void> } | null>(null);
   const [digConfirmTicket, setDigConfirmTicket] = useState<DigTicket | null>(null);
   const [ticketMode, setTicketMode] = useState<'regular' | 'inbound' | 'equipment'>('regular');
   const [snoozedDigConfirmIds, setSnoozedDigConfirmIds] = useState<Set<string>>(new Set());
@@ -492,15 +494,25 @@ const App: React.FC = () => {
     if (company?.id === id) setCompany({ ...company, inventoryEnabled });
   };
 
-  const handleToggleArchive = async (ticket: DigTicket, e: React.MouseEvent) => {
+  const applyArchiveToggle = async (ticket: DigTicket, willArchive: boolean) => {
+    const updated = { ...ticket, isArchived: willArchive };
+    const saved = await apiService.saveTicket(updated);
+    setTickets(prev => prev.map(t => t.id === saved.id ? saved : t));
+  };
+
+  const handleToggleArchive = (ticket: DigTicket, e: React.MouseEvent) => {
     e.stopPropagation();
     const willArchive = !ticket.isArchived;
-    if (willArchive && !confirm(`Archive Ticket #${ticket.ticketNo}?`)) return;
-    try {
-      const updated = { ...ticket, isArchived: willArchive };
-      const saved = await apiService.saveTicket(updated);
-      setTickets(prev => prev.map(t => t.id === saved.id ? saved : t));
-    } catch (error: any) { alert("Archive failed: " + error.message); }
+    if (!willArchive) {
+      // Un-archiving needs no confirmation.
+      applyArchiveToggle(ticket, false).catch((error: any) => alert('Archive failed: ' + error.message));
+      return;
+    }
+    setConfirmDialog({
+      message: `Archive Ticket #${ticket.ticketNo}?`,
+      confirmLabel: 'Archive',
+      onConfirm: () => applyArchiveToggle(ticket, true),
+    });
   };
 
   const sendAdminNotification = (title: string, body: string) => {
@@ -542,17 +554,18 @@ const App: React.FC = () => {
     await apiService.testAlertEmail(firstEmail);
   };
 
-  const handleRefreshRequest = async (ticket: DigTicket, e: React.MouseEvent) => {
+  const handleRefreshRequest = (ticket: DigTicket, e: React.MouseEvent) => {
     e.stopPropagation();
     if (ticket.refreshRequested) {
-      // Already requested — clear it (no email, no form needed).
-      if (!confirm(`Clear the Refresh Request for Ticket #${ticket.ticketNo}?`)) return;
-      try {
-        const saved = await apiService.saveTicket({ ...ticket, refreshRequested: false });
-        setTickets(prev => prev.map(t => t.id === saved.id ? saved : t));
-      } catch (error: any) {
-        alert('Refresh request failed: ' + error.message);
-      }
+      // Already requested — confirm and clear it (no email, no form needed).
+      setConfirmDialog({
+        message: `Clear the Refresh Request for Ticket #${ticket.ticketNo}?`,
+        confirmLabel: 'Clear Refresh',
+        onConfirm: async () => {
+          const saved = await apiService.saveTicket({ ...ticket, refreshRequested: false });
+          setTickets(prev => prev.map(t => t.id === saved.id ? saved : t));
+        },
+      });
       return;
     }
     // New request — collect utility type and notes before sending the alert.
@@ -1309,6 +1322,7 @@ const App: React.FC = () => {
       {showMarkup && <JobPrintMarkup job={showMarkup} isAdmin={isAdmin} sessionUser={sessionUser} onClose={() => setShowMarkup(null)} isDarkMode={isDarkMode} />}
       {noShowTicket && <NoShowForm ticket={noShowTicket} userName={sessionUser?.name || ''} onSave={handleSaveNoShow} onDelete={async () => { await apiService.deleteNoShow(noShowTicket.id); initApp(); return true; }} onClose={() => setNoShowTicket(null)} isDarkMode={isDarkMode} />}
       {refreshTicket && <RefreshRequestForm ticket={refreshTicket} onSubmit={handleSubmitRefreshRequest} onClose={() => setRefreshTicket(null)} isDarkMode={isDarkMode} />}
+      {confirmDialog && <ConfirmDialog message={confirmDialog.message} confirmLabel={confirmDialog.confirmLabel} onConfirm={confirmDialog.onConfirm} onClose={() => setConfirmDialog(null)} isDarkMode={isDarkMode} />}
       {notesTicket && <TicketNotesModal ticket={notesTicket} userName={sessionUser?.name || ''} isAdmin={isAdmin} onClose={() => { setNotesTicket(null); apiService.getNotes().then(setNotes).catch((err) => console.error('Failed to refresh notes:', err)); }} isDarkMode={isDarkMode} />}
       {digConfirmTicket && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[200] flex items-center justify-center p-4">
