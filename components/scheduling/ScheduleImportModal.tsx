@@ -77,6 +77,9 @@ async function parseSpreadsheet(file: File): Promise<Record<string, unknown>[]> 
       try {
         const data = new Uint8Array(e.target!.result as ArrayBuffer);
         // cellDates lets real date cells come through as JS Date objects.
+        // Parses a user-supplied file with a version of SheetJS that has two
+        // open advisories (prototype pollution, ReDoS). Accepted risk — see the
+        // xlsx section of SECURITY.md before bumping or reworking this.
         const wb = XLSX.read(data, { type: 'array', cellDates: true });
         const ws = wb.Sheets[wb.SheetNames[0]];
         resolve(XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' }));

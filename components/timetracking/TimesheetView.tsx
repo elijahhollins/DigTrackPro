@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+// Export only — this file writes a workbook and never parses untrusted input,
+// so the open xlsx advisories noted in SECURITY.md do not apply here.
 import * as XLSX from 'xlsx';
 import { Download, Check, X, Trash2, Pencil } from 'lucide-react';
 import { User } from '../../types.ts';

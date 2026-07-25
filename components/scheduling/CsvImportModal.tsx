@@ -42,6 +42,9 @@ async function parseSpreadsheet(file: File): Promise<Record<string, unknown>[]> 
     reader.onload = e => {
       try {
         const data = new Uint8Array(e.target!.result as ArrayBuffer);
+        // Parses a user-supplied file with a version of SheetJS that has two
+        // open advisories (prototype pollution, ReDoS). Accepted risk — see the
+        // xlsx section of SECURITY.md before bumping or reworking this.
         const wb = XLSX.read(data, { type: 'array' });
         const ws = wb.Sheets[wb.SheetNames[0]];
         resolve(XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' }));
