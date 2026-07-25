@@ -1115,7 +1115,8 @@ export const apiService = {
     type: 'no_show' | 'refresh',
     ticket: DigTicket,
     actor: string,
-    adminEmails: string[]
+    adminEmails: string[],
+    options?: { utilities?: string[]; notes?: string }
   ): Promise<void> {
     if (adminEmails.length === 0) return;
     const { data, error } = await supabase.functions.invoke('send-alert-email', {
@@ -1128,6 +1129,8 @@ export const apiService = {
         state: ticket.state,
         expires: ticket.expires,
         actor,
+        utilities: options?.utilities,
+        notes: options?.notes,
         adminEmails,
       },
     });

@@ -17,6 +17,7 @@ const UTILITIES = ['All', 'Power', 'Gas', 'Telecom', 'City/Village', 'Private'];
 const NoShowForm: React.FC<NoShowFormProps> = ({ ticket, userName, onSave, onDelete, onClose, isDarkMode }) => {
   // Store selections as an object where key is utility and value is company name
   const [selections, setSelections] = useState<Record<string, string>>({});
+  const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [existingRecord, setExistingRecord] = useState<NoShowRecord | null>(null);
@@ -106,6 +107,7 @@ const NoShowForm: React.FC<NoShowFormProps> = ({ ticket, userName, onSave, onDel
         jobNumber: ticket.jobNumber,
         utilities: selectedKeys,
         companies: companiesInfo,
+        notes: notes.trim() || undefined,
         author: userName,
         timestamp: Date.now(),
       };
@@ -194,6 +196,13 @@ const NoShowForm: React.FC<NoShowFormProps> = ({ ticket, userName, onSave, onDel
                     </div>
                   )}
 
+                  {existingRecord.notes && (
+                    <div className="space-y-1 pt-1">
+                      <p className={`text-[9px] font-black uppercase tracking-tight ${isDarkMode ? 'text-slate-400' : 'text-slate-900'}`}>Notes</p>
+                      <p className={`text-[11px] font-bold italic ${isDarkMode ? 'text-slate-300' : 'text-slate-900'}`}>"{existingRecord.notes}"</p>
+                    </div>
+                  )}
+
                   <div className={`pt-2 border-t flex items-center justify-between ${isDarkMode ? 'border-rose-500/10' : 'border-rose-200'}`}>
                      <p className={`text-[9px] font-bold uppercase ${isDarkMode ? 'text-slate-400' : 'text-slate-950'}`}>Logged By: <span className="font-black text-rose-600">{existingRecord.author}</span></p>
                   </div>
@@ -261,6 +270,17 @@ const NoShowForm: React.FC<NoShowFormProps> = ({ ticket, userName, onSave, onDel
                   );
                 })}
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <p className={`text-[10px] font-black uppercase tracking-widest ${isDarkMode ? 'text-slate-400' : 'text-slate-950'}`}>Notes <span className="opacity-50">(optional)</span></p>
+              <textarea
+                rows={3}
+                placeholder="Add any details for the admin (access issues, contractor info, etc.)..."
+                className={`w-full px-4 py-2.5 border rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-rose-500/10 transition-all resize-none ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder:text-slate-600' : 'bg-slate-50 border-slate-300 text-slate-900 placeholder:text-slate-500'}`}
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+              />
             </div>
 
             <div className="pt-2">

@@ -15,6 +15,7 @@ import PhotoManager from './components/PhotoManager.tsx';
 import CalendarView from './components/CalendarView.tsx';
 import TeamManagement from './components/TeamManagement.tsx';
 import NoShowForm from './components/NoShowForm.tsx';
+import RefreshRequestForm from './components/RefreshRequestForm.tsx';
 import TicketNotesModal from './components/TicketNotesModal.tsx';
 import Login from './components/Login.tsx';
 import CompanyRegistration from './components/CompanyRegistration.tsx';
@@ -94,6 +95,7 @@ const App: React.FC = () => {
   // Bumped whenever the Job form closes so the Job Hub re-reads cost-code assignments.
   const [jobFormVersion, setJobFormVersion] = useState(0);
   const [noShowTicket, setNoShowTicket] = useState<DigTicket | null>(null);
+  const [refreshTicket, setRefreshTicket] = useState<DigTicket | null>(null);
   const [notesTicket, setNotesTicket] = useState<DigTicket | null>(null);
   const [digConfirmTicket, setDigConfirmTicket] = useState<DigTicket | null>(null);
   const [ticketMode, setTicketMode] = useState<'regular' | 'inbound' | 'equipment'>('regular');
@@ -515,7 +517,7 @@ const App: React.FC = () => {
     } else if (ticket) {
       const adminEmails = await apiService.getAlertEmails(sessionUser.companyId);
       if (adminEmails.length > 0) {
-        apiService.sendAlertEmail('no_show', ticket, record.author, adminEmails).catch(err => console.warn('Email alert failed:', err));
+        apiService.sendAlertEmail('no_show', ticket, record.author, adminEmails, { utilities: record.utilities, notes: record.notes }).catch(err => console.warn('Email alert failed:', err));
       }
     }
     initApp();
@@ -543,22 +545,38 @@ const App: React.FC = () => {
   const handleRefreshRequest = async (ticket: DigTicket, e: React.MouseEvent) => {
     e.stopPropagation();
     if (ticket.refreshRequested) {
+      // Already requested — clear it (no email, no form needed).
       if (!confirm(`Clear the Refresh Request for Ticket #${ticket.ticketNo}?`)) return;
+      try {
+        const saved = await apiService.saveTicket({ ...ticket, refreshRequested: false });
+        setTickets(prev => prev.map(t => t.id === saved.id ? saved : t));
+      } catch (error: any) {
+        alert('Refresh request failed: ' + error.message);
+      }
+      return;
     }
+    // New request — collect utility type and notes before sending the alert.
+    setRefreshTicket(ticket);
+  };
+
+  const handleSubmitRefreshRequest = async (utilities: string[], notes: string) => {
+    if (!refreshTicket) return;
+    const ticket = refreshTicket;
     try {
-      const updated = { ...ticket, refreshRequested: !ticket.refreshRequested };
-      const saved = await apiService.saveTicket(updated);
+      const saved = await apiService.saveTicket({ ...ticket, refreshRequested: true });
       setTickets(prev => prev.map(t => t.id === saved.id ? saved : t));
-      if (!ticket.refreshRequested) {
-        if (!sessionUser?.companyId) {
-          console.warn('Email alert skipped: no company ID on session user');
-        } else {
-          const adminEmails = await apiService.getAlertEmails(sessionUser.companyId);
-          if (adminEmails.length > 0) {
-            apiService.sendAlertEmail('refresh', ticket, sessionUser?.name || '', adminEmails).catch(err => console.warn('Email alert failed:', err));
-          }
+      if (!sessionUser?.companyId) {
+        console.warn('Email alert skipped: no company ID on session user');
+      } else {
+        const adminEmails = await apiService.getAlertEmails(sessionUser.companyId);
+        if (adminEmails.length > 0) {
+          apiService.sendAlertEmail('refresh', ticket, sessionUser?.name || '', adminEmails, {
+            utilities: utilities.length > 0 ? utilities : undefined,
+            notes: notes.trim() || undefined,
+          }).catch(err => console.warn('Email alert failed:', err));
         }
       }
+      setRefreshTicket(null);
     } catch (error: any) {
       alert('Refresh request failed: ' + error.message);
     }
@@ -1290,6 +1308,7 @@ const App: React.FC = () => {
       {selectedJobSummary && <JobSummaryModal job={selectedJobSummary} onClose={() => setSelectedJobSummary(null)} onEdit={() => { setEditingJob(selectedJobSummary); setShowJobForm(true); setSelectedJobSummary(null); }} onDelete={() => { apiService.deleteJob(selectedJobSummary.id).then(() => initApp()); setSelectedJobSummary(null); }} onToggleComplete={async () => { await apiService.saveJob({ ...selectedJobSummary, isComplete: !selectedJobSummary.isComplete }); initApp(); }} onViewMedia={() => { setMediaFolderFilter(selectedJobSummary.jobNumber); handleNavigate('photos'); }} onViewMarkup={() => { setShowMarkup(selectedJobSummary); setSelectedJobSummary(null); }} isDarkMode={isDarkMode} />}
       {showMarkup && <JobPrintMarkup job={showMarkup} isAdmin={isAdmin} sessionUser={sessionUser} onClose={() => setShowMarkup(null)} isDarkMode={isDarkMode} />}
       {noShowTicket && <NoShowForm ticket={noShowTicket} userName={sessionUser?.name || ''} onSave={handleSaveNoShow} onDelete={async () => { await apiService.deleteNoShow(noShowTicket.id); initApp(); return true; }} onClose={() => setNoShowTicket(null)} isDarkMode={isDarkMode} />}
+      {refreshTicket && <RefreshRequestForm ticket={refreshTicket} onSubmit={handleSubmitRefreshRequest} onClose={() => setRefreshTicket(null)} isDarkMode={isDarkMode} />}
       {notesTicket && <TicketNotesModal ticket={notesTicket} userName={sessionUser?.name || ''} isAdmin={isAdmin} onClose={() => { setNotesTicket(null); apiService.getNotes().then(setNotes).catch((err) => console.error('Failed to refresh notes:', err)); }} isDarkMode={isDarkMode} />}
       {digConfirmTicket && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[200] flex items-center justify-center p-4">
