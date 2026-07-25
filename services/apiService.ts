@@ -176,9 +176,10 @@ create table if not exists no_shows (
     company_id uuid references companies(id) not null,
     ticket_id uuid references tickets(id) on delete cascade, 
     job_number text, 
-    utilities text[], 
-    companies text, 
-    author text, 
+    utilities text[],
+    companies text,
+    notes text,
+    author text,
     timestamp bigint
 );
 
@@ -616,11 +617,16 @@ export const apiService = {
   async getNoShows(): Promise<NoShowRecord[]> {
     const { data, error } = await supabase.from('no_shows').select('*');
     if (error) return [];
-    return (data || []).map(n => ({ id: n.id, ticketId: n.ticket_id, companyId: n.company_id, jobNumber: n.job_number, utilities: n.utilities || [], companies: n.companies || '', author: n.author || '', timestamp: Number(n.timestamp) }));
+    return (data || []).map(n => ({ id: n.id, ticketId: n.ticket_id, companyId: n.company_id, jobNumber: n.job_number, utilities: n.utilities || [], companies: n.companies || '', notes: n.notes || undefined, author: n.author || '', timestamp: Number(n.timestamp) }));
   },
 
   async addNoShow(noShow: NoShowRecord): Promise<void> {
-    const { error } = await supabase.from('no_shows').insert([{ id: noShow.id, company_id: noShow.companyId, ticket_id: noShow.ticketId, job_number: noShow.jobNumber, utilities: noShow.utilities, companies: noShow.companies, author: noShow.author, timestamp: noShow.timestamp }]);
+    const baseRow = { id: noShow.id, company_id: noShow.companyId, ticket_id: noShow.ticketId, job_number: noShow.jobNumber, utilities: noShow.utilities, companies: noShow.companies, author: noShow.author, timestamp: noShow.timestamp };
+    let { error } = await supabase.from('no_shows').insert([{ ...baseRow, notes: noShow.notes ?? null }]);
+    // Gracefully degrade if the `notes` column hasn't been migrated yet.
+    if (error && /notes/i.test(error.message) && (error.code === 'PGRST204' || /column/i.test(error.message))) {
+      ({ error } = await supabase.from('no_shows').insert([baseRow]));
+    }
     if (error) throw error;
     await supabase.from('tickets').update({ no_show_requested: true }).eq('id', noShow.ticketId);
   },
