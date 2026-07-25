@@ -219,6 +219,7 @@ export interface NoShowRecord {
   jobNumber: string;
   utilities: string[];
   companies: string;
+  notes?: string;
   author: string;
   timestamp: number;
 }

@@ -18,6 +18,8 @@ interface AlertPayload {
   state?: string;
   expires?: string;
   actor: string;
+  utilities?: string[];
+  notes?: string;
   adminEmails: string[];
 }
 
@@ -28,7 +30,7 @@ Deno.serve(async (req) => {
 
   try {
     const payload: AlertPayload = await req.json();
-    const { type, ticketNo, jobNumber, street, city, state, expires, actor, adminEmails } = payload;
+    const { type, ticketNo, jobNumber, street, city, state, expires, actor, utilities, notes, adminEmails } = payload;
 
     const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
     const FROM_EMAIL = Deno.env.get('RESEND_FROM_EMAIL');
@@ -63,6 +65,18 @@ Deno.serve(async (req) => {
 
     const locationParts = [street, city, state].filter(Boolean).join(', ');
 
+    // Escape any user-supplied text before interpolating into the HTML email.
+    const escapeHtml = (value: string) =>
+      value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+    const utilitiesLabel = (utilities ?? []).filter(Boolean).map(escapeHtml).join(', ');
+    const notesText = (notes ?? '').trim();
+
     const htmlBody = `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -86,6 +100,10 @@ Deno.serve(async (req) => {
           <td style="padding:10px 0;border-bottom:1px solid #f1f5f9;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.12em;color:#94a3b8;">Job #</td>
           <td style="padding:10px 0;border-bottom:1px solid #f1f5f9;font-size:13px;font-weight:700;color:#0f172a;font-family:monospace;">${jobNumber}</td>
         </tr>
+        ${utilitiesLabel ? `<tr>
+          <td style="padding:10px 0;border-bottom:1px solid #f1f5f9;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.12em;color:#94a3b8;">Utility Type</td>
+          <td style="padding:10px 0;border-bottom:1px solid #f1f5f9;font-size:13px;font-weight:700;color:#0f172a;">${utilitiesLabel}</td>
+        </tr>` : ''}
         <tr>
           <td style="padding:10px 0;border-bottom:1px solid #f1f5f9;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.12em;color:#94a3b8;">Location</td>
           <td style="padding:10px 0;border-bottom:1px solid #f1f5f9;font-size:13px;font-weight:600;color:#334155;">${locationParts || '—'}</td>
@@ -95,6 +113,10 @@ Deno.serve(async (req) => {
           <td style="padding:10px 0;font-size:13px;font-weight:600;color:#334155;">${expires}</td>
         </tr>` : ''}
       </table>
+      ${notesText ? `<div style="margin-top:24px;padding:16px;background:#fffbeb;border-radius:8px;border:1px solid #fde68a;">
+        <p style="margin:0 0 6px;font-size:10px;color:#b45309;font-weight:800;text-transform:uppercase;letter-spacing:0.1em;">Notes</p>
+        <p style="margin:0;font-size:13px;line-height:1.5;color:#334155;white-space:pre-wrap;">${escapeHtml(notesText)}</p>
+      </div>` : ''}
       <div style="margin-top:24px;padding:14px 16px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
         <p style="margin:0;font-size:10px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;">
           Log in to DigTrack Pro to view the full ticket and take action.
