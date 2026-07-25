@@ -20,6 +20,8 @@ const NoShowForm: React.FC<NoShowFormProps> = ({ ticket, userName, onSave, onDel
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [confirmingClear, setConfirmingClear] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
   const [existingRecord, setExistingRecord] = useState<NoShowRecord | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -121,15 +123,14 @@ const NoShowForm: React.FC<NoShowFormProps> = ({ ticket, userName, onSave, onDel
     }
   };
 
+  // Runs the actual clear after in-modal confirmation. We deliberately avoid
+  // window.confirm/alert here: in sandboxed contexts (e.g. a Vercel preview
+  // iframe) those are suppressed and the click would silently do nothing.
   const handleClearNoShow = async () => {
     if (!onDelete) return;
-    
-    // Explicit confirmation as requested by user
-    if (!window.confirm(`Clear the No Show alert for Ticket #${ticket.ticketNo}? This incident will be resolved and archived.`)) {
-      return;
-    }
 
     setIsDeleting(true);
+    setClearError(null);
     try {
       // Calling onDelete (handleRemoveNoShow in App.tsx)
       const success = await onDelete();
@@ -137,7 +138,7 @@ const NoShowForm: React.FC<NoShowFormProps> = ({ ticket, userName, onSave, onDel
         onClose();
       }
     } catch (err: any) {
-      alert("Error clearing no-show: " + err.message);
+      setClearError(err?.message || 'Failed to clear the no-show. Please try again.');
     } finally {
       setIsDeleting(false);
     }
@@ -210,19 +211,47 @@ const NoShowForm: React.FC<NoShowFormProps> = ({ ticket, userName, onSave, onDel
             </div>
 
             <div className="space-y-3">
-               <button
-                  type="button"
-                  disabled={isDeleting}
-                  onClick={handleClearNoShow}
-                  className="w-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 py-3.5 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-xl transition-all active:scale-[0.98] hover:bg-emerald-600 hover:text-white dark:hover:bg-emerald-600 flex items-center justify-center gap-2"
-                >
-                  {isDeleting ? (
-                    <>
-                      <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                      Clearing...
-                    </>
-                  ) : 'Clear No Show Alert'}
-                </button>
+               {!confirmingClear ? (
+                 <button
+                    type="button"
+                    onClick={() => { setClearError(null); setConfirmingClear(true); }}
+                    className="w-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 py-3.5 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-xl transition-all active:scale-[0.98] hover:bg-emerald-600 hover:text-white dark:hover:bg-emerald-600 flex items-center justify-center gap-2"
+                  >
+                    Clear No Show Alert
+                  </button>
+               ) : (
+                 <div className="space-y-3">
+                    <p className={`text-[10px] font-bold text-center px-2 ${isDarkMode ? 'text-slate-300' : 'text-slate-900'}`}>
+                      Clear the No Show alert for Ticket #{ticket.ticketNo}? This incident will be resolved and archived.
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        disabled={isDeleting}
+                        onClick={() => setConfirmingClear(false)}
+                        className={`flex-1 py-3.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all active:scale-[0.98] disabled:opacity-50 ${isDarkMode ? 'bg-white/5 text-slate-300 hover:bg-white/10' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isDeleting}
+                        onClick={handleClearNoShow}
+                        className="flex-1 bg-emerald-600 text-white py-3.5 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-emerald-600/20 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
+                      >
+                        {isDeleting ? (
+                          <>
+                            <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                            Clearing...
+                          </>
+                        ) : 'Confirm Clear'}
+                      </button>
+                    </div>
+                 </div>
+               )}
+                {clearError && (
+                  <p className="text-[10px] font-bold text-center px-2 text-rose-500">{clearError}</p>
+                )}
                 <p className={`text-[9px] font-bold uppercase tracking-tighter text-center px-4 ${isDarkMode ? 'text-slate-400' : 'text-slate-950'}`}>Clicking clear will resolve the status and archive this specific incident log from the vault.</p>
             </div>
           </div>
