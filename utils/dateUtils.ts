@@ -48,6 +48,19 @@ export const formatDateStr = (dateStr: string): string => {
 };
 
 /**
+ * The date a ticket must be dug by: the explicit `digByDate` when the ticket
+ * carries one, otherwise call-in + 10 days.
+ *
+ * Everything that reasons about the dig-by deadline — the expiry rule below,
+ * the dashboard's "Dig By" column and the day-9 dig-check prompt — must use
+ * this helper. They previously derived it three slightly different ways
+ * (call-in + 10 vs. work-date + 9), so the prompt could fire a day after the
+ * ticket was already treated as expired.
+ */
+export const getDigByDate = (ticket: Pick<DigTicket, 'digByDate' | 'callInDate'>): string =>
+  ticket.digByDate || (ticket.callInDate ? addDaysToDateStr(ticket.callInDate, 10) : '');
+
+/**
  * Calculates the current status of a ticket based on dates and manual request flags.
  *
  * Expiration rules:
@@ -70,7 +83,7 @@ export const getTicketStatus = (ticket: DigTicket): TicketStatus => {
 
   // Dig-by-date check: expires at dig_by_date (explicit or callInDate + 10) if user explicitly answered no to work begun
   if (ticket.workBegun === false) {
-    const digByDateStr = ticket.digByDate || (ticket.callInDate ? addDaysToDateStr(ticket.callInDate, 10) : '');
+    const digByDateStr = getDigByDate(ticket);
     if (digByDateStr) {
       const digByDate = parseDateLocal(digByDateStr, true);
       if (now > digByDate) return TicketStatus.EXPIRED;

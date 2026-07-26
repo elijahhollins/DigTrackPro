@@ -1,7 +1,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Employee, Equipment, Material, ServiceJob, WorkLog, InvoiceSettings } from '../../services/schedulingTypes.ts';
-import { CostTotals, employeeName, equipmentName, resolveUnitPrice } from './costUtils.ts';
+import { CostTotals, employeeName, equipmentName, num, resolveUnitPrice } from './costUtils.ts';
 
 type RGB = [number, number, number];
 
@@ -108,14 +108,22 @@ export function generateInvoicePdf(args: InvoicePdfArgs): void {
     }
     cursorY += 12;
 
+    // Line items come from a JSONB blob, so coerce every number — a missing
+    // `rate` used to throw ("cannot read properties of undefined") and abort
+    // the whole PDF export.
     const rows: (string | number)[][] = [];
-    log.data.employees.forEach(e =>
-      rows.push([`Labor — ${employeeName(e.employeeId, employees)}`, `${e.hours}h`, `$${e.rate.toFixed(2)}`, `$${(e.hours * e.rate).toFixed(2)}`]));
-    log.data.equipment.forEach(e =>
-      rows.push([`Equipment — ${equipmentName(e.equipmentId, equipment)}`, `${e.hours}h`, `$${e.rate.toFixed(2)}`, `$${(e.hours * e.rate).toFixed(2)}`]));
-    log.data.materials.forEach(m => {
+    (log.data?.employees ?? []).forEach(e => {
+      const hours = num(e.hours), rate = num(e.rate);
+      rows.push([`Labor — ${employeeName(e.employeeId, employees)}`, `${hours}h`, `$${rate.toFixed(2)}`, `$${(hours * rate).toFixed(2)}`]);
+    });
+    (log.data?.equipment ?? []).forEach(e => {
+      const hours = num(e.hours), rate = num(e.rate);
+      rows.push([`Equipment — ${equipmentName(e.equipmentId, equipment)}`, `${hours}h`, `$${rate.toFixed(2)}`, `$${(hours * rate).toFixed(2)}`]);
+    });
+    (log.data?.materials ?? []).forEach(m => {
       const price = resolveUnitPrice(m, materials);
-      rows.push([`Material — ${m.name}`, `${m.quantity}`, `$${price.toFixed(2)}`, `$${(m.quantity * price).toFixed(2)}`]);
+      const qty = num(m.quantity);
+      rows.push([`Material — ${m.name}`, `${qty}`, `$${price.toFixed(2)}`, `$${(qty * price).toFixed(2)}`]);
     });
     if (rows.length === 0) rows.push(['No items recorded', '', '', '']);
 

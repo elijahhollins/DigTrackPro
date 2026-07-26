@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { DigTicket, JobNote } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
+import { useModalDismiss } from '../utils/useModalDismiss.ts';
 
 interface TicketNotesModalProps {
   ticket: DigTicket;
@@ -12,6 +13,7 @@ interface TicketNotesModalProps {
 }
 
 const TicketNotesModal: React.FC<TicketNotesModalProps> = ({ ticket, userName, isAdmin, onClose, isDarkMode }) => {
+  const backdropRef = useModalDismiss<HTMLDivElement>(onClose);
   const [notes, setNotes] = useState<JobNote[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [newNoteText, setNewNoteText] = useState('');
@@ -72,7 +74,7 @@ const TicketNotesModal: React.FC<TicketNotesModalProps> = ({ ticket, userName, i
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[180] flex justify-center items-center p-4">
+    <div ref={backdropRef} className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[180] flex justify-center items-center p-4">
       <div className={`w-full max-w-md rounded-2xl shadow-2xl overflow-hidden border flex flex-col animate-in ${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white border-slate-200'}`} style={{ maxHeight: '85vh' }}>
 
         {/* Header */}

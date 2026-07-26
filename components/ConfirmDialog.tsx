@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useModalDismiss } from '../utils/useModalDismiss.ts';
 
 interface ConfirmDialogProps {
   message: string;
@@ -16,6 +17,8 @@ interface ConfirmDialogProps {
 const ConfirmDialog: React.FC<ConfirmDialogProps> = ({ message, confirmLabel = 'Confirm', cancelLabel = 'Cancel', onConfirm, onClose, isDarkMode }) => {
   const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Escape / backdrop click cancel the dialog, but not while the action runs.
+  const backdropRef = useModalDismiss<HTMLDivElement>(onClose, !isBusy);
 
   const handleConfirm = async () => {
     setIsBusy(true);
@@ -31,7 +34,7 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({ message, confirmLabel = '
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[190] flex justify-center items-center p-4">
+    <div ref={backdropRef} className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[190] flex justify-center items-center p-4">
       <div className={`w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden border animate-in ${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white border-slate-200'}`}>
         <div className="p-6 space-y-5">
           <p className={`text-[13px] font-bold text-center ${isDarkMode ? 'text-slate-200' : 'text-slate-900'}`}>{message}</p>

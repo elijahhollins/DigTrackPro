@@ -3,11 +3,44 @@
 Vite + React + Supabase SPA. No test suite; verification is driving the app in
 a browser. `npm run lint` is `tsc --noEmit`.
 
-## Full app
+## Full app (no backend) — `test-harness/`
+
+`test-harness/vite.config.ts` aliases `lib/supabaseClient.ts` to an in-memory
+fake Supabase (`test-harness/mockSupabase.ts`) seeded from `test-harness/seed.ts`,
+so **every view and every service runs its real code** against fixture data —
+only the network is replaced. Use this to drive the whole app:
+
+```bash
+npx vite --config test-harness/vite.config.ts   # port 5200, strict
+# open http://localhost:5200/
+```
+
+The fake covers the slice of Supabase the app uses: `from()` with
+select/insert/upsert/update/delete + eq/neq/in/is/gte/lte/gt/lt/ilike/contains/
+match/order/limit/single/maybeSingle, `auth`, `storage`, `rpc`, `functions.invoke`
+and `channel()`. `window.__harness.db` exposes the tables, so Playwright can
+assert on writes:
+
+```js
+await page.evaluate(() => window.__harness.db.tickets.filter(t => t.refresh_requested));
+```
+
+The seed spans every ticket status (valid / expiring / refresh-requested /
+expired / pending / no-show / archived / completed-job), all four optional
+modules, and deliberately includes one legacy work-log row missing `rate` to
+keep the NaN guards honest. The session signs in as an ADMIN automatically.
+
+Gotchas when driving it:
+- Both the sidebar and the mobile bottom bar are `<nav>`; scope to
+  `aside button` / `nav button:visible` or you'll click a hidden element.
+- The day-9 dig-check modal covers the dashboard on load — dismiss it with the
+  "Save All for Later" button first.
+- Clicking a job number opens the Job Summary; clicking elsewhere in the row
+  expands the group.
 
 The real app needs Supabase credentials (`VITE_SUPABASE_URL` /
-`VITE_SUPABASE_ANON_KEY` via `.env`); without them, verify components through a
-mock harness instead (below).
+`VITE_SUPABASE_ANON_KEY` via `.env`); prefer the harness over pointing a dev
+server at the production project.
 
 ## PdfMarkupEditor harness (no backend needed)
 

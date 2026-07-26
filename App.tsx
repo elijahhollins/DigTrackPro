@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, JobNote, User, UserRole, Job, UserRecord, Company, NoShowRecord } from './types.ts';
-import { getTicketStatus, getStatusColor, addDaysToDateStr, formatDateStr } from './utils/dateUtils.ts';
+import { getTicketStatus, getStatusColor, addDaysToDateStr, formatDateStr, getDigByDate } from './utils/dateUtils.ts';
+import { useModalDismiss } from './utils/useModalDismiss.ts';
 import { apiService } from './services/apiService.ts';
 import { supabase, isSupabaseConfigured } from './lib/supabaseClient.ts';
 import type { AuthChangeEvent } from '@supabase/supabase-js';
@@ -17,6 +18,7 @@ import TeamManagement from './components/TeamManagement.tsx';
 import NoShowForm from './components/NoShowForm.tsx';
 import RefreshRequestForm from './components/RefreshRequestForm.tsx';
 import ConfirmDialog from './components/ConfirmDialog.tsx';
+import ErrorBoundary from './components/ErrorBoundary.tsx';
 import TicketNotesModal from './components/TicketNotesModal.tsx';
 import Login from './components/Login.tsx';
 import CompanyRegistration from './components/CompanyRegistration.tsx';
@@ -109,6 +111,9 @@ const App: React.FC = () => {
     field: 'createdAt',
     order: 'desc'
   });
+
+  // Escape / backdrop click close the full-screen document viewer.
+  const docViewerRef = useModalDismiss<HTMLDivElement>(() => setViewingDocUrl(null), !!viewingDocUrl);
 
   const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
   const [highlightedTicketId, setHighlightedTicketId] = useState<string | null>(null);
@@ -347,7 +352,7 @@ const App: React.FC = () => {
     return tickets.filter(t => {
       if (t.isArchived || t.workBegun !== undefined) return false;
       if (snoozedDigConfirmIds.has(t.id)) return false;
-      const digByDateStr = t.digByDate || (t.workDate ? addDaysToDateStr(t.workDate, 9) : '');
+      const digByDateStr = getDigByDate(t);
       if (!digByDateStr) return false;
       const oneDayBeforeStr = addDaysToDateStr(digByDateStr, -1);
       if (!oneDayBeforeStr) return false;
@@ -527,9 +532,18 @@ const App: React.FC = () => {
   };
 
   const sendAdminNotification = (title: string, body: string) => {
-    if (Notification.permission === 'granted') {
-      new Notification(title, { body, icon: '/favicon.ico' });
-    }
+    // `Notification` is absent on some mobile browsers, and Chrome on Android
+    // throws "Illegal constructor" for `new Notification()` — notifications
+    // there must go through the service worker registration. Both cases used to
+    // throw out of the realtime handler and kill the subscription.
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    const options: NotificationOptions = { body, icon: '/favicon.ico' };
+    navigator.serviceWorker?.getRegistration()
+      .then(reg => {
+        if (reg) return reg.showNotification(title, options);
+        new Notification(title, options);
+      })
+      .catch(err => console.warn('Notification failed:', err));
   };
 
   const handleSaveNoShow = async (record: NoShowRecord) => {
@@ -930,6 +944,7 @@ const App: React.FC = () => {
         {/* Scrollable content */}
         <main key={activeView} className="flex-1 overflow-y-auto view-transition pb-20 sm:pb-0">
           <div className="max-w-[1400px] mx-auto px-5 py-6">
+            <ErrorBoundary label={NAV_ITEMS.find(n => n.id === activeView)?.label} resetKey={activeView}>
 
             {activeView === 'dashboard' && (
               <div className="space-y-6">
@@ -1005,7 +1020,7 @@ const App: React.FC = () => {
                           <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] text-right ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Dig By</th>
                           <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] text-center ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Dig Begun?</th>
                           <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] text-right ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Expiry</th>
-                          <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] text-right ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Actions</th>
+                          <th className={`px-5 py-4 text-[9px] font-black uppercase tracking-[0.18em] text-right sticky right-0 z-10 border-l sm:border-l-0 ${isDarkMode ? 'text-slate-600 bg-[#0b1629] border-white/[0.06] sm:bg-transparent' : 'text-slate-400 bg-slate-50 border-slate-100 sm:bg-transparent'}`}>Actions</th>
                         </tr>
                       </thead>
                       <tbody className={`divide-y ${isDarkMode ? 'divide-white/[0.03]' : 'divide-slate-50'}`}>
@@ -1053,9 +1068,19 @@ const App: React.FC = () => {
                                 <td className="px-5 py-4" />
                                 <td className="px-5 py-4" />
 
-                                <td className="px-5 py-4 text-right">
+                                <td className={`px-5 py-4 text-right sticky right-0 z-10 border-l sm:border-l-0 ${isDarkMode ? 'bg-[#0b1629] border-white/[0.06] sm:bg-transparent' : 'bg-white border-slate-100 sm:bg-transparent'}`}>
                                   {isAdmin && (
-                                    <button onClick={(e) => { e.stopPropagation(); jobEntity && apiService.deleteJob(jobEntity.id).then(() => initApp()); }} className="p-1.5 text-slate-600 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all rounded-lg hover:bg-rose-500/10">
+                                    <button onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (!jobEntity) return;
+                                      // Deleting a job used to fire on the first click with no
+                                      // confirmation — one stray tap wiped the whole project.
+                                      setConfirmDialog({
+                                        message: `Delete job #${jobEntity.jobNumber} and remove it from the dashboard? This cannot be undone.`,
+                                        confirmLabel: 'Delete Job',
+                                        onConfirm: async () => { await apiService.deleteJob(jobEntity.id); await initApp(); },
+                                      });
+                                    }} className="p-1.5 text-slate-600 hover:text-rose-500 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all rounded-lg hover:bg-rose-500/10">
                                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                                     </button>
                                   )}
@@ -1089,11 +1114,11 @@ const App: React.FC = () => {
                                     </td>
                                     <td className="px-5 py-3 text-center">
                                       <span className={`inline-flex px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest border ${ticket.isArchived ? isDarkMode ? 'bg-white/5 text-slate-600 border-white/10' : 'bg-slate-100 text-slate-400 border-slate-200' : getStatusColor(status)}`}>
-                                        {ticket.isArchived ? 'ARCHIVED' : status}
+                                        {ticket.isArchived ? 'ARCHIVED' : status.replace(/_/g, ' ')}
                                       </span>
                                     </td>
                                     <td className={`px-5 py-3 text-[11px] font-semibold text-right tabular-nums ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`}>
-                                      {(ticket.callInDate || ticket.digByDate) ? formatDateStr(ticket.digByDate || addDaysToDateStr(ticket.callInDate, 10)) : <span className={`text-[10px] ${isDarkMode ? 'text-slate-700' : 'text-slate-400'}`}>—</span>}
+                                      {getDigByDate(ticket) ? formatDateStr(getDigByDate(ticket)) : <span className={`text-[10px] ${isDarkMode ? 'text-slate-700' : 'text-slate-400'}`}>—</span>}
                                     </td>
                                     <td className="px-5 py-3 text-center">
                                       {ticket.workBegun === true ? (
@@ -1113,8 +1138,11 @@ const App: React.FC = () => {
                                     <td className={`px-5 py-3 text-[11px] font-semibold text-right tabular-nums ${isDarkMode ? 'text-slate-600' : 'text-slate-500'}`}>
                                       {formatDateStr(ticket.expires)}
                                     </td>
-                                    <td className="px-5 py-3 text-right">
-                                      <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                                    {/* Sticky so the crew actions stay on screen while the wide
+                                        table is scrolled sideways on a phone, and always visible
+                                        on touch devices (which never fire :hover). */}
+                                    <td className={`px-5 py-3 text-right sticky right-0 z-10 border-l sm:border-l-0 ${isDarkMode ? 'bg-[#0b1629] border-white/[0.06] sm:bg-transparent' : 'bg-white border-slate-100 sm:bg-transparent'}`}>
+                                      <div className="flex items-center justify-end gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all">
                                         <button onClick={(e) => { e.stopPropagation(); setNotesTicket(ticket); }} className={`p-1.5 rounded-lg transition-all ${isDarkMode ? 'text-slate-500 hover:text-brand hover:bg-brand/10' : 'text-slate-400 hover:text-brand hover:bg-brand/10'}`} title="Notes">
                                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 8h10M7 12h6m-6 4h10M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z" /></svg>
                                         </button>
@@ -1137,7 +1165,7 @@ const App: React.FC = () => {
                         })}
                         {groupedTicketsMap.size === 0 && (
                           <tr>
-                            <td colSpan={6} className="py-20 text-center">
+                            <td colSpan={8} className="py-20 text-center">
                               <div className="flex flex-col items-center gap-3">
                                 <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${isDarkMode ? 'bg-white/[0.03] border border-white/[0.05]' : 'bg-slate-100'}`}>
                                   <svg className="w-7 h-7 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
@@ -1256,6 +1284,7 @@ const App: React.FC = () => {
             {activeView === 'schedule' && isSchedulingEnabled && <SchedulingView sessionUser={sessionUser} jobs={jobs} companyName={company?.name} isDarkMode={isDarkMode} />}
             {activeView === 'timetracking' && isTimeTrackingEnabled && <TimeTrackingView sessionUser={sessionUser} jobs={jobs} companyName={company?.name} company={company || undefined} isDarkMode={isDarkMode} />}
             {activeView === 'inventory' && isInventoryEnabled && <InventoryView sessionUser={sessionUser} users={users} jobs={jobs} isDarkMode={isDarkMode} isAdmin={isAdmin} />}
+            </ErrorBoundary>
           </div>
         </main>
       </div>
@@ -1350,7 +1379,7 @@ const App: React.FC = () => {
             <div className={`text-xs font-semibold leading-relaxed ${isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>
               <p>{digConfirmTicket.street}{digConfirmTicket.crossStreet ? ` @ ${digConfirmTicket.crossStreet}` : ''}</p>
               <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                Called in: {digConfirmTicket.callInDate} · Dig by: {formatDateStr(digConfirmTicket.digByDate || addDaysToDateStr(digConfirmTicket.callInDate || '', 10))}
+                Called in: {digConfirmTicket.callInDate} · Dig by: {formatDateStr(getDigByDate(digConfirmTicket))}
               </p>
               <p className="mt-3 font-bold text-sm">Has work begun on this ticket?</p>
               <p className="mt-1 text-[10px] text-slate-400">If no, this ticket will be marked expired. If yes, it remains valid until the expiration date.</p>
@@ -1389,7 +1418,7 @@ const App: React.FC = () => {
         </div>
       )}
       {viewingDocUrl && (
-        <div className="fixed inset-0 bg-black/95 z-[1000] flex flex-col items-center justify-center p-4">
+        <div ref={docViewerRef} className="fixed inset-0 bg-black/95 z-[1000] flex flex-col items-center justify-center p-4">
           <div className="w-full max-w-5xl flex flex-col h-[90vh]">
             <div className="flex justify-end pb-2 shrink-0">
               <button onClick={() => setViewingDocUrl(null)} className="p-2.5 bg-rose-600 text-white rounded-xl hover:bg-rose-500 hover:scale-105 transition-all active:scale-95 min-w-[44px] min-h-[44px] flex items-center justify-center" title="Close">

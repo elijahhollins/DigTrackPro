@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { DigTicket } from '../types.ts';
+import { useModalDismiss } from '../utils/useModalDismiss.ts';
 
 interface RefreshRequestFormProps {
   ticket: DigTicket;
@@ -11,6 +12,7 @@ interface RefreshRequestFormProps {
 const UTILITIES = ['All', 'Power', 'Gas', 'Telecom', 'City/Village', 'Private'];
 
 const RefreshRequestForm: React.FC<RefreshRequestFormProps> = ({ ticket, onSubmit, onClose, isDarkMode }) => {
+  const backdropRef = useModalDismiss<HTMLDivElement>(onClose);
   const [selected, setSelected] = useState<string[]>([]);
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -38,7 +40,7 @@ const RefreshRequestForm: React.FC<RefreshRequestFormProps> = ({ ticket, onSubmi
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[180] flex justify-center items-center p-4">
+    <div ref={backdropRef} className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[180] flex justify-center items-center p-4">
       <div className={`w-full max-w-md rounded-2xl shadow-2xl overflow-hidden border animate-in ${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white border-slate-200'}`}>
         <div className="px-6 py-4 border-b flex justify-between items-center bg-amber-50/50">
           <div className="flex items-center gap-2">

@@ -2,6 +2,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
+import ErrorBoundary from './components/ErrorBoundary.tsx';
 import './index.css';
 
 console.log("DigTrack Pro: Bootstrapping...");
@@ -12,9 +13,14 @@ if (!rootElement) {
 } else {
   try {
     const root = createRoot(rootElement);
+    // The try/catch below only covers the *initial* render; a later render
+    // error would unmount the tree and leave a blank page, so the whole app
+    // also sits inside an error boundary.
     root.render(
       <React.StrictMode>
-        <App />
+        <ErrorBoundary>
+          <App />
+        </ErrorBoundary>
       </React.StrictMode>
     );
     console.log("DigTrack Pro: Application mounted.");

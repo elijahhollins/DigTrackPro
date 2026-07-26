@@ -4,6 +4,7 @@ import { DigTicket } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
 import { parseTicketData } from '../services/geminiService.ts';
 import { addDaysToDateStr } from '../utils/dateUtils.ts';
+import { useModalDismiss } from '../utils/useModalDismiss.ts';
 
 interface IngestionItem {
   id: string;
@@ -44,6 +45,7 @@ const getSafeMimeType = (file: File): string => {
 };
 
 export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClose, initialData, isDarkMode, existingTickets, sidePanel = false }) => {
+  const backdropRef = useModalDismiss<HTMLDivElement>(onClose);
   const [isBatchMode, setIsBatchMode] = useState(false);
   const [isSubmittingManual, setIsSubmittingManual] = useState(false);
   const [isSavingAll, setIsSavingAll] = useState(false);
@@ -327,7 +329,7 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
   };
 
   return (
-    <div className={sidePanel
+    <div ref={backdropRef} className={sidePanel
       ? 'fixed inset-y-0 right-0 z-[160] flex'
       : 'fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[160] flex items-center justify-center p-4 overflow-y-auto'
     }>

@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Job, JobPrint } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
+import { useModalDismiss } from '../utils/useModalDismiss.ts';
 
 interface JobSummaryModalProps {
   job: Job;
@@ -24,6 +25,7 @@ export const JobSummaryModal: React.FC<JobSummaryModalProps> = ({
   onViewMarkup,
   isDarkMode
 }) => {
+  const backdropRef = useModalDismiss<HTMLDivElement>(onClose);
   const [pinnedPrint, setPinnedPrint] = useState<JobPrint | null>(null);
 
   const isPdf = (url?: string) => url?.toLowerCase().split('?')[0].endsWith('.pdf');
@@ -35,7 +37,7 @@ export const JobSummaryModal: React.FC<JobSummaryModalProps> = ({
   }, [job.jobNumber]);
 
   return (
-    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[170] overflow-y-auto pt-10 pb-20 px-4">
+    <div ref={backdropRef} className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[170] overflow-y-auto pt-10 pb-20 px-4">
       <div className={`w-full max-w-md mx-auto rounded-[2.5rem] shadow-2xl overflow-hidden border animate-in ${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white border-slate-200'}`}>
         {/* Header Section */}
         <div className="px-8 py-6 border-b flex justify-between items-center bg-black/5">

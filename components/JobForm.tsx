@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Job } from '../types.ts';
 import { CostCode } from '../services/timeTrackingTypes.ts';
 import { timeTrackingService } from '../services/timeTrackingService.ts';
+import { useModalDismiss } from '../utils/useModalDismiss.ts';
 
 interface JobFormProps {
   // Fixed: Prop type onSave now omits companyId to allow parent handleNavigate/initApp logic to manage multitenancy
@@ -17,6 +18,7 @@ interface JobFormProps {
 }
 
 const JobForm: React.FC<JobFormProps> = ({ onSave, onClose, initialData, isDarkMode, companyId, timeTrackingEnabled }) => {
+  const backdropRef = useModalDismiss<HTMLDivElement>(onClose);
   const [formData, setFormData] = useState({
     jobNumber: '', jobName: '', customer: '', siteContact: '', address: '', city: '', state: '', county: '',
   });
@@ -104,7 +106,7 @@ const JobForm: React.FC<JobFormProps> = ({ onSave, onClose, initialData, isDarkM
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[160] flex items-center justify-center p-4">
+    <div ref={backdropRef} className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[160] flex items-center justify-center p-4">
       <div className={`w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl border animate-in ${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white border-slate-200'}`}>
         <div className="px-6 py-4 border-b flex justify-between items-center bg-black/5">
           <h2 className="text-sm font-black uppercase tracking-widest">

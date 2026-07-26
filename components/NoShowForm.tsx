@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { DigTicket, NoShowRecord } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
+import { useModalDismiss } from '../utils/useModalDismiss.ts';
 
 interface NoShowFormProps {
   ticket: DigTicket;
@@ -15,6 +16,7 @@ interface NoShowFormProps {
 const UTILITIES = ['All', 'Power', 'Gas', 'Telecom', 'City/Village', 'Private'];
 
 const NoShowForm: React.FC<NoShowFormProps> = ({ ticket, userName, onSave, onDelete, onClose, isDarkMode }) => {
+  const backdropRef = useModalDismiss<HTMLDivElement>(onClose);
   // Store selections as an object where key is utility and value is company name
   const [selections, setSelections] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState('');
@@ -156,7 +158,7 @@ const NoShowForm: React.FC<NoShowFormProps> = ({ ticket, userName, onSave, onDel
   }
 
   return (
-    <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[180] flex justify-center items-center p-4">
+    <div ref={backdropRef} className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[180] flex justify-center items-center p-4">
       <div className={`w-full max-w-md rounded-2xl shadow-2xl overflow-hidden border animate-in ${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white border-slate-200'}`}>
         <div className="px-6 py-4 border-b flex justify-between items-center bg-rose-50/50">
           <div className="flex items-center gap-2">

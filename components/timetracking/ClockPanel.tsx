@@ -301,9 +301,14 @@ export default function ClockPanel({ sessionUser, isAdmin, employees, clockableJ
                     <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input className={`${input} pl-9`} placeholder="Search jobs…" value={jobSearch} onChange={e => setJobSearch(e.target.value)} />
                   </div>
-                  {jobSearch && (
-                    <div className={`mt-1 max-h-52 overflow-y-auto rounded-lg border ${isDarkMode ? 'border-slate-700' : 'border-slate-200'}`}>
-                      {filteredJobs.length === 0 && <div className="px-3 py-2 text-sm text-slate-500">No matching jobs.</div>}
+                  {/* The list used to appear only after typing, so the panel opened
+                      on an empty box and crews had to guess a job number. */}
+                  <div className={`mt-1 max-h-52 overflow-y-auto rounded-lg border ${isDarkMode ? 'border-slate-700' : 'border-slate-200'}`}>
+                      {filteredJobs.length === 0 && (
+                        <div className="px-3 py-2 text-sm text-slate-500">
+                          {jobSearch ? 'No matching jobs.' : 'No open jobs to clock in to.'}
+                        </div>
+                      )}
                       {filteredJobs.map(j => (
                         <button
                           key={`${j.kind}:${j.ref}`}
@@ -314,8 +319,7 @@ export default function ClockPanel({ sessionUser, isAdmin, employees, clockableJ
                           <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-brand/15 text-brand">{j.kind}</span>
                         </button>
                       ))}
-                    </div>
-                  )}
+                  </div>
                 </>
               )}
             </div>

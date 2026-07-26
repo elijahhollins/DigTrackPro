@@ -4,7 +4,7 @@ import { scheduleService } from '../../services/scheduleService.ts';
 import {
   Employee, Equipment, Material, ServiceJob, Invoice, InvoiceSettings,
 } from '../../services/schedulingTypes.ts';
-import { computeTotals } from './costUtils.ts';
+import { computeTotals, num } from './costUtils.ts';
 import { generateInvoicePdf } from './invoicePdf.ts';
 
 interface InvoiceViewProps {
@@ -166,7 +166,7 @@ export default function InvoiceView({ companyId, companyName, isAdmin, isDarkMod
                     <span className={`font-semibold text-sm ${text}`}>{job.jobNumber || job.jobName || `Job ${job.id}`}</span>
                     <span className={`block text-xs ${subtext}`}>{job.customerName || '—'} · {(job.logs ?? []).length} logs</span>
                   </div>
-                  <span className={`font-mono tabular-nums text-sm font-semibold ${text}`}>${t.grand.toFixed(2)}</span>
+                  <span className={`font-mono tabular-nums text-sm font-semibold ${text}`}>${num(t.grand).toFixed(2)}</span>
                   <button onClick={() => downloadFor(job)} className={ghostBtn}><FileDown size={14} />Preview</button>
                   {isAdmin && <button onClick={() => generateInvoice(job)} className="px-3 py-1.5 rounded-lg bg-brand text-white text-xs font-semibold transition-all hover:opacity-90 shadow-sm whitespace-nowrap">Create invoice</button>}
                 </div>
@@ -188,7 +188,7 @@ export default function InvoiceView({ companyId, companyName, isAdmin, isDarkMod
                       <option value="draft">draft</option><option value="sent">sent</option><option value="paid">paid</option>
                     </select>
                   ) : <span className={`text-xs font-semibold capitalize px-2.5 py-1 rounded-full ${statusColor(inv.status)}`}>{inv.status}</span>}
-                  <span className={`w-24 text-right font-mono tabular-nums text-sm font-semibold ${text}`}>${inv.grandTotal.toFixed(2)}</span>
+                  <span className={`w-24 text-right font-mono tabular-nums text-sm font-semibold ${text}`}>${num(inv.grandTotal).toFixed(2)}</span>
                   {job && <button onClick={() => downloadFor(job, inv)} className="text-slate-400 hover:text-brand transition-colors" aria-label="Download invoice"><FileDown size={16} /></button>}
                   {isAdmin && <button onClick={() => scheduleService.deleteInvoice(inv.id).then(reload)} className="text-slate-400 hover:text-rose-600 transition-colors" aria-label="Delete invoice"><Trash2 size={15} /></button>}
                 </div>

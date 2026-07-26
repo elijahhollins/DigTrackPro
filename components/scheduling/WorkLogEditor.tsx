@@ -4,7 +4,7 @@ import { scheduleService } from '../../services/scheduleService.ts';
 import {
   Employee, Equipment, Material, ServiceJob, WorkLogEntry, WorkLogTemplate,
 } from '../../services/schedulingTypes.ts';
-import { computeTotals } from './costUtils.ts';
+import { computeTotals, num } from './costUtils.ts';
 
 interface WorkLogEditorProps {
   companyId: string;
@@ -181,7 +181,7 @@ export default function WorkLogEditor({ companyId, isAdmin, isDarkMode }: WorkLo
                     <span className={`text-xs ${subtext}`}>
                       {log.data.employees.length} labor · {log.data.equipment.length} equip · {log.data.materials.length} mat
                     </span>
-                    <span className={`w-24 text-right font-mono tabular-nums text-sm ${text}`}>${t.grand.toFixed(2)}</span>
+                    <span className={`w-24 text-right font-mono tabular-nums text-sm ${text}`}>${num(t.grand).toFixed(2)}</span>
                     <button onClick={() => scheduleService.deleteWorkLog(log.id).then(reload)} className="text-slate-400 hover:text-rose-600 transition-colors" aria-label="Delete log"><Trash2 size={15} /></button>
                   </div>
                 );
@@ -214,7 +214,7 @@ export default function WorkLogEditor({ companyId, isAdmin, isDarkMode }: WorkLo
                       {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
                     </select>
                     <input type="number" className={`${input} w-20`} value={l.hours} onChange={e => setEntry(p => ({ ...p, employees: p.employees.map((x, xi) => xi === i ? { ...x, hours: Number(e.target.value) } : x) }))} />
-                    <span className={`w-16 text-right text-xs ${subtext}`}>${l.rate.toFixed(2)}/h</span>
+                    <span className={`w-16 text-right text-xs ${subtext}`}>${num(l.rate).toFixed(2)}/h</span>
                     <button onClick={() => setEntry(p => ({ ...p, employees: p.employees.filter((_, xi) => xi !== i) }))} className="text-rose-500"><Trash2 size={14} /></button>
                   </div>
                 ))}
@@ -231,7 +231,7 @@ export default function WorkLogEditor({ companyId, isAdmin, isDarkMode }: WorkLo
                       {equipment.map(eq => <option key={eq.id} value={eq.id}>{eq.name}</option>)}
                     </select>
                     <input type="number" className={`${input} w-20`} value={l.hours} onChange={e => setEntry(p => ({ ...p, equipment: p.equipment.map((x, xi) => xi === i ? { ...x, hours: Number(e.target.value) } : x) }))} />
-                    <span className={`w-16 text-right text-xs ${subtext}`}>${l.rate.toFixed(2)}/h</span>
+                    <span className={`w-16 text-right text-xs ${subtext}`}>${num(l.rate).toFixed(2)}/h</span>
                     <button onClick={() => setEntry(p => ({ ...p, equipment: p.equipment.filter((_, xi) => xi !== i) }))} className="text-rose-500"><Trash2 size={14} /></button>
                   </div>
                 ))}
@@ -258,7 +258,7 @@ export default function WorkLogEditor({ companyId, isAdmin, isDarkMode }: WorkLo
               <div className={`flex flex-wrap items-center justify-between gap-2 pt-3 border-t ${isDarkMode ? 'border-slate-700' : 'border-slate-100'}`}>
                 <div className="flex items-baseline gap-2">
                   <span className={`text-[10px] font-bold uppercase tracking-widest ${subtext}`}>Total</span>
-                  <span className={`font-mono tabular-nums text-lg font-bold ${text}`}>${totals.grand.toFixed(2)}</span>
+                  <span className={`font-mono tabular-nums text-lg font-bold ${text}`}>${num(totals.grand).toFixed(2)}</span>
                 </div>
                 <div className="flex gap-2">
                   <button onClick={saveTemplate} className={ghostBtn}><FileStack size={15} />Save as template</button>

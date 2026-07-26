@@ -5,7 +5,7 @@ import {
   Employee, Equipment, ServiceJob, WorkLog, WorkLogEntry, InvoiceSettings, JobInvoice, JobInvoiceData, JobInvoiceTemplate,
 } from '../services/schedulingTypes.ts';
 import { generateInvoicePdf } from './scheduling/invoicePdf.ts';
-import { computeTotals } from './scheduling/costUtils.ts';
+import { computeTotals, num } from './scheduling/costUtils.ts';
 import { jobInvoiceService } from '../services/jobInvoiceService.ts';
 import { jobInvoiceTemplateService } from '../services/jobInvoiceTemplateService.ts';
 import { scheduleService } from '../services/scheduleService.ts';
@@ -677,7 +677,7 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
                     {numInput(c.hours, n => setCrew(prev => prev.map((x, j) => j === i ? { ...x, hours: n } : x)))}
                     <span className={`text-[9px] ${subtle}`}>hrs ×</span>
                     {numInput(c.rate, n => setCrew(prev => prev.map((x, j) => j === i ? { ...x, rate: n } : x)))}
-                    <span className="w-20 text-right text-[11px] font-black">${(c.hours * c.rate).toFixed(2)}</span>
+                    <span className="w-20 text-right text-[11px] font-black">${(num(c.hours) * num(c.rate)).toFixed(2)}</span>
                     <button onClick={() => setCrew(prev => prev.filter((_, j) => j !== i))} className="text-rose-500 hover:text-rose-600"><Trash2 size={13} /></button>
                   </div>
                 ))}
@@ -724,7 +724,7 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
                     {numInput(eq.hours, n => setEquipment(prev => prev.map((x, j) => j === i ? { ...x, hours: n } : x)))}
                     <span className={`text-[9px] ${subtle}`}>hrs ×</span>
                     {numInput(eq.rate, n => setEquipment(prev => prev.map((x, j) => j === i ? { ...x, rate: n } : x)))}
-                    <span className="w-20 text-right text-[11px] font-black">${(eq.hours * eq.rate).toFixed(2)}</span>
+                    <span className="w-20 text-right text-[11px] font-black">${(num(eq.hours) * num(eq.rate)).toFixed(2)}</span>
                     <button onClick={() => setEquipment(prev => prev.filter((_, j) => j !== i))} className="text-rose-500 hover:text-rose-600"><Trash2 size={13} /></button>
                   </div>
                 ))}
@@ -746,7 +746,7 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
                     {numInput(m.quantity, n => setMaterials(prev => prev.map((x, j) => j === i ? { ...x, quantity: n } : x)))}
                     <span className={`text-[9px] ${subtle}`}>×</span>
                     {numInput(m.unitPrice, n => setMaterials(prev => prev.map((x, j) => j === i ? { ...x, unitPrice: n } : x)))}
-                    <span className="w-20 text-right text-[11px] font-black">${(m.quantity * m.unitPrice).toFixed(2)}</span>
+                    <span className="w-20 text-right text-[11px] font-black">${(num(m.quantity) * num(m.unitPrice)).toFixed(2)}</span>
                     <button onClick={() => setMaterials(prev => prev.filter((_, j) => j !== i))} className="text-rose-500 hover:text-rose-600"><Trash2 size={13} /></button>
                   </div>
                 ))}
@@ -778,7 +778,7 @@ export const JobInvoiceModal: React.FC<JobInvoiceModalProps> = ({
                       <FileText size={14} className="text-brand shrink-0" />
                       <div className="min-w-0">
                         <p className="text-[11px] font-bold truncate">{inv.invoiceNumber}</p>
-                        <p className={`text-[9px] font-semibold ${subtle}`}>{inv.date ?? ''} · ${inv.grandTotal.toFixed(2)}</p>
+                        <p className={`text-[9px] font-semibold ${subtle}`}>{inv.date ?? ''} · ${num(inv.grandTotal).toFixed(2)}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
