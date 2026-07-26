@@ -189,13 +189,24 @@ const App: React.FC = () => {
     setAuthError('');
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { 
-        setSessionUser(null); 
-        setIsLoading(false); 
+      if (!session) {
+        setSessionUser(null);
+        setIsLoading(false);
         initRef.current = false;
-        return; 
+        return;
       }
-      
+
+      // The user is authenticated. The invite token (if any) was captured into
+      // user_metadata during signup, so the ?invite= param in the URL is no
+      // longer needed. Strip it so the user lands on the main app URL instead
+      // of staying on the invite link. This runs only once a session exists,
+      // so Login.tsx can still read the token before the user signs up.
+      if (new URLSearchParams(window.location.search).has('invite')) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('invite');
+        window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+      }
+
       const [allUsersRes] = await Promise.all([apiService.getUsers()]);
       const fetchedUsers = allUsersRes;
       setUsers(fetchedUsers);
