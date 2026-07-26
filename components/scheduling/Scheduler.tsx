@@ -2344,9 +2344,6 @@ export default function Scheduler({
     }
   });
 
-  // Last calendar day of the visible window — used by the per-crew workload meter.
-  const windowEndISO = addDays(viewStart, totalDays - 1);
-
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
@@ -2692,21 +2689,6 @@ export default function Scheduler({
             const crewBlocks = blocks.filter(b => b.crewId === crew.id);
             const color = crewColorMap.get(crew.id) ?? CREW_COLORS[0];
 
-            // Workload: fraction of working days in the visible window this crew
-            // is booked across its job blocks (clamped, read-only).
-            const workWindowDays = countWorkingDays(viewStart, windowEndISO) || totalDays;
-            const bookedDays = crewBlocks.reduce((sum, b) => {
-              if (b.type !== 'job') return sum;
-              const s = b.startDate < viewStart ? viewStart : b.startDate;
-              const endExcl = blockEndExclusive(b.startDate, b.durationDays, skipWeekends);
-              const eIncl = addDays(endExcl, -1);
-              const e = eIncl > windowEndISO ? windowEndISO : eIncl;
-              if (e < s) return sum;
-              return sum + countWorkingDays(s, e);
-            }, 0);
-            const workloadPct = Math.min(100, Math.round((bookedDays / Math.max(1, workWindowDays)) * 100));
-            const workloadColor = workloadPct >= 90 ? '#e11d48' : workloadPct >= 60 ? color : workloadPct > 0 ? color : '#cbd5e1';
-
             // Live drop preview targeting this row (desktop drag or touch drag).
             // Geometry mirrors the block render below so the placeholder sits
             // exactly where the dragged block will land — to the day.
@@ -2781,23 +2763,6 @@ export default function Scheduler({
                           · {memberNames[0].split(' ')[0]}{memberNames.length > 1 ? ` +${memberNames.length - 1}` : ''}
                         </span>
                       )}
-                    </div>
-                    {/* Workload meter — how booked this crew is in the window */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 5 }}>
-                      <div style={{ position: 'relative', flex: 1, height: 5, borderRadius: 999, background: '#e2e8f0', overflow: 'hidden', minWidth: 0 }}>
-                        <div
-                          className="dispatch-meter-fill"
-                          style={{
-                            position: 'absolute', left: 0, top: 0, bottom: 0,
-                            width: `${workloadPct}%`,
-                            borderRadius: 999,
-                            background: `linear-gradient(90deg, ${workloadColor}, color-mix(in srgb, ${workloadColor} 70%, white))`,
-                          }}
-                        />
-                      </div>
-                      <span style={{ fontSize: 9, fontWeight: 800, color: workloadPct >= 90 ? '#e11d48' : '#64748b', fontVariantNumeric: 'tabular-nums', minWidth: 24, textAlign: 'right' }}>
-                        {workloadPct}%
-                      </span>
                     </div>
                   </div>
                   {/* Per-crew delay button */}
