@@ -11,6 +11,7 @@ import { scheduleService } from '../services/scheduleService.ts';
 import { timeTrackingService } from '../services/timeTrackingService.ts';
 import { Employee, ServiceJob } from '../services/schedulingTypes.ts';
 import { TimeEntry } from '../services/timeTrackingTypes.ts';
+import { createAppMap, AppMapHandle } from '../utils/leafletMap.ts';
 
 // Respect Nominatim's 1 request/second usage policy
 const NOMINATIM_RATE_LIMIT_MS = 1100;
@@ -143,6 +144,7 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
 
   const mapDivRef  = useRef<HTMLDivElement>(null);
   const mapRef     = useRef<L.Map | null>(null);
+  const mapHandleRef = useRef<AppMapHandle | null>(null);
   const markersRef = useRef<L.Marker[]>([]);
   // Set when a shop marker is dragged so the next marker re-render keeps the
   // current viewport instead of snapping back via fitBounds.
@@ -526,16 +528,15 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
   useEffect(() => {
     if (!mapDivRef.current || mapRef.current) return;
 
-    mapRef.current = L.map(mapDivRef.current, { zoomControl: true }).setView([39.5, -98.35], 4);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-      maxZoom: 19,
-    }).addTo(mapRef.current);
-    setTimeout(() => mapRef.current?.invalidateSize(), 100);
+    const handle = createAppMap(mapDivRef.current, [39.5, -98.35], 4);
+    mapHandleRef.current = handle;
+    mapRef.current = handle.map;
+    setTimeout(() => handle.runProgrammaticViewChange(() => handle.map.invalidateSize()), 100);
 
     return () => {
       mapRef.current?.remove();
       mapRef.current = null;
+      mapHandleRef.current = null;
     };
   }, []);
 
@@ -645,11 +646,16 @@ const EquipmentMapView: React.FC<EquipmentMapViewProps> = ({
       bounds.push([placement.lat!, placement.lng!]);
     });
 
+    const handle = mapHandleRef.current;
     if (skipFitRef.current) {
       // A drag just moved a pin — preserve the user's current view.
       skipFitRef.current = false;
-    } else if (bounds.length > 0) {
-      map.fitBounds(bounds as L.LatLngBoundsExpression, { padding: [40, 40], maxZoom: 14 });
+    } else if (bounds.length > 0 && handle && !handle.hasUserAdjustedView()) {
+      // Same reasoning as the drag case: once the user has framed the map, a
+      // background refresh must not snap it back.
+      handle.runProgrammaticViewChange(() =>
+        map.fitBounds(bounds as L.LatLngBoundsExpression, { padding: [40, 40], maxZoom: 14 })
+      );
     }
   }, [placements]);
 

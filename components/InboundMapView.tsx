@@ -5,6 +5,7 @@ import 'leaflet/dist/leaflet.css';
 import { User, UserRecord } from '../types.ts';
 import { InboundTicket, InboundTicketStatus } from '../services/inboundTypes.ts';
 import { inboundTicketService } from '../services/inboundTicketService.ts';
+import { createAppMap, AppMapHandle } from '../utils/leafletMap.ts';
 import InboundTicketDetail from './InboundTicketDetail.tsx';
 
 // Respect Nominatim's 1 request/second usage policy
@@ -85,6 +86,7 @@ const InboundMapView: React.FC<InboundMapViewProps> = ({
 
   const mapDivRef  = useRef<HTMLDivElement>(null);
   const mapRef     = useRef<L.Map | null>(null);
+  const mapHandleRef = useRef<AppMapHandle | null>(null);
   const markersRef = useRef<L.Marker[]>([]);
 
   const [tickets, setTickets]           = useState<InboundTicket[]>([]);
@@ -162,16 +164,15 @@ const InboundMapView: React.FC<InboundMapViewProps> = ({
   useEffect(() => {
     if (!mapDivRef.current || mapRef.current) return;
 
-    mapRef.current = L.map(mapDivRef.current, { zoomControl: true }).setView([39.5, -98.35], 4);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-      maxZoom: 19,
-    }).addTo(mapRef.current);
-    setTimeout(() => mapRef.current?.invalidateSize(), 100);
+    const handle = createAppMap(mapDivRef.current, [39.5, -98.35], 4);
+    mapHandleRef.current = handle;
+    mapRef.current = handle.map;
+    setTimeout(() => handle.runProgrammaticViewChange(() => handle.map.invalidateSize()), 100);
 
     return () => {
       mapRef.current?.remove();
       mapRef.current = null;
+      mapHandleRef.current = null;
     };
   }, []);
 
@@ -234,9 +235,14 @@ const InboundMapView: React.FC<InboundMapViewProps> = ({
       bounds.push([lat, lng]);
     });
 
-    // Fit map to show all markers
-    if (bounds.length > 0) {
-      map.fitBounds(bounds as L.LatLngBoundsExpression, { padding: [40, 40], maxZoom: 14 });
+    // Fit map to show all markers — but only while the view is still ours to
+    // frame. Pins arrive one per second from geocoding, and re-fitting after the
+    // user has panned or pinched would keep snatching the view back.
+    const handle = mapHandleRef.current;
+    if (bounds.length > 0 && handle && !handle.hasUserAdjustedView()) {
+      handle.runProgrammaticViewChange(() =>
+        map.fitBounds(bounds as L.LatLngBoundsExpression, { padding: [40, 40], maxZoom: 14 })
+      );
     }
   }, [pinnedTickets]);
 

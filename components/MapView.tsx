@@ -4,6 +4,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { DigTicket } from '../types.ts';
 import { getTicketStatus, getStatusColor, formatDateStr } from '../utils/dateUtils.ts';
+import { createAppMap, AppMapHandle } from '../utils/leafletMap.ts';
 import { apiService } from '../services/apiService.ts';
 
 // Rate limit for Nominatim geocoding API (max 1 request/second per usage policy)
@@ -164,6 +165,7 @@ const geocodeAddress = async (ticket: DigTicket): Promise<{ lat: number; lng: nu
 
 export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTicket, onViewTicket, onTicketGeocoded, onPinMoved, onOpenInDashboard }) => {
   const mapRef = useRef<L.Map | null>(null);
+  const mapHandleRef = useRef<AppMapHandle | null>(null);
   const mapDivRef = useRef<HTMLDivElement>(null);
   const markersRef = useRef<L.Marker[]>([]);
   const polygonsRef = useRef<Map<string, L.Polygon>>(new Map());
@@ -180,10 +182,25 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
   // Keep refs to the latest callbacks so the async geocoding loop always calls the
   // current version without needing them in the effect's dependency array (which would
   // restart geocoding on every parent render).
+  // The marker effect reads the callbacks through refs for the same reason: the
+  // parent passes fresh arrow functions on every render, and rebuilding every
+  // marker mid-gesture would interrupt a pinch in progress. Only whether a
+  // callback exists (which drives the popup buttons) is a real dependency.
   const onTicketGeocodedRef = useRef(onTicketGeocoded);
   const onPinMovedRef = useRef(onPinMoved);
+  const onEditTicketRef = useRef(onEditTicket);
+  const onViewTicketRef = useRef(onViewTicket);
+  const onOpenInDashboardRef = useRef(onOpenInDashboard);
   useEffect(() => { onTicketGeocodedRef.current = onTicketGeocoded; });
   useEffect(() => { onPinMovedRef.current = onPinMoved; });
+  useEffect(() => { onEditTicketRef.current = onEditTicket; });
+  useEffect(() => { onViewTicketRef.current = onViewTicket; });
+  useEffect(() => { onOpenInDashboardRef.current = onOpenInDashboard; });
+
+  const canEdit = Boolean(onEditTicket);
+  const canView = Boolean(onViewTicket);
+  const canAdjustPin = Boolean(onPinMoved);
+  const canOpenInDashboard = Boolean(onOpenInDashboard);
 
   const activeTickets = tickets.filter(t => !t.isArchived);
   // Stable key: only changes when tickets are added/removed, NOT when coords are saved.
@@ -195,18 +212,17 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
   useEffect(() => {
     if (!mapDivRef.current || mapRef.current) return;
 
-    mapRef.current = L.map(mapDivRef.current, { zoomControl: true }).setView([39.5, -98.35], 4);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-      maxZoom: 19,
-    }).addTo(mapRef.current);
+    const handle = createAppMap(mapDivRef.current, [39.5, -98.35], 4);
+    mapHandleRef.current = handle;
+    mapRef.current = handle.map;
 
     // Force Leaflet to recalculate container size after CSS layout settles
-    setTimeout(() => mapRef.current?.invalidateSize(), 100);
+    setTimeout(() => handle.runProgrammaticViewChange(() => handle.map.invalidateSize()), 100);
 
     return () => {
       mapRef.current?.remove();
       mapRef.current = null;
+      mapHandleRef.current = null;
     };
   }, []);
 
@@ -278,7 +294,7 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
       const icon = createMarkerIcon(statusColorClass);
       const marker = L.marker([lat, lng], { icon }).addTo(mapRef.current!);
 
-      const hasDoc = Boolean(ticket.documentUrl);
+      const hasDoc = Boolean(ticket.documentUrl) && canView;
       const viewBtnId = `map-view-${ticket.id}`;
       const editBtnId = `map-edit-${ticket.id}`;
       const adjustBtnId = `map-adjust-${ticket.id}`;
@@ -301,9 +317,9 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
           </div>
           <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
             ${hasDoc ? `<button id="${viewBtnId}" style="padding:4px 10px;background:#3b82f6;color:white;border:none;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer">View PDF</button>` : ''}
-            ${onEditTicket ? `<button id="${editBtnId}" style="padding:4px 10px;background:#475569;color:white;border:none;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer">Edit</button>` : ''}
-            ${onPinMoved ? `<button id="${adjustBtnId}" style="padding:4px 10px;background:#7c3aed;color:white;border:none;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer">Adjust Pin</button>` : ''}
-            ${onOpenInDashboard ? `<button id="${dashboardBtnId}" style="padding:4px 10px;background:#0ea5e9;color:white;border:none;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer">Open in Dashboard</button>` : ''}
+            ${canEdit ? `<button id="${editBtnId}" style="padding:4px 10px;background:#475569;color:white;border:none;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer">Edit</button>` : ''}
+            ${canAdjustPin ? `<button id="${adjustBtnId}" style="padding:4px 10px;background:#7c3aed;color:white;border:none;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer">Adjust Pin</button>` : ''}
+            ${canOpenInDashboard ? `<button id="${dashboardBtnId}" style="padding:4px 10px;background:#0ea5e9;color:white;border:none;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer">Open in Dashboard</button>` : ''}
             <button id="${directionsBtnId}" style="padding:4px 10px;background:#16a34a;color:white;border:none;border-radius:8px;font-size:10px;font-weight:700;cursor:pointer">Directions</button>
           </div>
         </div>
@@ -315,26 +331,26 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
         const poly = polygonsRef.current.get(ticket.id);
         if (poly && mapRef.current) poly.addTo(mapRef.current);
 
-        if (hasDoc && onViewTicket) {
+        if (hasDoc) {
           document.getElementById(viewBtnId)?.addEventListener('click', () => {
-            onViewTicket(ticket.documentUrl!);
+            onViewTicketRef.current?.(ticket.documentUrl!);
           }, { once: true });
         }
-        if (onEditTicket) {
+        if (canEdit) {
           document.getElementById(editBtnId)?.addEventListener('click', () => {
-            onEditTicket(ticket);
+            onEditTicketRef.current?.(ticket);
           }, { once: true });
         }
-        if (onPinMoved) {
+        if (canAdjustPin) {
           document.getElementById(adjustBtnId)?.addEventListener('click', () => {
             marker.closePopup();
             marker.dragging?.enable();
             marker.setIcon(createDraggableMarkerIcon(statusColorClass));
           }, { once: true });
         }
-        if (onOpenInDashboard) {
+        if (canOpenInDashboard) {
           document.getElementById(dashboardBtnId)?.addEventListener('click', () => {
-            onOpenInDashboard(ticket);
+            onOpenInDashboardRef.current?.(ticket);
           }, { once: true });
         }
         // "Directions" opens the platform's maps app. Prefer the persisted geocoded
@@ -370,10 +386,10 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
       });
 
       // Double-click opens the PDF viewer directly
-      if (onViewTicket && hasDoc) {
-        marker.on('dblclick', () => onViewTicket(ticket.documentUrl!));
-      } else if (onEditTicket) {
-        marker.on('dblclick', () => onEditTicket(ticket));
+      if (hasDoc) {
+        marker.on('dblclick', () => onViewTicketRef.current?.(ticket.documentUrl!));
+      } else if (canEdit) {
+        marker.on('dblclick', () => onEditTicketRef.current?.(ticket));
       }
 
       bounds.push([lat, lng]);
@@ -400,11 +416,17 @@ export const MapView: React.FC<MapViewProps> = ({ tickets, isDarkMode, onEditTic
       }
     });
 
-    if (bounds.length > 0 && !skipFitBoundsRef.current) {
-      mapRef.current.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+    // Auto-framing is a first-load convenience only. Geocoding trickles pins in
+    // one per second, so re-fitting after the user has taken over would drag the
+    // view away from them — including out from under an in-progress pinch.
+    const handle = mapHandleRef.current;
+    if (bounds.length > 0 && !skipFitBoundsRef.current && handle && !handle.hasUserAdjustedView()) {
+      handle.runProgrammaticViewChange(() =>
+        handle.map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 })
+      );
     }
     skipFitBoundsRef.current = false;
-  }, [pinnedTickets, onEditTicket, onViewTicket, onPinMoved]);
+  }, [pinnedTickets, canEdit, canView, canAdjustPin, canOpenInDashboard]);
 
   const handleCenterOnMe = () => {
     if (!navigator.geolocation) {
