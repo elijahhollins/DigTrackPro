@@ -111,7 +111,18 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
       setPushStatus(permission);
       
       if (permission === 'granted') {
-        const registration = await navigator.serviceWorker.ready;
+        if (!('serviceWorker' in navigator)) {
+          alert("Push notifications are not supported on this browser.");
+          return;
+        }
+        // `serviceWorker.ready` never settles if registration failed or never happened, which
+        // would leave this button spinning forever with no error. Bound the wait.
+        const registration = await Promise.race([
+          navigator.serviceWorker.ready,
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Service worker did not become ready')), 10000)
+          ),
+        ]);
         try {
           const subscription = await registration.pushManager.subscribe({
             userVisibleOnly: true,

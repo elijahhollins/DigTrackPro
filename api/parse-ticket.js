@@ -96,6 +96,14 @@ const clientSafeErrorCodes = new Set(['invalid_input', 'empty_response', 'missin
 const authErrorCodes = new Set(['anthropic_auth', 'gemini_auth']);
 const rateLimitErrorCodes = new Set(['anthropic_rate_limit', 'gemini_rate_limit']);
 
+// Errors that mean the *input* was unusable (unreadable image, malformed payload) rather than the
+// provider being unavailable. A second provider fails identically on the same input, so retrying
+// there only doubles latency and cost. Everything else -- auth, rate limits, 5xx, model errors,
+// network failures -- is an infrastructure problem worth failing over for.
+const contentErrorCodes = new Set(['invalid_input', 'empty_response', 'missing_ticket_fields', 'gemini_malformed_json']);
+
+const isInfrastructureError = (error) => !contentErrorCodes.has(String(error?.code || ''));
+
 const getPublicErrorResponse = (error) => {
   const status = Number(error?.status) || 500;
   const code = String(error?.code || '');
@@ -363,16 +371,34 @@ export default async function handler(req, res) {
     }
 
     let parsed = null;
+    let primaryError = null;
 
     if (anthropicApiKey) {
       try {
         parsed = await parseWithAnthropic(input, anthropicApiKey);
       } catch (error) {
         console.error('[AI Parse] Anthropic request failed:', error);
-        throw error;
+        // Only fail over when Anthropic itself is the problem. If the input was unreadable,
+        // Gemini will reach the same conclusion, so surface the error now.
+        if (!geminiApiKey || !isInfrastructureError(error)) {
+          throw error;
+        }
+        primaryError = error;
       }
-    } else if (geminiApiKey) {
-      parsed = await parseWithGemini(input, geminiApiKey);
+    }
+
+    if (!parsed && geminiApiKey) {
+      try {
+        parsed = await parseWithGemini(input, geminiApiKey);
+        if (primaryError) {
+          console.warn('[AI Parse] Recovered via Gemini after Anthropic failure.');
+        }
+      } catch (error) {
+        console.error('[AI Parse] Gemini request failed:', error);
+        // Both providers are down. Report the primary provider's error -- it is the one the
+        // operator needs to act on -- but both have been logged above.
+        throw primaryError || error;
+      }
     }
 
     if (!parsed) {

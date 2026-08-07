@@ -25,8 +25,26 @@ export const getEnv = (key: string): string => {
   return '';
 };
 
-const supabaseUrl = getEnv('SUPABASE_URL') || "https://fusubnzndmngjfgatzrq.supabase.co";
-const supabaseAnonKey = getEnv('SUPABASE_ANON_KEY') || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1c3VibnpuZG1uZ2pmZ2F0enJxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNTQ5NzcsImV4cCI6MjA4MjkzMDk3N30.O5Vp5R_KxAUpi8esYjqCHrjmyG3PzkNj1gDxpaNuKtI";
+const resolvedUrl = getEnv('SUPABASE_URL');
+const resolvedAnonKey = getEnv('SUPABASE_ANON_KEY');
+
+// Hardcoded fallbacks to the current production project. These exist so the app still boots when
+// env vars are missing -- but during a disaster recovery, when you have restored into a NEW
+// Supabase project, this fallback will silently point the app back at the dead project. Warn
+// loudly so that is visible in the console during an incident. See docs/DISASTER_RECOVERY.md.
+const FALLBACK_URL = "https://fusubnzndmngjfgatzrq.supabase.co";
+const FALLBACK_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ1c3VibnpuZG1uZ2pmZ2F0enJxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjczNTQ5NzcsImV4cCI6MjA4MjkzMDk3N30.O5Vp5R_KxAUpi8esYjqCHrjmyG3PzkNj1gDxpaNuKtI";
+
+if (!resolvedUrl || !resolvedAnonKey) {
+  console.warn(
+    '[DigTrack Pro] Supabase env vars missing - falling back to the hardcoded production project ' +
+    `(${FALLBACK_URL}). If you are recovering into a new project, set VITE_SUPABASE_URL and ` +
+    'VITE_SUPABASE_ANON_KEY or the app will keep talking to the old one.'
+  );
+}
+
+const supabaseUrl = resolvedUrl || FALLBACK_URL;
+const supabaseAnonKey = resolvedAnonKey || FALLBACK_ANON_KEY;
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
