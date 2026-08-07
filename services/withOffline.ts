@@ -1,5 +1,6 @@
 import { isReachable, reportRequestFailure, reportRequestSuccess } from '../lib/connectivity';
 import { cacheRead, cacheWrite } from '../lib/offlineCache';
+import { enqueue, replayOutbox, setOutboxExecutor } from '../lib/outbox';
 import { cacheKeyFor, policyFor } from './offlinePolicy';
 
 /**
@@ -82,6 +83,43 @@ const wrapOnlineOnly = (fn: AnyFn, target: object): AnyFn =>
     }
   };
 
+/** Thrown when a write was accepted into the outbox rather than sent. Not an error condition. */
+export class QueuedOfflineError extends Error {
+  readonly isQueuedOffline = true;
+
+  constructor() {
+    super("Saved on this device. It will sync when you're back online.");
+    this.name = 'QueuedOfflineError';
+  }
+}
+
+export const isQueuedOffline = (e: unknown): e is QueuedOfflineError =>
+  Boolean(e && typeof e === 'object' && 'isQueuedOffline' in e);
+
+const wrapQueueableWrite = (method: string, fn: AnyFn, target: object): AnyFn =>
+  async function (this: unknown, ...args: unknown[]) {
+    if (!isReachable()) {
+      await enqueue(method, args);
+      throw new QueuedOfflineError();
+    }
+
+    try {
+      const result = await fn.apply(target, args);
+      reportRequestSuccess();
+      return result;
+    } catch (error) {
+      // Only queue when the network is the problem. An RLS denial or a validation error would
+      // fail identically on replay, so queueing it would just defer the same failure and make it
+      // look like the save worked.
+      if (looksLikeNetworkFailure(error)) {
+        reportRequestFailure();
+        await enqueue(method, args);
+        throw new QueuedOfflineError();
+      }
+      throw error;
+    }
+  };
+
 /**
  * Returns a wrapped copy of `service`. Methods not covered by a policy still get connectivity
  * reporting, but no caching -- the fail-closed default.
@@ -101,9 +139,9 @@ export const withOffline = <T extends Record<string, any>>(service: T): T => {
       case 'cacheFirstRead':
         wrapped[key] = wrapCacheFirstRead(key, value as AnyFn, service);
         break;
-      // Queued replay lands with the outbox; until then these behave as online-only, which is the
-      // safe direction -- a write that fails loudly beats one that silently disappears.
       case 'queueableWrite':
+        wrapped[key] = wrapQueueableWrite(key, value as AnyFn, service);
+        break;
       case 'onlineOnly':
       default:
         wrapped[key] = wrapOnlineOnly(value as AnyFn, service);
@@ -111,5 +149,15 @@ export const withOffline = <T extends Record<string, any>>(service: T): T => {
     }
   }
 
+  // Replay sends through the UNWRAPPED methods on purpose. Going back through the wrapper would
+  // re-queue a failing operation instead of letting the outbox classify and park it.
+  setOutboxExecutor(async (method, args) => {
+    const fn = service[method];
+    if (typeof fn !== 'function') throw new Error(`Unknown queued method: ${method}`);
+    return fn.apply(service, args);
+  });
+
   return wrapped as T;
 };
+
+export { replayOutbox };

@@ -163,6 +163,24 @@ export const purgeOtherUsers = async (currentUserId: string | null): Promise<voi
           handleUserId = null;
         }
         try {
+          // Deleting a cache also destroys any writes that never reached the server. That is the
+          // accepted cost of tenant isolation on a shared device, but it must never be silent --
+          // App.tsx confirms with the user first, and this records it if we get here anyway.
+          try {
+            const doomed = await openDB(name, 1);
+            const stranded = doomed.objectStoreNames.contains('outbox')
+              ? await doomed.count('outbox')
+              : 0;
+            doomed.close();
+            if (stranded > 0) {
+              console.warn(
+                `[offline] Discarding ${stranded} unsynced change(s) with cache ${name}.`
+              );
+            }
+          } catch {
+            /* Cannot inspect it; proceed with the delete regardless -- isolation comes first. */
+          }
+
           await deleteDB(name);
           forgetDb(name);
         } catch (error) {

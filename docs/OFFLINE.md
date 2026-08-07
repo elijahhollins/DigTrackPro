@@ -112,9 +112,51 @@ which is the one that used to be invisible.
 4. **Staleness ceiling:** in the console, rewrite a cached entry's `cachedAt` to 13 hours ago and
    reload. The refusal message must appear instead of tickets.
 
-## Not implemented yet
+## Offline writes
 
-**Offline writes.** Mutations still fail while offline rather than queueing. The IndexedDB schema
-already provisions an `outbox` store for this, and `offlinePolicy.ts` marks which methods are
-safely queueable (all idempotent upserts or client-id inserts). Until that lands, a write that
-fails loudly is the safe direction — better than one that silently disappears.
+Writes listed as `queueableWrite` in `offlinePolicy.ts` are recorded in an IndexedDB `outbox` and
+replayed on reconnect: `saveTicket`, `saveJob`, `addNote`, `addNoShow`, `updateTicketCoords`. Each is
+an idempotent upsert or an insert with a client-generated id, so replaying one twice is a no-op.
+
+Everything else — including **every delete** — still fails loudly while offline. A write that fails
+visibly beats one that silently disappears.
+
+### Replay rules
+
+- **Strictly in queue order, one at a time, halting on the first transient failure.** That preserves
+  causality: create a job, then add tickets to it. Parallel replay would reorder dependent writes
+  and break foreign keys.
+- **Errors are classified, never blanket-retried.** Network failures and 5xx stay queued. RLS
+  denials, constraint violations and validation errors are **parked** — retrying a deterministic
+  400 forever means the queue never drains and the user is never told.
+- **Duplicate-key errors count as success.** Every queued insert carries a client-generated id, so a
+  duplicate means the original attempt landed and we just never saw the response. Treating it as a
+  failure would park operations that actually worked.
+- **Parked operations are surfaced**, with their reason, and Try-again / Discard controls
+  (`PendingWrites` in `components/ConnectionBanner.tsx`). Nothing is ever dropped silently.
+- **Ticket edits check for conflicts.** Before replaying a `saveTicket`, the queue re-reads the
+  server row's `updated_at`; if someone changed the ticket while you were offline, the edit is
+  parked for review instead of clobbering. Everything else is last-write-wins, matching what the
+  database already does. This is why `tickets.updated_at` exists
+  (`supabase/migrations/20260807010000_add_tickets_updated_at.sql`) — stamped by a trigger, since
+  the whole point is detecting writes the client didn't make.
+
+Replay is triggered on reconnect, on app start, and when a backgrounded tab becomes visible again
+(mobile browsers freeze timers, so the 60s poll may not have run).
+
+### Signing out discards unsynced changes
+
+This is a genuine trade-off, made deliberately. Signing out wipes the device cache — required,
+because these are shared tablets and cached data would otherwise be readable by the next person to
+sign in — and that wipe takes any unsent writes with it.
+
+Losing a no-show report silently is not acceptable, so the app **asks first**: signing out with
+unsynced changes shows a confirmation naming how many will be discarded. The purge also logs what it
+destroyed.
+
+**If you have unsynced changes, reconnect and let them sync before signing out.**
+
+### Known limitation
+
+`addPhoto` is deliberately **not** queueable. It mints a new id on each call, so replaying it would
+create duplicate photos rather than being idempotent. Photo uploads still require a connection.

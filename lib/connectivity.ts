@@ -24,10 +24,20 @@ export const getConnectionState = (): ConnectionState => currentState;
 /** True when reads should go to the network. Both other states mean "serve from cache". */
 export const isReachable = (): boolean => currentState === 'online';
 
+/** Set by the app at startup so recovering connectivity can drain the write queue. */
+let onRecovered: (() => void) | null = null;
+
+export const setRecoveryHandler = (fn: () => void): void => {
+  onRecovered = fn;
+};
+
 const setState = (next: ConnectionState) => {
   if (next === currentState) return;
+  const previous = currentState;
   currentState = next;
   listeners.forEach((listener) => listener(next));
+
+  if (next === 'online' && previous !== 'online') onRecovered?.();
 
   // Only poll while something is wrong. A healthy app makes no extra requests.
   if (next === 'online' && probeTimer) {
@@ -78,6 +88,12 @@ export const initConnectivity = (): void => {
     // The `online` event only means the link came back. Confirm the backend is actually there
     // before telling the user they are online -- otherwise we would promise more than we have.
     void probe();
+  });
+
+  // Coming back to a backgrounded tab is a good moment to re-check: mobile browsers freeze
+  // timers, so the 60s poll may not have run for the entire time the app was in the background.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && currentState !== 'online') void probe();
   });
 
   void probe();

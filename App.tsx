@@ -4,10 +4,11 @@ import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, JobNo
 import { getTicketStatus, getStatusColor, addDaysToDateStr, formatDateStr } from './utils/dateUtils.ts';
 import { apiService } from './services/apiService.ts';
 import { supabase, isSupabaseConfigured } from './lib/supabaseClient.ts';
-import { initConnectivity } from './lib/connectivity.ts';
+import { initConnectivity, setRecoveryHandler } from './lib/connectivity.ts';
 import { setCacheIdentity } from './lib/offlineCache.ts';
 import { purgeOtherUsers } from './lib/offlineDb.ts';
-import { ConnectionBanner, DataLoadError } from './components/ConnectionBanner.tsx';
+import { replayOutbox, pendingCount } from './lib/outbox.ts';
+import { ConnectionBanner, DataLoadError, PendingWrites } from './components/ConnectionBanner.tsx';
 import type { AuthChangeEvent } from '@supabase/supabase-js';
 import TicketForm from './components/TicketForm.tsx';
 import JobForm from './components/JobForm.tsx';
@@ -334,7 +335,15 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
+    // Drain any writes queued while offline as soon as the backend is reachable again, then
+    // reload so the UI reflects what actually landed.
+    setRecoveryHandler(() => {
+      void replayOutbox().then(({ sent }) => {
+        if (sent > 0) void initApp();
+      });
+    });
     initConnectivity();
+    void replayOutbox();
     initApp();
     const { data: authListener } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, session) => {
       // Drop every on-device cache that does not belong to the user now signed in. These are
@@ -456,10 +465,26 @@ const App: React.FC = () => {
 
   const handleSignOut = async () => {
     if (isSigningOut) return;
+
+    // Signing out wipes this device's cache, including any changes that never reached the server.
+    // That wipe is required -- these are shared tablets and cached data would otherwise be
+    // readable by the next person to sign in -- but losing a no-show report silently is not
+    // acceptable, so make the trade explicit.
+    const unsent = await pendingCount().catch(() => 0);
+    if (unsent > 0) {
+      const proceed = window.confirm(
+        `You have ${unsent} change${unsent === 1 ? '' : 's'} that ${unsent === 1 ? 'has' : 'have'} not synced yet. ` +
+        `Signing out will discard ${unsent === 1 ? 'it' : 'them'}.\n\n` +
+        `Reconnect and let ${unsent === 1 ? 'it' : 'them'} sync first if you need to keep ${unsent === 1 ? 'it' : 'them'}.\n\n` +
+        `Sign out anyway?`
+      );
+      if (!proceed) return;
+    }
+
     setIsSigningOut(true);
-    try { 
-      await supabase.auth.signOut(); 
-      setSessionUser(null); 
+    try {
+      await supabase.auth.signOut();
+      setSessionUser(null);
     } catch (error: any) { 
       console.error("Sign out error:", error.message);
       alert("Sign out failed. Please try again.");
@@ -966,6 +991,9 @@ const App: React.FC = () => {
             {dataLoadError != null && (
               <DataLoadError error={dataLoadError} onRetry={() => { void initApp(); }} />
             )}
+
+            {/* Queued and parked offline writes. Silent when there are none. */}
+            <PendingWrites />
 
             {activeView === 'dashboard' && (
               <div className="space-y-6">
