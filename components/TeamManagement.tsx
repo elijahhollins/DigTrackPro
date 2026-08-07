@@ -135,11 +135,13 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
     if (!sessionUser) return;
     setIsSyncing(true);
     try {
+      // No `role` here — it used to push the client-held role back to the
+      // database, which meant tampering with in-memory state was enough to
+      // rewrite your own role. Role is server-owned now.
       await apiService.addUser({
         id: sessionUser.id,
         name: sessionUser.name,
-        username: sessionUser.username,
-        role: sessionUser.role
+        username: sessionUser.username
       });
       alert(`Success: Your local profile is now synchronized with the cloud.`);
       window.location.reload();

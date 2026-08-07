@@ -361,25 +361,73 @@ export const apiService = {
       throw new Error('Username is required for user creation');
     }
     
-    const newUserRecord = { 
-      id, 
-      name: user.name.trim(), 
-      username: user.username.trim(), 
-      role: user.role || UserRole.CREW,
-      company_id: user.companyId || null
+    // `role` and `company_id` are deliberately absent. Both are pinned
+    // server-side by the profiles guard trigger, which rejects any direct
+    // write to them — sending them here would either be ignored or raise.
+    // Membership comes from claimInvite / joinCompanyByName /
+    // createCompanyAndClaimAdmin; role changes come from updateUserRole.
+    const newUserRecord = {
+      id,
+      name: user.name.trim(),
+      username: user.username.trim()
     };
     const { data, error } = await supabase.from('profiles').upsert([newUserRecord]).select().single();
     if (error) throw error;
-    return { 
-      ...data, 
+    return {
+      ...data,
       companyId: data.company_id,
       role: mapRole(data.role)
     };
   },
 
   async updateUserRole(id: string, role: UserRole): Promise<void> {
-    const { error } = await supabase.from('profiles').update({ role }).eq('id', id);
+    // Goes through set_user_role(), which verifies the caller is an admin
+    // of the target's company and refuses to grant or revoke SUPER_ADMIN.
+    const { error } = await supabase.rpc('set_user_role', { p_user_id: id, p_role: role });
     if (error) throw error;
+  },
+
+  /** Bootstrap: caller has no company, creates one and becomes its ADMIN. */
+  async createCompanyAndClaimAdmin(
+    company: { name: string; brandColor?: string; city?: string; state?: string; phone?: string },
+    user: { name?: string; username?: string } = {}
+  ): Promise<Company> {
+    const { data: companyId, error } = await supabase.rpc('create_company_and_claim_admin', {
+      p_company_name: company.name,
+      p_brand_color: company.brandColor || null,
+      p_city: company.city || null,
+      p_state: company.state || null,
+      p_phone: company.phone || null,
+      p_user_name: user.name || null,
+      p_username: user.username || null
+    });
+    if (error) throw error;
+    if (!companyId) throw new Error('Failed to create company');
+    const created = await this.getCompany(companyId as string);
+    if (!created) throw new Error('Company was created but could not be loaded');
+    return created;
+  },
+
+  /** Join a company via invite token. Validates and consumes the token atomically. */
+  async claimInvite(token: string, user: { name?: string; username?: string } = {}): Promise<string> {
+    const { data, error } = await supabase.rpc('claim_invite', {
+      p_token: token,
+      p_user_name: user.name || null,
+      p_username: user.username || null
+    });
+    if (error) throw error;
+    return data as string;
+  },
+
+  /** Join a company by name (crew signup path). */
+  async joinCompanyByName(name: string, user: { name?: string; username?: string } = {}): Promise<string> {
+    const { data, error } = await supabase.rpc('join_company_by_name', {
+      p_company_name: name,
+      p_user_name: user.name || null,
+      p_username: user.username || null
+    });
+    if (error) throw error;
+    return data as string;
   },
 
   async deleteUser(id: string): Promise<void> {
@@ -777,48 +825,19 @@ export const apiService = {
   },
 
   async updateUserCompany(userId: string, companyId: string, role?: UserRole): Promise<void> {
-    // Fetch existing profile to preserve fields if not provided
-    const { data: existing, error: fetchError } = await supabase
-      .from('profiles')
-      .select('role, name, username')
-      .eq('id', userId)
-      .single();
-    
-    if (fetchError && fetchError.code !== 'PGRST116') {
-      // PGRST116 is "not found" error, which is okay for new profiles
-      throw new Error(`Failed to fetch existing profile for user ${userId}: ${fetchError.message}`);
-    }
-    
-    const updateData: {
-      id: string;
-      company_id: string;
-      role?: string;
-      name?: string;
-      username?: string;
-    } = { 
-      id: userId, 
-      company_id: companyId
-    };
-    
-    // Preserve existing role if not explicitly provided
-    if (role) {
-      updateData.role = role;
-    } else if (existing?.role) {
-      updateData.role = existing.role;
-    }
-    
-    // Preserve other fields from existing profile
-    if (existing) {
-      if (existing.name) updateData.name = existing.name;
-      if (existing.username) updateData.username = existing.username;
-    }
-
-    const { error } = await supabase
-      .from('profiles')
-      .upsert(updateData)
-      .select();
-
+    // Super-admin only, enforced by admin_set_user_company(). The old
+    // read-then-upsert is gone: the RPC preserves the other columns
+    // server-side, so there is no window where a concurrent write loses
+    // the user's name or role.
+    const { error } = await supabase.rpc('admin_set_user_company', {
+      p_user_id: userId,
+      p_company_id: companyId
+    });
     if (error) throw new Error(`Failed to update user company assignment: ${error.message}`);
+
+    if (role) {
+      await this.updateUserRole(userId, role);
+    }
   },
 
   async getAllCompanies(): Promise<Company[]> {
@@ -1068,9 +1087,12 @@ export const apiService = {
     return { companyId: data[0].company_id, companyName: data[0].company_name };
   },
 
-  async markInviteUsed(token: string): Promise<void> {
-    await supabase.from('company_invites').update({ used_at: new Date().toISOString() }).eq('token', token);
-  },
+  // markInviteUsed() is gone. Marking an invite consumed is no longer a
+  // separate client call — claimInvite() validates the token, consumes
+  // it, and grants membership in one transaction. The old standalone
+  // update was backed by an RLS policy of
+  // `USING (used_at IS NULL) WITH CHECK (true)`, which let any signed-in
+  // user burn any outstanding invite for any company.
 
   async getCompanyByName(name: string): Promise<Company | null> {
     const { data, error } = await supabase.rpc('get_company_by_name', { p_name: name });
@@ -1125,13 +1147,15 @@ export const apiService = {
     type: 'no_show' | 'refresh',
     ticket: DigTicket,
     actor: string,
-    adminEmails: string[],
     options?: { utilities?: string[]; notes?: string }
   ): Promise<void> {
-    if (adminEmails.length === 0) return;
+    // No recipient list is sent. The function resolves recipients itself
+    // via get_alert_emails(), which refuses callers outside the company —
+    // so this can no longer be used to mail arbitrary addresses.
     const { data, error } = await supabase.functions.invoke('send-alert-email', {
       body: {
         type,
+        companyId: ticket.companyId,
         ticketNo: ticket.ticketNo,
         jobNumber: ticket.jobNumber,
         street: ticket.street,
@@ -1141,23 +1165,22 @@ export const apiService = {
         actor,
         utilities: options?.utilities,
         notes: options?.notes,
-        adminEmails,
       },
     });
     throwIfEmailFailed(error, data, 'send-alert-email function error');
   },
 
-  async testAlertEmail(toEmail: string): Promise<void> {
+  /** Sends a test alert to the caller's own configured alert address. */
+  async testAlertEmail(): Promise<void> {
     const { data, error } = await supabase.functions.invoke('send-alert-email', {
       body: {
-        type: 'no_show',
+        type: 'test',
         ticketNo: 'TEST-001',
         jobNumber: 'TEST',
         street: '123 Test Street',
         city: 'Test City',
         state: 'TX',
         actor: 'DigTrack Pro Test',
-        adminEmails: [toEmail],
       },
     });
     throwIfEmailFailed(error, data, 'testAlertEmail error');
