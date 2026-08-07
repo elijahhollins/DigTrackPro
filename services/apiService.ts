@@ -1,5 +1,6 @@
 
 import { supabase } from '../lib/supabaseClient.ts';
+import { withOffline } from './withOffline.ts';
 import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job, NoShowRecord, JobPrint, PrintMarker, Company, PdfAnnotation, InventoryItem, InventoryItemType, InventoryLocation, InventoryMovement, InventoryMovementType } from '../types.ts';
 
 const mapInvItem = (d: Record<string, unknown>): InventoryItem => ({
@@ -319,10 +320,20 @@ function throwIfEmailFailed(error: unknown, data: Record<string, unknown> | null
   }
 }
 
-export const apiService = {
+/**
+ * The raw data layer. Exported wrapped as `apiService` at the bottom of this file -- import that,
+ * not this, so reads keep working when the device loses signal.
+ *
+ * NOTE ON ERROR HANDLING: the reads listed in services/offlinePolicy.ts throw on failure rather
+ * than returning [] or null. They used to swallow errors, which meant a Supabase outage rendered a
+ * fully loaded UI showing zero tickets -- indistinguishable from a new empty account, and a
+ * genuinely dangerous thing to show a locating crew. The offline wrapper also cannot fall back to
+ * cache for a failure it never sees. If you add a cached read here, make it throw.
+ */
+const rawApiService = {
   async getCompany(id: string): Promise<Company | null> {
     const { data, error } = await supabase.from('companies').select('*').eq('id', id).single();
-    if (error) return null;
+    if (error) throw error;
     return {
       id: data.id,
       name: data.name,
@@ -341,7 +352,7 @@ export const apiService = {
 
   async getUsers(): Promise<UserRecord[]> {
     const { data, error } = await supabase.from('profiles').select('*');
-    if (error) return [];
+    if (error) throw error;
     return (data || []).map(u => ({ 
       ...u, 
       companyId: u.company_id,
@@ -389,7 +400,7 @@ export const apiService = {
 
   async getJobs(): Promise<Job[]> {
     const { data, error } = await supabase.from('jobs').select('*');
-    if (error) return [];
+    if (error) throw error;
     return (data || []).map(mapJob);
   },
 
@@ -418,7 +429,7 @@ export const apiService = {
 
   async getTickets(): Promise<DigTicket[]> {
     const { data, error } = await supabase.from('tickets').select('*');
-    if (error) return [];
+    if (error) throw error;
     return (data || []).map(t => ({
         id: t.id,
         companyId: t.company_id,
@@ -552,7 +563,7 @@ export const apiService = {
 
   async getPhotos(): Promise<JobPhoto[]> {
     const { data, error } = await supabase.from('photos').select('*');
-    if (error) return [];
+    if (error) throw error;
     return (data || []).map(p => ({ ...p, jobNumber: p.job_number, companyId: p.company_id, dataUrl: p.data_url, timestamp: new Date(p.created_at).getTime() }));
   },
 
@@ -575,7 +586,7 @@ export const apiService = {
 
   async getNotes(): Promise<JobNote[]> {
     const { data, error } = await supabase.from('notes').select('*').order('timestamp', { ascending: true });
-    if (error) return [];
+    if (error) throw error;
     return (data || []).map(n => ({ ...n, jobNumber: n.job_number, companyId: n.company_id, ticketId: n.ticket_id || '' }));
   },
 
@@ -616,7 +627,7 @@ export const apiService = {
 
   async getNoShows(): Promise<NoShowRecord[]> {
     const { data, error } = await supabase.from('no_shows').select('*');
-    if (error) return [];
+    if (error) throw error;
     return (data || []).map(n => ({ id: n.id, ticketId: n.ticket_id, companyId: n.company_id, jobNumber: n.job_number, utilities: n.utilities || [], companies: n.companies || '', notes: n.notes || undefined, author: n.author || '', timestamp: Number(n.timestamp) }));
   },
 
@@ -642,7 +653,7 @@ export const apiService = {
 
   async getJobPrints(jobNumber: string): Promise<JobPrint[]> {
     const { data, error } = await supabase.from('job_prints').select('*').eq('job_number', jobNumber);
-    if (error) return [];
+    if (error) throw error;
     return (data || []).map(p => {
       const { data: { publicUrl } } = supabase.storage.from('job-prints').getPublicUrl(p.storage_path);
       return {
@@ -1163,3 +1174,12 @@ export const apiService = {
     throwIfEmailFailed(error, data, 'testAlertEmail error');
   }
 };
+
+/**
+ * Offline-aware facade over rawApiService.
+ *
+ * The export name is unchanged on purpose: every existing call site keeps working untouched.
+ * Reads listed in services/offlinePolicy.ts serve from an on-device cache when the backend is
+ * unreachable; everything else is online-only by default.
+ */
+export const apiService = withOffline(rawApiService);

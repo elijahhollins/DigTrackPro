@@ -4,6 +4,10 @@ import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, JobNo
 import { getTicketStatus, getStatusColor, addDaysToDateStr, formatDateStr } from './utils/dateUtils.ts';
 import { apiService } from './services/apiService.ts';
 import { supabase, isSupabaseConfigured } from './lib/supabaseClient.ts';
+import { initConnectivity } from './lib/connectivity.ts';
+import { setCacheIdentity } from './lib/offlineCache.ts';
+import { purgeOtherUsers } from './lib/offlineDb.ts';
+import { ConnectionBanner, DataLoadError } from './components/ConnectionBanner.tsx';
 import type { AuthChangeEvent } from '@supabase/supabase-js';
 import TicketForm from './components/TicketForm.tsx';
 import JobForm from './components/JobForm.tsx';
@@ -80,6 +84,8 @@ const App: React.FC = () => {
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [authError, setAuthError] = useState<string>('');
+  // Why the operational data is empty, if it is. null means "genuinely empty", not "failed".
+  const [dataLoadError, setDataLoadError] = useState<unknown>(null);
   const [isProcessing] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   
@@ -243,6 +249,9 @@ const App: React.FC = () => {
         }
         
         setSessionUser(matchedProfile);
+        // Stamp the cache with this user's company so cached records can be checked against the
+        // live session before being served -- a second guard behind the per-user database.
+        setCacheIdentity({ userId: matchedProfile.id, companyId: matchedProfile.companyId || null });
         // Load Company Data - fetches the company associated with this user
         // The company name will be displayed in the top-left header (line 389)
         if (matchedProfile.companyId) {
@@ -304,7 +313,18 @@ const App: React.FC = () => {
       setPhotos(allPhotosRes.status === 'fulfilled' ? allPhotosRes.value : []);
       setNotes(allNotesRes.status === 'fulfilled' ? allNotesRes.value : []);
 
-    } catch (error) { 
+      // Record why a list is empty, so the UI can say "we couldn't load your tickets" instead of
+      // rendering an empty account. These reads now throw rather than swallowing errors, so a
+      // rejection here is real -- previously allSettled never saw one because the service layer
+      // had already converted it to [].
+      const loadFailure =
+        [allTicketsRes, allJobsRes, allPhotosRes, allNotesRes].find(
+          (r): r is PromiseRejectedResult => r.status === 'rejected'
+        )?.reason ?? null;
+      setDataLoadError(loadFailure);
+      if (loadFailure) console.warn('Operational data failed to load:', loadFailure);
+
+    } catch (error) {
       console.error("Critical Init Error:", error);
       setAuthError((error as any)?.message || 'Failed to load your profile. Please try logging in again.');
     } finally { 
@@ -314,8 +334,16 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
+    initConnectivity();
     initApp();
-    const { data: authListener } = supabase.auth.onAuthStateChange((event: AuthChangeEvent) => {
+    const { data: authListener } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, session) => {
+      // Drop every on-device cache that does not belong to the user now signed in. These are
+      // shared truck tablets: without this, the next tech to log in could read the previous
+      // tech's cached tickets, and RLS is not in the loop once data is on the device.
+      const nextUserId = session?.user?.id ?? null;
+      setCacheIdentity({ userId: nextUserId, companyId: null });
+      void purgeOtherUsers(nextUserId);
+
       if (event === 'SIGNED_IN') setIsLoading(true);
       initApp();
     });
@@ -871,6 +899,9 @@ const App: React.FC = () => {
       {/* ── MAIN CONTENT ── */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
 
+        {/* Renders only when the backend is unreachable. Silent when everything is fine. */}
+        <ConnectionBanner />
+
         {/* Top bar */}
         <header className={`app-header shrink-0 h-14 border-b flex items-center gap-3 px-5 z-30 relative ${isDarkMode ? 'bg-[#07101f]/90 border-white/[0.05]' : 'bg-white/90 border-slate-200'} backdrop-blur-xl`}>
           {/* Mobile: company name */}
@@ -930,6 +961,11 @@ const App: React.FC = () => {
         {/* Scrollable content */}
         <main key={activeView} className="flex-1 overflow-y-auto view-transition pb-20 sm:pb-0">
           <div className="max-w-[1400px] mx-auto px-5 py-6">
+
+            {/* An empty ticket list because the load failed must not look like an empty account. */}
+            {dataLoadError != null && (
+              <DataLoadError error={dataLoadError} onRetry={() => { void initApp(); }} />
+            )}
 
             {activeView === 'dashboard' && (
               <div className="space-y-6">
