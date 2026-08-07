@@ -1,0 +1,171 @@
+name: Restore Drill
+
+# Monthly proof that the backups in R2 can actually be restored.
+#
+# This is the step that turns "we have backups" into "we have backups that work". It pulls the
+# most recent dump, replays it into a throwaway PostgreSQL 17 container, and asserts the result
+# is real -- correct row counts, intact tenancy references, auth data present, RLS still on.
+#
+# It deliberately runs against vanilla PostgreSQL rather than a Supabase project, so it is free
+# and repeatable. That does mean it cannot exercise GoTrue login. Do the full-fidelity drill by
+# hand once a year against a real Supabase project -- see docs/DISASTER_RECOVERY.md.
+
+on:
+  schedule:
+    # 09:00 UTC on the 5th, a few days after the monthly dump is promoted on the 1st.
+    - cron: '0 9 5 * *'
+  workflow_dispatch:
+    inputs:
+      backup_path:
+        description: 'R2 path to restore (blank = newest daily for digtrackpro)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        # Must match the source server's major version (17). A restore drill against the wrong
+        # major version proves the wrong thing.
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: drill
+          POSTGRES_DB: drill
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGURL: postgresql://postgres:drill@localhost:5432/drill
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install age and psql client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq age postgresql-client
+
+      - name: Locate the backup to restore
+        id: locate
+        run: |
+          set -euo pipefail
+          requested="${{ github.event.inputs.backup_path }}"
+          if [ -n "$requested" ]; then
+            path="$requested"
+          else
+            # Newest daily backup. Paths are ISO dates, so lexical sort is chronological.
+            path="$(aws s3 ls "s3://$R2_BUCKET/digtrackpro/daily/" \
+                      --endpoint-url "$R2_ENDPOINT" \
+                    | awk '{print $2}' | tr -d '/' | sort | tail -1)"
+            if [ -z "$path" ]; then
+              echo "::error::No backups found in R2. Has the backup workflow ever run successfully?"
+              exit 1
+            fi
+            path="digtrackpro/daily/$path"
+          fi
+          echo "path=$path" >> "$GITHUB_OUTPUT"
+          echo "Restoring from: $path"
+
+      - name: Download and decrypt
+        env:
+          AGE_PRIVATE_KEY: ${{ secrets.BACKUP_AGE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${AGE_PRIVATE_KEY:-}" ]; then
+            echo "::error::BACKUP_AGE_PRIVATE_KEY is not set, so the drill cannot decrypt the backup."
+            echo "::error::This is the one place the private key is needed. Keep it out of the backup workflow."
+            exit 1
+          fi
+          mkdir -p restore
+          aws s3 cp "s3://$R2_BUCKET/${{ steps.locate.outputs.path }}/" restore/ \
+            --recursive --endpoint-url "$R2_ENDPOINT"
+
+          printf '%s\n' "$AGE_PRIVATE_KEY" > key.txt
+          chmod 600 key.txt
+          for f in restore/*.age; do
+            age -d -i key.txt -o "${f%.age}" "$f"
+          done
+          rm -f key.txt
+          ls -la restore/
+
+      - name: Prepare vanilla PostgreSQL to accept a Supabase dump
+        run: psql "$PGURL" -v ON_ERROR_STOP=1 -f scripts/backup/drill-prelude.sql
+
+      - name: Replay roles and schema
+        run: |
+          set -euo pipefail
+          # ON_ERROR_STOP=0 here on purpose: the dump references Supabase-only extensions
+          # (pg_graphql, pgjwt, supabase_vault) that cannot exist in vanilla PostgreSQL. Those
+          # errors are expected. The assertions in the verify step are what decide pass/fail.
+          psql "$PGURL" -v ON_ERROR_STOP=0 -f restore/roles.sql  2>&1 | tail -20 || true
+          psql "$PGURL" -v ON_ERROR_STOP=0 -f restore/schema.sql 2>&1 | tail -40 || true
+
+      - name: Replay data
+        run: |
+          set -euo pipefail
+          # ON_ERROR_STOP=1 here: a data error is a real failure. Schema noise is tolerable,
+          # missing rows are not.
+          psql "$PGURL" -v ON_ERROR_STOP=1 -f restore/auth.sql
+          psql "$PGURL" -v ON_ERROR_STOP=1 -f restore/data.sql
+
+      - name: Assert the restore is real
+        run: psql "$PGURL" -v ON_ERROR_STOP=1 -f scripts/backup/verify-restore.sql
+
+      - name: Compare row counts against dump time
+        run: |
+          set -euo pipefail
+          psql "$PGURL" -Atc "
+            select coalesce(jsonb_object_agg(t, n), '{}'::jsonb)
+            from (
+              select c.relname as t,
+                     (xpath('/row/c/text()',
+                            query_to_xml(format('select count(*) as c from public.%I', c.relname),
+                                         false, true, '')))[1]::text::bigint as n
+              from pg_class c
+              join pg_namespace ns on ns.oid = c.relnamespace
+              where ns.nspname = 'public' and c.relkind = 'r'
+            ) s;
+          " > restored-counts.json
+
+          echo "Expected: $(cat restore/counts.json)"
+          echo "Restored: $(cat restored-counts.json)"
+
+          # Every table present at dump time must have exactly the same row count now. A table
+          # that lost rows -- or vanished entirely -- fails the drill.
+          jq -e -n \
+            --slurpfile expected restore/counts.json \
+            --slurpfile actual restored-counts.json '
+            ($expected[0] // {}) as $e | ($actual[0] // {}) as $a
+            | [ $e | to_entries[] | select(($a[.key] // -1) != .value)
+                | "\(.key): expected \(.value), got \($a[.key] // "MISSING")" ] as $bad
+            | if ($bad | length) > 0
+              then ("Row count mismatch:\n" + ($bad | join("\n")) | halt_error(1))
+              else "All \($e | length) table row counts match." end
+          '
+
+      - name: Report drill success to heartbeat
+        if: success()
+        env:
+          HEARTBEAT_URL: ${{ secrets.RESTORE_DRILL_HEARTBEAT_URL }}
+        run: |
+          if [ -n "${HEARTBEAT_URL:-}" ]; then
+            curl -fsS --retry 3 --max-time 20 "$HEARTBEAT_URL" || \
+              echo "::warning::Heartbeat ping failed (drill itself passed)."
+          fi

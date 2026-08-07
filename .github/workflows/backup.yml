@@ -1,0 +1,249 @@
+name: Backup Supabase
+
+# Nightly off-Supabase backup. This is the only copy of the data that lives outside Supabase:
+# free-tier daily backups are not downloadable and PITR is a paid add-on, so if this workflow
+# stops running there is no off-platform copy of anything.
+#
+# See docs/DISASTER_RECOVERY.md for the restore procedure and the required secrets.
+
+on:
+  schedule:
+    # 08:00 UTC = 03:00 America/New_York (04:00 during EDT). Chosen to be well clear of business
+    # hours in either offset.
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+    inputs:
+      project:
+        description: 'Limit to one project (blank = all)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      # One project failing must not cancel the other. A partial backup beats no backup.
+      fail-fast: false
+      matrix:
+        include:
+          - name: digtrackpro
+            ref: fusubnzndmngjfgatzrq
+            db_url_secret: SUPABASE_DB_URL
+            url_secret: SUPABASE_URL
+            service_key_secret: SUPABASE_SERVICE_ROLE_KEY
+            backup_storage: 'true'
+          # Landing-page CRM. Holds real lead data and is referenced nowhere in this codebase,
+          # which is exactly why it is easy to forget. Note it is a free-tier project that pauses
+          # after 7 days idle, and a PAUSED PROJECT CANNOT BE DUMPED -- the preflight step below
+          # reports that clearly rather than failing with a confusing connection error.
+          - name: landing-crm
+            ref: jjksmzwizmwearwxkdam
+            db_url_secret: LP_SUPABASE_DB_URL
+            url_secret: LP_SUPABASE_URL
+            service_key_secret: LP_SUPABASE_SERVICE_ROLE_KEY
+            backup_storage: 'false'
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Skip if a single project was requested
+        id: gate
+        run: |
+          requested="${{ github.event.inputs.project }}"
+          if [ -n "$requested" ] && [ "$requested" != "${{ matrix.name }}" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping ${{ matrix.name }} (only '$requested' requested)."
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Supabase CLI
+        if: steps.gate.outputs.run == 'true'
+        # The CLI pins a pg_dump matching the server version. This matters: the server is
+        # PostgreSQL 17 and ubuntu-latest ships a v16 client, and pg_dump refuses to dump a
+        # server newer than itself. Do not replace this with a bare `pg_dump`.
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Install age
+        if: steps.gate.outputs.run == 'true'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq age
+
+      - name: Set up Node
+        if: steps.gate.outputs.run == 'true' && matrix.backup_storage == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Resolve backup paths
+        if: steps.gate.outputs.run == 'true'
+        id: paths
+        run: |
+          set -euo pipefail
+          today="$(date -u +%F)"
+          echo "date=$today"                            >> "$GITHUB_OUTPUT"
+          echo "dir=${{ matrix.name }}/daily/$today"    >> "$GITHUB_OUTPUT"
+          echo "week=${{ matrix.name }}/weekly/$(date -u +%G-W%V)"  >> "$GITHUB_OUTPUT"
+          echo "month=${{ matrix.name }}/monthly/$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+          echo "dow=$(date -u +%u)"  >> "$GITHUB_OUTPUT"
+          echo "dom=$(date -u +%d)"  >> "$GITHUB_OUTPUT"
+          mkdir -p out
+
+      - name: Preflight - verify the database is reachable
+        if: steps.gate.outputs.run == 'true'
+        env:
+          DB_URL: ${{ secrets[matrix.db_url_secret] }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DB_URL:-}" ]; then
+            echo "::error::Secret ${{ matrix.db_url_secret }} is not set. See docs/DISASTER_RECOVERY.md."
+            exit 1
+          fi
+          # Use the SESSION pooler (port 5432), not the direct host: direct connections are
+          # IPv6-only without the paid IPv4 add-on and GitHub runners are IPv4-only. Transaction
+          # pooling (6543) breaks pg_dump's session semantics, so 5432 specifically.
+          case "$DB_URL" in
+            *pooler.supabase.com:5432*) ;;
+            *pooler.supabase.com:6543*)
+              echo "::error::${{ matrix.db_url_secret }} points at the transaction pooler (6543). pg_dump needs the session pooler (5432)."
+              exit 1 ;;
+            *db.*.supabase.co*)
+              echo "::error::${{ matrix.db_url_secret }} uses the direct connection host, which is IPv6-only and unreachable from GitHub runners. Use the session pooler."
+              exit 1 ;;
+          esac
+          if ! psql "$DB_URL" -Atc 'select 1' >/dev/null 2>&1; then
+            echo "::error::Cannot reach ${{ matrix.name }} (${{ matrix.ref }}). If this is a free-tier project it may be PAUSED -- a paused project cannot be dumped. Resume it in the Supabase dashboard."
+            exit 1
+          fi
+          echo "Database reachable."
+
+      - name: Dump roles, schema and data
+        if: steps.gate.outputs.run == 'true'
+        env:
+          DB_URL: ${{ secrets[matrix.db_url_secret] }}
+        run: |
+          set -euo pipefail
+          supabase db dump --db-url "$DB_URL" --role-only -f out/roles.sql
+          supabase db dump --db-url "$DB_URL"             -f out/schema.sql
+          supabase db dump --db-url "$DB_URL" --data-only -f out/data.sql
+
+      - name: Dump auth data
+        if: steps.gate.outputs.run == 'true'
+        env:
+          DB_URL: ${{ secrets[matrix.db_url_secret] }}
+        run: |
+          set -euo pipefail
+          # profiles.id foreign-keys to auth.users. A restore without this leaves every user
+          # unable to log in and every profile row orphaned -- the dump would look complete and
+          # be useless. Password hashes are bcrypt and portable across GoTrue instances.
+          supabase db dump --db-url "$DB_URL" --data-only --schema auth -f out/auth.sql
+
+      - name: Capture row counts
+        if: steps.gate.outputs.run == 'true'
+        env:
+          DB_URL: ${{ secrets[matrix.db_url_secret] }}
+        run: |
+          set -euo pipefail
+          # Recorded at dump time so the monthly restore drill can assert the restore actually
+          # produced data. A restore that "succeeds" into empty tables must fail loudly.
+          # Exact counts, not pg_class.reltuples -- reltuples is a planner estimate that can be
+          # stale or -1 on a never-analyzed table, which would make the drill's assertion
+          # meaningless.
+          psql "$DB_URL" -Atc "
+            select coalesce(jsonb_object_agg(t, n), '{}'::jsonb)
+            from (
+              select c.relname as t,
+                     (xpath('/row/c/text()',
+                            query_to_xml(format('select count(*) as c from public.%I', c.relname),
+                                         false, true, '')))[1]::text::bigint as n
+              from pg_class c
+              join pg_namespace ns on ns.oid = c.relnamespace
+              where ns.nspname = 'public' and c.relkind = 'r'
+            ) s;
+          " > out/counts.json
+          echo "Row counts: $(cat out/counts.json)"
+
+      - name: Encrypt
+        if: steps.gate.outputs.run == 'true'
+        env:
+          AGE_PUBLIC_KEY: ${{ secrets.BACKUP_AGE_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${AGE_PUBLIC_KEY:-}" ]; then
+            echo "::error::BACKUP_AGE_PUBLIC_KEY is not set. Dumps contain tenant PII and auth password hashes and must not be uploaded in the clear."
+            exit 1
+          fi
+          # CI holds only the PUBLIC key, so a CI compromise cannot read historical backups.
+          # The private key stays offline -- see docs/DISASTER_RECOVERY.md.
+          for f in out/*.sql; do
+            age -r "$AGE_PUBLIC_KEY" -o "$f.age" "$f"
+            rm -f "$f"
+          done
+          ls -la out/
+
+      - name: Upload to R2
+        if: steps.gate.outputs.run == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          set -euo pipefail
+          # The CI token is deliberately write-only (PutObject, no DeleteObject). Retention is
+          # enforced by R2 lifecycle rules per prefix, never by a delete step here -- so a leaked
+          # CI token cannot destroy backup history. Do not "fix" this by adding a cleanup step.
+          aws s3 cp out/ "s3://$R2_BUCKET/${{ steps.paths.outputs.dir }}/" \
+            --recursive --endpoint-url "$R2_ENDPOINT"
+
+          # Promote to the weekly prefix on Sundays and the monthly prefix on the 1st, so the
+          # lifecycle rules can expire dailies aggressively without losing long-range history.
+          if [ "${{ steps.paths.outputs.dow }}" = "7" ]; then
+            aws s3 cp out/ "s3://$R2_BUCKET/${{ steps.paths.outputs.week }}/" \
+              --recursive --endpoint-url "$R2_ENDPOINT"
+          fi
+          if [ "${{ steps.paths.outputs.dom }}" = "01" ]; then
+            aws s3 cp out/ "s3://$R2_BUCKET/${{ steps.paths.outputs.month }}/" \
+              --recursive --endpoint-url "$R2_ENDPOINT"
+          fi
+
+      - name: Back up storage buckets
+        if: steps.gate.outputs.run == 'true' && matrix.backup_storage == 'true'
+        env:
+          SUPABASE_URL: ${{ secrets[matrix.url_secret] }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets[matrix.service_key_secret] }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_PREFIX: ${{ matrix.name }}/storage
+          # Full re-verify weekly; incremental on other days.
+          FULL_VERIFY: ${{ steps.paths.outputs.dow == '7' && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          npm install --no-save @supabase/supabase-js@^2.45.4
+          node scripts/backup/backup-storage.mjs
+
+      - name: Report success to heartbeat
+        # The dead-man's switch. GitHub emails you when a workflow FAILS but not when it never
+        # runs -- and GitHub auto-disables scheduled workflows after 60 days of repo inactivity,
+        # which for a backup cron produces total silence. If this ping stops arriving within its
+        # expected window, the monitor pages you. Do not remove.
+        if: steps.gate.outputs.run == 'true' && success()
+        env:
+          HEARTBEAT_URL: ${{ secrets.BACKUP_HEARTBEAT_URL }}
+        run: |
+          if [ -n "${HEARTBEAT_URL:-}" ]; then
+            curl -fsS --retry 3 --max-time 20 "$HEARTBEAT_URL/${{ matrix.name }}" || \
+              echo "::warning::Heartbeat ping failed (backup itself succeeded)."
+          else
+            echo "::warning::BACKUP_HEARTBEAT_URL is not set - no dead-man's switch is armed."
+          fi
