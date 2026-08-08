@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test utils/*.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.2",

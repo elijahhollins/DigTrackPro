@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SMS Opt-In — DigTrack Pro</title>
+  <meta name="description" content="How DigTrack Pro collects SMS consent from each individual user at account creation." />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --navy: #0d1b2a;
+      --navy-mid: #132237;
+      --navy-light: #1a2f4a;
+      --blue: #2563eb;
+      --blue-bright: #3b82f6;
+      --blue-glow: rgba(59,130,246,0.15);
+      --text: #e2e8f0;
+      --text-muted: #94a3b8;
+      --border: rgba(59,130,246,0.2);
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--navy);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      font-weight: 400;
+      line-height: 1.75;
+      min-height: 100vh;
+    }
+
+    /* Header */
+    header {
+      border-bottom: 1px solid var(--border);
+      background: var(--navy-mid);
+      padding: 1.25rem 2rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .logo-mark {
+      width: 32px; height: 32px;
+      background: var(--blue);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'Syne', sans-serif;
+      font-weight: 800;
+      font-size: 0.85rem;
+      color: #fff;
+      letter-spacing: -0.5px;
+    }
+    .logo-text {
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      font-size: 1.1rem;
+      color: #fff;
+      letter-spacing: -0.3px;
+    }
+    .logo-text span { color: var(--blue-bright); }
+
+    /* Hero band */
+    .hero {
+      background: linear-gradient(135deg, var(--navy-mid) 0%, var(--navy-light) 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 3rem 2rem 2.5rem;
+      text-align: center;
+    }
+    .hero-badge {
+      display: inline-block;
+      background: var(--blue-glow);
+      border: 1px solid var(--border);
+      color: var(--blue-bright);
+      font-size: 0.75rem;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 0.3rem 0.85rem;
+      border-radius: 99px;
+      margin-bottom: 1rem;
+    }
+    .hero h1 {
+      font-family: 'Syne', sans-serif;
+      font-weight: 800;
+      font-size: clamp(1.75rem, 4vw, 2.5rem);
+      letter-spacing: -0.03em;
+      color: #fff;
+      margin-bottom: 0.5rem;
+    }
+    .hero p {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+    }
+
+    /* Layout */
+    .container {
+      max-width: 780px;
+      margin: 0 auto;
+      padding: 3rem 2rem 5rem;
+    }
+
+    /* Sections */
+    .section {
+      margin-bottom: 2.75rem;
+      padding-bottom: 2.75rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .section:last-child { border-bottom: none; margin-bottom: 0; }
+
+    .section h2 {
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      font-size: 1.15rem;
+      color: #fff;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    .section h2::before {
+      content: '';
+      display: inline-block;
+      width: 4px; height: 1.15rem;
+      background: var(--blue);
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+
+    p { color: var(--text-muted); margin-bottom: 0.85rem; font-size: 0.95rem; }
+    p:last-child { margin-bottom: 0; }
+
+    ul {
+      list-style: none;
+      padding: 0;
+      margin: 0.5rem 0;
+    }
+    ul li {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      padding: 0.35rem 0 0.35rem 1.4rem;
+      position: relative;
+    }
+    ul li::before {
+      content: '→';
+      position: absolute;
+      left: 0;
+      color: var(--blue-bright);
+      font-size: 0.8rem;
+    }
+
+    a { color: var(--blue-bright); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .highlight-box {
+      background: var(--blue-glow);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--blue);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin: 1rem 0;
+    }
+    .highlight-box p { color: var(--text); font-size: 0.9rem; margin: 0; }
+
+    /* Numbered flow steps */
+    .step {
+      display: flex;
+      gap: 1rem;
+      padding: 1.25rem 0;
+      border-bottom: 1px solid rgba(59,130,246,0.1);
+    }
+    .step:last-of-type { border-bottom: none; }
+    .step-number {
+      flex-shrink: 0;
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      background: var(--blue);
+      color: #fff;
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      font-size: 0.9rem;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .step-body { flex: 1; min-width: 0; }
+    .step-body h3 {
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      font-size: 1rem;
+      color: #fff;
+      margin-bottom: 0.35rem;
+    }
+    .shot {
+      margin-top: 0.9rem;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      background: var(--navy-mid);
+    }
+    .shot img { display: block; width: 100%; height: auto; }
+    .shot figcaption {
+      padding: 0.6rem 0.9rem;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      border-top: 1px solid rgba(59,130,246,0.12);
+    }
+    .shot-placeholder {
+      padding: 2rem 1rem;
+      text-align: center;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      border: 1px dashed rgba(59,130,246,0.35);
+      margin: 0.75rem;
+      border-radius: 8px;
+    }
+
+    /* Message samples */
+    .msg {
+      background: var(--navy-mid);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 0.9rem 1.1rem;
+      margin-bottom: 0.75rem;
+      color: var(--text);
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+    .msg-label {
+      display: block;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--blue-bright);
+      margin-bottom: 0.35rem;
+    }
+
+    footer {
+      text-align: center;
+      padding: 1.5rem;
+      border-top: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 0.8rem;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo-mark">DT</div>
+  <div class="logo-text">DigTrack <span>Pro</span></div>
+</header>
+
+<div class="hero">
+  <div class="hero-badge">SMS Program</div>
+  <h1>SMS Opt-In &amp; Consent</h1>
+  <p>How DigTrack Pro collects text message consent from every individual user</p>
+</div>
+
+<div class="container">
+
+  <div class="section">
+    <h2>How Users Opt In</h2>
+    <p>DigTrack Pro is an invite-only application for excavation and utility contractors. A company administrator sends an invite link to a crew member, and that crew member creates their own account.</p>
+    <div class="highlight-box">
+      <p><strong>Each individual user provides their own SMS consent at account creation, inside their own authenticated session. An administrator cannot consent on another user's behalf, and there is no screen anywhere in DigTrack Pro where one user can enter or edit another user's mobile number.</strong></p>
+    </div>
+    <p>The mobile number field is optional. An account can be created without it, and leaving the consent checkbox unchecked never blocks registration — it simply means that user receives no text messages. Consent is stored per user with a timestamp, the exact version of the consent language shown, the IP address, and the browser user agent.</p>
+    <p>Users who already had an account before this consent flow existed are shown the same optional prompt once when they next sign in, and can opt in or out at any time from their account settings.</p>
+  </div>
+
+  <div class="section">
+    <h2>The Opt-In Flow, Step by Step</h2>
+
+    <!--
+      Screenshots: drop the four PNGs below into public/sms-opt-in/ using these
+      exact filenames. Each figure shows a dashed placeholder until its image
+      exists, so the page never renders a broken image.
+    -->
+
+    <div class="step">
+      <div class="step-number">1</div>
+      <div class="step-body">
+        <h3>An administrator sends an invite</h3>
+        <p>From Team &amp; Settings, a company administrator generates a single-use invite link and sends it to the crew member. The administrator enters no phone number at any point.</p>
+        <figure class="shot">
+          <img src="/sms-opt-in/step-1.png" alt="DigTrack Pro admin screen generating a crew invite link" style="display:none"
+               onload="this.style.display='block'; const p=this.parentElement.querySelector('.shot-placeholder'); if (p) p.remove();" />
+          <div class="shot-placeholder">Screenshot 1 — Admin generates the invite link</div>
+          <figcaption>Step 1 — The administrator generates an invite link in Team &amp; Settings.</figcaption>
+        </figure>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-number">2</div>
+      <div class="step-body">
+        <h3>The recipient opens the invite link</h3>
+        <p>The link opens the DigTrack Pro registration form, pre-filled with the inviting company. The crew member enters their own name, email address, and password.</p>
+        <figure class="shot">
+          <img src="/sms-opt-in/step-2.png" alt="DigTrack Pro registration form opened from an invite link" style="display:none"
+               onload="this.style.display='block'; const p=this.parentElement.querySelector('.shot-placeholder'); if (p) p.remove();" />
+          <div class="shot-placeholder">Screenshot 2 — Registration form opened from the invite link</div>
+          <figcaption>Step 2 — The invited crew member opens the registration form.</figcaption>
+        </figure>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-number">3</div>
+      <div class="step-body">
+        <h3>The recipient enters their number and checks the consent box</h3>
+        <p>Below the password field, the form shows an optional <em>Mobile Number</em> input and a separate, unchecked SMS consent checkbox. The checkbox cannot be checked until a number has been entered, and it is never bundled with terms acceptance.</p>
+        <figure class="shot">
+          <img src="/sms-opt-in/step-3.png" alt="Mobile number field and unchecked SMS consent checkbox on the DigTrack Pro signup form" style="display:none"
+               onload="this.style.display='block'; const p=this.parentElement.querySelector('.shot-placeholder'); if (p) p.remove();" />
+          <div class="shot-placeholder">Screenshot 3 — Mobile number field and SMS consent checkbox</div>
+          <figcaption>Step 3 — The user enters their own number and checks the consent box.</figcaption>
+        </figure>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-number">4</div>
+      <div class="step-body">
+        <h3>Confirmation</h3>
+        <p>The account is created and the consent decision is stored. The user can see and change their SMS status at any time in Team &amp; Settings, and can turn text alerts off there or by replying STOP to any message.</p>
+        <figure class="shot">
+          <img src="/sms-opt-in/step-4.png" alt="DigTrack Pro account settings showing SMS text alerts enabled with a turn-off control" style="display:none"
+               onload="this.style.display='block'; const p=this.parentElement.querySelector('.shot-placeholder'); if (p) p.remove();" />
+          <div class="shot-placeholder">Screenshot 4 — Confirmation and the in-app opt-out control</div>
+          <figcaption>Step 4 — Confirmation, with the in-app opt-out control.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Consent Language</h2>
+    <p>This is the exact text shown beside the consent checkbox, word for word:</p>
+    <div class="highlight-box">
+      <p>I agree to receive SMS text messages from DigTrack Pro about my locate tickets, including status updates, expiration reminders, and crew assignment alerts. Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. See our <a href="/privacy">Privacy Policy</a> and <a href="/terms">Terms</a>.</p>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Sample Messages</h2>
+
+    <div class="msg">
+      <span class="msg-label">Expiration reminder</span>
+      DigTrack Pro: Locate ticket 2604123 for 1400 W Main St expires 08/14. Reply STOP to opt out, HELP for help.
+    </div>
+
+    <div class="msg">
+      <span class="msg-label">Crew assignment alert</span>
+      DigTrack Pro: You've been assigned to Job #4471 — 220 Oak Ave. Locate marks are valid through 08/20.
+    </div>
+
+    <div class="msg">
+      <span class="msg-label">Status update</span>
+      DigTrack Pro: Ticket 2604877 is now marked clear by all utilities. Msg &amp; data rates may apply.
+    </div>
+
+    <p>Message frequency varies with each user's ticket activity. Message and data rates may apply. Users can reply STOP to any message to unsubscribe, or HELP for support information.</p>
+  </div>
+
+  <div class="section">
+    <h2>Opting Out</h2>
+    <ul>
+      <li>Reply STOP, STOPALL, UNSUBSCRIBE, CANCEL, END, or QUIT to any message</li>
+      <li>Or turn off Text Alerts in Team &amp; Settings inside the app</li>
+      <li>Either method stops all SMS immediately; opting out never affects access to DigTrack Pro</li>
+      <li>Reply HELP to any message, or email <a href="mailto:hello@digtrack.app">hello@digtrack.app</a>, for support</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>More Information</h2>
+    <ul>
+      <li><a href="/privacy">Privacy Policy</a></li>
+      <li><a href="/terms">Terms of Service</a></li>
+      <li>Questions: <a href="mailto:hello@digtrack.app">hello@digtrack.app</a></li>
+    </ul>
+  </div>
+
+</div>
+
+<footer>
+  © 2026 DigTrack Pro · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a>
+</footer>
+
+</body>
+</html>

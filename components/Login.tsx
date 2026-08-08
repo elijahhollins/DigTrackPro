@@ -2,6 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient.ts';
 import { apiService } from '../services/apiService.ts';
+import SmsConsentFields from './SmsConsentFields.tsx';
+import { CONSENT_TEXT_VERSION, normalizeToE164 } from '../utils/smsConsent.ts';
 
 interface LoginProps {
   authError?: string;
@@ -13,6 +15,8 @@ const Login: React.FC<LoginProps> = ({ authError = '' }) => {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [companyName, setCompanyName] = useState('');
+  const [smsPhone, setSmsPhone] = useState('');
+  const [smsConsent, setSmsConsent] = useState(false);
   const [inviteToken, setInviteToken] = useState<string | null>(null);
   const [inviteCompanyId, setInviteCompanyId] = useState<string | null>(null);
   const [isValidatingInvite, setIsValidatingInvite] = useState(false);
@@ -78,6 +82,15 @@ const Login: React.FC<LoginProps> = ({ authError = '' }) => {
       return;
     }
 
+    // The mobile number is optional, but an unparseable one is worth catching
+    // here rather than silently dropping the user's consent decision.
+    const normalizedPhone = smsPhone.trim() ? normalizeToE164(smsPhone) : null;
+    if (isSignUp && smsPhone.trim() && !normalizedPhone) {
+      setError('Please enter a valid mobile number, for example (815) 555-0123 — or leave it blank.');
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
       if (isSignUp) {
         const { data, error: signUpError } = await supabase.auth.signUp({
@@ -86,6 +99,16 @@ const Login: React.FC<LoginProps> = ({ authError = '' }) => {
           options: {
             data: {
               display_name: name.trim(),
+              // Carried through email confirmation; the consent row itself is
+              // written server-side once the session exists (see App.tsx).
+              ...(normalizedPhone
+                ? {
+                    sms_phone: normalizedPhone,
+                    sms_consent: smsConsent,
+                    sms_consent_text_version: CONSENT_TEXT_VERSION
+                  }
+                : {}
+              ),
               ...(inviteCompanyId
                 ? { company_id: inviteCompanyId, invite_token: inviteToken }
                 : { company_name: companyName.trim() }
@@ -264,6 +287,19 @@ const Login: React.FC<LoginProps> = ({ authError = '' }) => {
               <label className={labelCls}>Password</label>
               <input required type="password" placeholder="••••••••" className={inputCls} value={password} onChange={(e) => setPassword(e.target.value)} />
             </div>
+
+            {isSignUp && (
+              <SmsConsentFields
+                phone={smsPhone}
+                onPhoneChange={setSmsPhone}
+                consented={smsConsent}
+                onConsentChange={setSmsConsent}
+                inputClassName={inputCls}
+                labelClassName={labelCls}
+                consentTextClassName="text-[10px] leading-relaxed text-slate-400 font-medium"
+                idPrefix="signup"
+              />
+            )}
 
             <button
               disabled={isSubmitting}

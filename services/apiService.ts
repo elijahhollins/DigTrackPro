@@ -1,6 +1,7 @@
 
 import { supabase } from '../lib/supabaseClient.ts';
 import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job, NoShowRecord, JobPrint, PrintMarker, Company, PdfAnnotation, InventoryItem, InventoryItemType, InventoryLocation, InventoryMovement, InventoryMovementType } from '../types.ts';
+import { normalizeToE164, ConsentSource, SmsConsentRow } from '../utils/smsConsent.ts';
 
 const mapInvItem = (d: Record<string, unknown>): InventoryItem => ({
   id: d.id as string,
@@ -342,11 +343,14 @@ export const apiService = {
   async getUsers(): Promise<UserRecord[]> {
     const { data, error } = await supabase.from('profiles').select('*');
     if (error) return [];
-    return (data || []).map(u => ({ 
-      ...u, 
+    return (data || []).map(u => ({
+      ...u,
       companyId: u.company_id,
       role: mapRole(u.role),
-      notifyEmail: u.notify_email || undefined
+      notifyEmail: u.notify_email || undefined,
+      smsPhone: u.sms_phone || undefined,
+      smsEnabled: u.sms_enabled === true,
+      smsConsentPromptedAt: u.sms_consent_prompted_at ? new Date(u.sms_consent_prompted_at).getTime() : undefined
     }));
   },
 
@@ -384,6 +388,92 @@ export const apiService = {
 
   async deleteUser(id: string): Promise<void> {
     const { error } = await supabase.from('profiles').delete().eq('id', id);
+    if (error) throw error;
+  },
+
+  /**
+   * Writes one row to the append-only SMS consent log and syncs the fast-lookup
+   * columns on the caller's profile.
+   *
+   * `userId` / `companyId` are checked against the live session rather than
+   * trusted: the database derives the stored user, company, IP address and user
+   * agent server-side, so a mismatch here means the caller is confused about who
+   * is signed in.
+   */
+  async recordSmsConsent(input: {
+    userId: string;
+    companyId: string;
+    phone: string;
+    consented: boolean;
+    consentTextVersion: string;
+    consentSource: ConsentSource;
+    inviteToken?: string;
+  }): Promise<void> {
+    const phone = normalizeToE164(input.phone);
+    if (!phone) throw new Error('A valid mobile number is required to record SMS consent.');
+
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) throw new Error('SMS consent can only be recorded for a signed-in user.');
+    if (session.user.id !== input.userId) {
+      throw new Error('SMS consent can only be recorded for the signed-in user.');
+    }
+
+    const { error } = await supabase.rpc('record_sms_consent', {
+      p_phone: phone,
+      p_consented: input.consented,
+      p_consent_text_version: input.consentTextVersion,
+      p_consent_source: input.consentSource,
+      p_invite_token: input.inviteToken || null
+    });
+    if (error) throw error;
+  },
+
+  /** Newest consent row for a user, or null. RLS limits this to the caller's own rows. */
+  async getLatestSmsConsent(userId: string): Promise<SmsConsentRow | null> {
+    const { data, error } = await supabase
+      .from('sms_consent')
+      .select('id, phone, consented, consented_at, revoked_at')
+      .eq('user_id', userId)
+      .order('consented_at', { ascending: false })
+      .limit(1);
+
+    if (error) {
+      console.error('getLatestSmsConsent error:', error);
+      return null;
+    }
+    const row = data?.[0];
+    if (!row) return null;
+    return {
+      id: row.id,
+      phone: row.phone,
+      consented: row.consented === true,
+      consentedAt: new Date(row.consented_at).getTime(),
+      revokedAt: row.revoked_at ? new Date(row.revoked_at).getTime() : null
+    };
+  },
+
+  async hasSmsConsentRecord(userId: string): Promise<boolean> {
+    const { count, error } = await supabase
+      .from('sms_consent')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId);
+
+    if (error) {
+      console.error('hasSmsConsentRecord error:', error);
+      return true; // fail closed: never re-prompt on a transient read failure
+    }
+    return (count || 0) > 0;
+  },
+
+  /** In-app opt-out. Revokes every live consent row for the signed-in user. */
+  async revokeSmsConsent(): Promise<void> {
+    const { error } = await supabase.rpc('revoke_sms_consent');
+    if (error) throw error;
+  },
+
+  /** Records that the one-time backfill prompt was shown, so it never reappears. */
+  async markSmsConsentPrompted(): Promise<void> {
+    const { error } = await supabase.rpc('mark_sms_consent_prompted');
     if (error) throw error;
   },
 

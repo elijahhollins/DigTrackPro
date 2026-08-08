@@ -121,6 +121,11 @@ export interface User {
   username: string;
   companyId: string;
   notifyEmail?: string;
+  /** Current confirmed mobile number in E.164. Only the owning user can set it. */
+  smsPhone?: string;
+  smsEnabled?: boolean;
+  /** Set once the one-time SMS consent backfill modal has been shown and dismissed. */
+  smsConsentPromptedAt?: number;
 }
 
 export interface UserRecord extends User {

@@ -8,8 +8,9 @@
   "rewrites": [
     { "source": "/terms", "destination": "/terms.html" },
     { "source": "/privacy", "destination": "/privacy.html" },
+    { "source": "/sms-opt-in", "destination": "/sms-opt-in.html" },
     { "source": "/walkthrough", "destination": "/walkthrough.html" },
     { "source": "/videos/jobs-labor-costs", "destination": "/tutorial-jobs-labor-costs.html" },
-    { "source": "/((?!api/|terms\\.html|privacy\\.html|walkthrough\\.html|tutorial-jobs-labor-costs\\.html).*)", "destination": "/index.html" }
+    { "source": "/((?!api/|terms\\.html|privacy\\.html|sms-opt-in\\.html|sms-opt-in/|walkthrough\\.html|tutorial-jobs-labor-costs\\.html).*)", "destination": "/index.html" }
   ]
 }

@@ -2,6 +2,8 @@
 import React, { useState } from 'react';
 import { UserRole, UserRecord, User, Company } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
+import SmsConsentFields from './SmsConsentFields.tsx';
+import { CONSENT_TEXT_VERSION, normalizeToE164 } from '../utils/smsConsent.ts';
 
 interface TeamManagementProps {
   users: UserRecord[];
@@ -26,6 +28,8 @@ interface TeamManagementProps {
   onUpdateNotificationEmail?: (email: string | null) => Promise<void>;
   onUpdateUserNotificationEmail?: (userId: string, email: string | null) => Promise<void>;
   onTestEmail?: () => Promise<void>;
+  /** Called after the signed-in user opts into or out of SMS, so the app can reload profiles. */
+  onSmsConsentChanged?: () => void;
 }
 
 const TeamManagement: React.FC<TeamManagementProps> = ({ 
@@ -49,7 +53,8 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
   onUpdateCurrentUserPassword,
   onUpdateNotificationEmail,
   onUpdateUserNotificationEmail,
-  onTestEmail
+  onTestEmail,
+  onSmsConsentChanged
 }) => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [pushStatus, setPushStatus] = useState<'granted' | 'denied' | 'default'>(typeof Notification !== 'undefined' ? Notification.permission : 'default');
@@ -92,6 +97,13 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
   const [myNewPassword, setMyNewPassword] = useState('');
   const [myConfirmPassword, setMyConfirmPassword] = useState('');
   const [isSavingMyProfile, setIsSavingMyProfile] = useState(false);
+
+  // SMS alerts state — always for the signed-in user only. There is deliberately
+  // no path here for an admin to enter somebody else's number.
+  const [smsPhoneInput, setSmsPhoneInput] = useState(sessionUser?.smsPhone || '');
+  const [smsConsentChecked, setSmsConsentChecked] = useState(false);
+  const [isSavingSms, setIsSavingSms] = useState(false);
+  const [smsError, setSmsError] = useState('');
 
   // Notification email editing state for other admin users
   const [editingEmailUserId, setEditingEmailUserId] = useState<string | null>(null);
@@ -326,6 +338,52 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
       alert(`Password reset email sent to ${username}.`);
     } catch (err: any) {
       alert('Failed to send reset email: ' + err.message);
+    }
+  };
+
+  const handleEnableSms = async () => {
+    setSmsError('');
+    const normalized = normalizeToE164(smsPhoneInput);
+    if (!normalized) {
+      setSmsError('Enter a valid mobile number, for example (815) 555-0123.');
+      return;
+    }
+    if (!smsConsentChecked) {
+      setSmsError('Please check the consent box to receive text messages.');
+      return;
+    }
+
+    setIsSavingSms(true);
+    try {
+      await apiService.recordSmsConsent({
+        userId: sessionUser.id,
+        companyId: sessionUser.companyId,
+        phone: normalized,
+        consented: true,
+        consentTextVersion: CONSENT_TEXT_VERSION,
+        consentSource: 'account_settings'
+      });
+      setSmsConsentChecked(false);
+      onSmsConsentChanged?.();
+    } catch (err: any) {
+      setSmsError('Could not turn on text alerts: ' + (err?.message || 'unknown error'));
+    } finally {
+      setIsSavingSms(false);
+    }
+  };
+
+  const handleDisableSms = async () => {
+    if (!confirm('Turn off SMS alerts? You will stop receiving text messages about your locate tickets.')) return;
+    setSmsError('');
+    setIsSavingSms(true);
+    try {
+      await apiService.revokeSmsConsent();
+      setSmsConsentChecked(false);
+      onSmsConsentChanged?.();
+    } catch (err: any) {
+      setSmsError('Could not turn off text alerts: ' + (err?.message || 'unknown error'));
+    } finally {
+      setIsSavingSms(false);
     }
   };
 
@@ -775,6 +833,72 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
 
       {/* AI Connection & Push Section */}
       <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Text alerts — self-service only. Consent is given by the person who
+            owns the number, in their own session, and can be withdrawn here. */}
+        <div className={`p-6 rounded-2xl border ${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-100 shadow-sm'}`}>
+          <div className="flex items-start justify-between gap-3 mb-4">
+            <div>
+              <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
+                <svg className="w-4 h-4 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 3v-3z" /></svg>
+                Text Alerts
+              </h3>
+              <p className={`text-[10px] font-bold uppercase tracking-tighter mt-1 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                SMS Locate Ticket Notifications
+              </p>
+            </div>
+            <span className={`shrink-0 px-2 py-0.5 rounded text-[8px] font-black uppercase border ${
+              sessionUser.smsEnabled
+                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500'
+                : isDarkMode ? 'bg-white/5 border-white/10 text-slate-500' : 'bg-slate-100 border-slate-200 text-slate-500'
+            }`}>
+              {sessionUser.smsEnabled ? 'On' : 'Off'}
+            </span>
+          </div>
+
+          {sessionUser.smsEnabled ? (
+            <div className="space-y-3">
+              <p className={`text-[11px] font-bold ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
+                Sending to <span className="font-mono">{sessionUser.smsPhone}</span>
+              </p>
+              <p className={`text-[10px] leading-relaxed ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`}>
+                Message frequency varies. Message and data rates may apply. You can also reply STOP to any message, or HELP for help.
+              </p>
+              <button
+                type="button"
+                onClick={handleDisableSms}
+                disabled={isSavingSms}
+                className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest bg-rose-500/10 text-rose-500 border border-rose-500/20 hover:bg-rose-500/20 disabled:opacity-50 transition-all"
+              >
+                {isSavingSms ? '...' : 'Turn Off Text Alerts'}
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <SmsConsentFields
+                phone={smsPhoneInput}
+                onPhoneChange={setSmsPhoneInput}
+                consented={smsConsentChecked}
+                onConsentChange={setSmsConsentChecked}
+                inputClassName={`w-full px-3 py-2 border rounded-xl text-[11px] font-bold outline-none focus:ring-4 focus:ring-brand/10 transition-all ${isDarkMode ? 'bg-white/5 border-white/10 text-white placeholder-slate-600' : 'bg-white border-slate-200 text-slate-900 placeholder-slate-400'}`}
+                labelClassName={`block text-[9px] font-black uppercase tracking-widest mb-1.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}
+                consentTextClassName={`text-[10px] leading-relaxed font-medium ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}
+                idPrefix="settings"
+                disabled={isSavingSms}
+              />
+              <button
+                type="button"
+                onClick={handleEnableSms}
+                disabled={isSavingSms || !smsConsentChecked}
+                className="px-4 py-2 bg-brand text-slate-900 rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-50 hover:scale-105 active:scale-95 transition-all"
+              >
+                {isSavingSms ? 'Saving...' : 'Turn On Text Alerts'}
+              </button>
+            </div>
+          )}
+
+          {smsError && <p className="text-[10px] font-bold text-rose-500 mt-3">{smsError}</p>}
+        </div>
+
         {isAdmin && (
           <div className={`p-6 rounded-2xl border ${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-100 shadow-sm'}`}>
             <div className="flex items-center justify-between mb-4">
@@ -931,7 +1055,12 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
       {/* User Management */}
       <section className={`rounded-2xl border overflow-hidden ${isDarkMode ? 'bg-[#1e293b] border-white/5' : 'bg-white border-slate-100 shadow-sm'}`}>
         <div className="px-6 py-4 border-b border-black/5 flex items-center justify-between">
-          <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Authorized Personnel</h3>
+          <div>
+            <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Authorized Personnel</h3>
+            <p className={`text-[9px] font-bold mt-1 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+              SMS status is read-only. To receive text alerts, a crew member opens their own account settings and opts in — a number entered by somebody else is not consent.
+            </p>
+          </div>
           {isAdmin && (
             <button 
               onClick={forceSyncProfile}
@@ -972,7 +1101,24 @@ const TeamManagement: React.FC<TeamManagementProps> = ({
                       user.name
                     )}
                   </td>
-                  <td className="px-6 py-4 opacity-40 font-mono text-[10px]">{user.username}</td>
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-2">
+                      <span className="opacity-40 font-mono text-[10px]">{user.username}</span>
+                      {/* Read-only. Only the account holder can add or change a number. */}
+                      <span
+                        className={`shrink-0 px-1.5 py-0.5 rounded text-[8px] font-black uppercase border ${
+                          user.smsEnabled
+                            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500'
+                            : isDarkMode ? 'bg-white/5 border-white/10 text-slate-500' : 'bg-slate-100 border-slate-200 text-slate-500'
+                        }`}
+                        title={user.smsEnabled
+                          ? 'This user has opted in to SMS alerts from their own account.'
+                          : 'No SMS consent on file. Only this user can opt in, from their own account settings.'}
+                      >
+                        SMS {user.smsEnabled ? 'On' : 'Off'}
+                      </span>
+                    </div>
+                  </td>
                   {isSuperAdmin && (
                     <td className="px-6 py-4 text-[10px] opacity-60">
                       {allCompanies.find(c => c.id === user.companyId)?.name || '—'}

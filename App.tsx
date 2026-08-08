@@ -20,6 +20,8 @@ import ConfirmDialog from './components/ConfirmDialog.tsx';
 import TicketNotesModal from './components/TicketNotesModal.tsx';
 import Login from './components/Login.tsx';
 import CompanyRegistration from './components/CompanyRegistration.tsx';
+import SmsConsentModal from './components/SmsConsentModal.tsx';
+import { CONSENT_TEXT_VERSION } from './utils/smsConsent.ts';
 import MapView from './components/MapView.tsx';
 import InboundTicketsDashboard from './components/InboundTicketsDashboard.tsx';
 import InboundTechQueue from './components/InboundTechQueue.tsx';
@@ -49,9 +51,50 @@ const MOBILE_PRIMARY_TABS_KEY = 'dig_mobile_primary_tabs';
 const DEFAULT_PRIMARY_TABS: AppView[] = ['dashboard', 'map', 'schedule'];
 const MAX_PRIMARY_TABS = 4;
 
+/**
+ * Writes the SMS consent decision captured on the signup form, once the account
+ * and profile actually exist.
+ *
+ * The signup form can only stash the number and the checkbox state in auth
+ * metadata, because the profile does not exist until the user confirms their
+ * email. Everything auditable — user, company, IP address, user agent,
+ * timestamp — is derived server-side by the record_sms_consent RPC.
+ *
+ * No number entered means no row at all. A number with the box left unchecked
+ * still writes a row, with consented = false. Either way, a failure here is
+ * logged and swallowed: consent capture must never block account creation.
+ */
+const recordSignupSmsConsent = async (userId: string, companyId: string, meta: Record<string, unknown>) => {
+  const phone = typeof meta.sms_phone === 'string' ? meta.sms_phone.trim() : '';
+  if (!phone) {
+    // Nothing entered, so no consent row — but the signup form did show the
+    // prompt, so don't turn around and ask again with the backfill modal.
+    try { await apiService.markSmsConsentPrompted(); } catch { /* non-critical */ }
+    return;
+  }
+
+  try {
+    if (await apiService.hasSmsConsentRecord(userId)) return;
+    await apiService.recordSmsConsent({
+      userId,
+      companyId,
+      phone,
+      consented: meta.sms_consent === true,
+      consentTextVersion: typeof meta.sms_consent_text_version === 'string'
+        ? meta.sms_consent_text_version
+        : CONSENT_TEXT_VERSION,
+      consentSource: 'invite_signup',
+      inviteToken: typeof meta.invite_token === 'string' ? meta.invite_token : undefined
+    });
+  } catch (e) {
+    console.error('Failed to record SMS consent at signup (account creation continues):', e);
+  }
+};
+
 const App: React.FC = () => {
   const [sessionUser, setSessionUser] = useState<User | null>(null);
   const [showCompanyRegistration, setShowCompanyRegistration] = useState(false);
+  const [showSmsConsentModal, setShowSmsConsentModal] = useState(false);
   const [company, setCompany] = useState<Company | null>(null);
   const [allCompanies, setAllCompanies] = useState<Company[]>([]);
   const [activeView, setActiveView] = useState<AppView>(() => {
@@ -227,9 +270,10 @@ const App: React.FC = () => {
             name: displayName || matchedProfile.name, 
             username: session.user.email || matchedProfile.username, 
             role: UserRole.CREW, 
-            companyId: inviteCompanyId 
+            companyId: inviteCompanyId
           });
-          if (inviteToken) { 
+          await recordSignupSmsConsent(session.user.id, inviteCompanyId, session.user.user_metadata || {});
+          if (inviteToken) {
             try { 
               await apiService.markInviteUsed(inviteToken); 
             } catch (e) { 
@@ -243,6 +287,16 @@ const App: React.FC = () => {
         }
         
         setSessionUser(matchedProfile);
+
+        // One-time SMS consent backfill for accounts that predate the consent
+        // checkbox. Never gates the app, and never reappears once answered or
+        // dismissed (both paths stamp profiles.sms_consent_prompted_at).
+        if (!matchedProfile.smsConsentPromptedAt) {
+          apiService.hasSmsConsentRecord(matchedProfile.id)
+            .then(hasConsent => { if (!hasConsent) setShowSmsConsentModal(true); })
+            .catch(err => console.warn('SMS consent lookup failed:', err));
+        }
+
         // Load Company Data - fetches the company associated with this user
         // The company name will be displayed in the top-left header (line 389)
         if (matchedProfile.companyId) {
@@ -271,6 +325,7 @@ const App: React.FC = () => {
             throw new Error('User name is missing from signup metadata. Please sign up again with your full name.');
           }
           await apiService.addUser({ id: session.user.id, name: displayName, username: session.user.email || '', role: UserRole.CREW, companyId: inviteCompanyId });
+          await recordSignupSmsConsent(session.user.id, inviteCompanyId, session.user.user_metadata || {});
           if (inviteToken) { try { await apiService.markInviteUsed(inviteToken); } catch (e) { console.warn('markInviteUsed failed:', e); } }
           initRef.current = false;
           await initApp();
@@ -280,6 +335,7 @@ const App: React.FC = () => {
           const found = await apiService.getCompanyByName(companyNameMeta);
           if (found) {
             await apiService.addUser({ id: session.user.id, name: displayName || DEFAULT_NEW_USER_NAME, username: session.user.email || '', role: UserRole.CREW, companyId: found.id });
+            await recordSignupSmsConsent(session.user.id, found.id, session.user.user_metadata || {});
             initRef.current = false;
             await initApp();
             return;
@@ -460,6 +516,10 @@ const App: React.FC = () => {
       role: UserRole.ADMIN,
       companyId: createdCompany.id
     });
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.user) {
+      await recordSignupSmsConsent(session.user.id, createdCompany.id, session.user.user_metadata || {});
+    }
     setCompany(createdCompany);
     setSessionUser(prev => prev ? { ...prev, companyId: createdCompany.id, role: UserRole.ADMIN } : prev);
     if (createdCompany.brandColor) applyThemeColor(createdCompany.brandColor);
@@ -1252,7 +1312,7 @@ const App: React.FC = () => {
               onViewMedia={(job: Job) => { setMediaFolderFilter(job.jobNumber); handleNavigate('photos'); }}
             />}
             {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} isAdmin={isAdmin} companyId={sessionUser.companyId} onAddPhoto={(data, file) => apiService.addPhoto({ ...data, companyId: sessionUser.companyId }, file)} onDeletePhoto={(id: string) => apiService.deletePhoto(id)} onDeleteJob={async (id) => { await apiService.deleteJob(id); initApp(); }} initialSearch={mediaFolderFilter} />}
-            {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} company={company || undefined} isDarkMode={isDarkMode} isSuperAdmin={isSuperAdmin} allCompanies={allCompanies} onCompanyCreated={(co) => setAllCompanies(prev => [...prev, co])} onCompanyUpdated={handleUpdateCompany} onToggleCompanyActive={handleToggleCompanyActive} onToggleCompanyInbound={handleToggleCompanyInbound} onToggleCompanyScheduling={handleToggleCompanyScheduling} onToggleCompanyTimeTracking={handleToggleCompanyTimeTracking} onToggleCompanyInventory={handleToggleCompanyInventory} onAddUser={async (u) => { await apiService.addUser({ ...u, companyId: sessionUser.companyId }); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onUpdateUserName={async (id, name) => { await apiService.updateUserName(id, name); initApp(); }} onSendPasswordReset={async (email) => { await apiService.sendPasswordReset(email); }} onUpdateCurrentUserPassword={async (password) => { await apiService.updateCurrentUserPassword(password); }} onUpdateNotificationEmail={handleUpdateNotificationEmail} onUpdateUserNotificationEmail={handleUpdateUserNotificationEmail} onTestEmail={handleTestEmail} />}
+            {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} company={company || undefined} isDarkMode={isDarkMode} isSuperAdmin={isSuperAdmin} allCompanies={allCompanies} onCompanyCreated={(co) => setAllCompanies(prev => [...prev, co])} onCompanyUpdated={handleUpdateCompany} onToggleCompanyActive={handleToggleCompanyActive} onToggleCompanyInbound={handleToggleCompanyInbound} onToggleCompanyScheduling={handleToggleCompanyScheduling} onToggleCompanyTimeTracking={handleToggleCompanyTimeTracking} onToggleCompanyInventory={handleToggleCompanyInventory} onAddUser={async (u) => { await apiService.addUser({ ...u, companyId: sessionUser.companyId }); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onUpdateUserName={async (id, name) => { await apiService.updateUserName(id, name); initApp(); }} onSendPasswordReset={async (email) => { await apiService.sendPasswordReset(email); }} onUpdateCurrentUserPassword={async (password) => { await apiService.updateCurrentUserPassword(password); }} onUpdateNotificationEmail={handleUpdateNotificationEmail} onUpdateUserNotificationEmail={handleUpdateUserNotificationEmail} onTestEmail={handleTestEmail} onSmsConsentChanged={() => initApp()} />}
             {activeView === 'schedule' && isSchedulingEnabled && <SchedulingView sessionUser={sessionUser} jobs={jobs} companyName={company?.name} isDarkMode={isDarkMode} />}
             {activeView === 'timetracking' && isTimeTrackingEnabled && <TimeTrackingView sessionUser={sessionUser} jobs={jobs} companyName={company?.name} company={company || undefined} isDarkMode={isDarkMode} />}
             {activeView === 'inventory' && isInventoryEnabled && <InventoryView sessionUser={sessionUser} users={users} jobs={jobs} isDarkMode={isDarkMode} isAdmin={isAdmin} />}
@@ -1334,6 +1394,7 @@ const App: React.FC = () => {
       {noShowTicket && <NoShowForm ticket={noShowTicket} userName={sessionUser?.name || ''} onSave={handleSaveNoShow} onDelete={async () => { await apiService.deleteNoShow(noShowTicket.id); initApp(); return true; }} onClose={() => setNoShowTicket(null)} isDarkMode={isDarkMode} />}
       {refreshTicket && <RefreshRequestForm ticket={refreshTicket} onSubmit={handleSubmitRefreshRequest} onClose={() => setRefreshTicket(null)} isDarkMode={isDarkMode} />}
       {confirmDialog && <ConfirmDialog message={confirmDialog.message} confirmLabel={confirmDialog.confirmLabel} onConfirm={confirmDialog.onConfirm} onClose={() => setConfirmDialog(null)} isDarkMode={isDarkMode} />}
+      {showSmsConsentModal && <SmsConsentModal sessionUser={sessionUser} isDarkMode={isDarkMode} onClose={({ smsEnabled, smsPhone }) => { setShowSmsConsentModal(false); setSessionUser(prev => prev ? { ...prev, smsEnabled, smsPhone: smsPhone ?? prev.smsPhone, smsConsentPromptedAt: Date.now() } : prev); initApp(); }} />}
       {notesTicket && <TicketNotesModal ticket={notesTicket} userName={sessionUser?.name || ''} isAdmin={isAdmin} onClose={() => { setNotesTicket(null); apiService.getNotes().then(setNotes).catch((err) => console.error('Failed to refresh notes:', err)); }} isDarkMode={isDarkMode} />}
       {digConfirmTicket && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[200] flex items-center justify-center p-4">
