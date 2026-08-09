@@ -91,6 +91,12 @@ max_frequency = "5s"
 timebox = "0s"
 inactivity_timeout = "0s"
 
+[functions.send-alert-email]
+# Declared explicitly rather than left to the platform default. The
+# function also verifies the caller's JWT in code — this is the outer
+# layer, not the only one.
+verify_jwt = true
+
 [edge_runtime]
 enabled = true
 policy = "oneshot"

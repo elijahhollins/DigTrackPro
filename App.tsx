@@ -220,29 +220,38 @@ const App: React.FC = () => {
         const displayName = typeof meta.display_name === 'string' && meta.display_name.trim() !== '' ? meta.display_name.trim() : undefined;
         
         // If user has invite metadata but profile doesn't have companyId, update the profile
-        if (inviteCompanyId && !matchedProfile.companyId) {
-          console.log('Updating profile with invite company ID:', inviteCompanyId);
-          await apiService.addUser({ 
-            id: session.user.id, 
-            name: displayName || matchedProfile.name, 
-            username: session.user.email || matchedProfile.username, 
-            role: UserRole.CREW, 
-            companyId: inviteCompanyId 
-          });
-          if (inviteToken) { 
-            try { 
-              await apiService.markInviteUsed(inviteToken); 
-            } catch (e) { 
-              console.warn('markInviteUsed failed:', e); 
-            } 
+        // A token is now required. company_id in signup metadata is set by
+        // the client, so on its own it was never evidence of an invitation —
+        // signUp({ data: { company_id: <any company> } }) was enough to join
+        // any company. claim_invite() validates the token, assigns the
+        // company and consumes the token atomically, and leaves the existing
+        // role alone (the old code wrote role: CREW unconditionally here,
+        // silently demoting anyone whose profile lacked a companyId).
+        if (!matchedProfile.companyId && inviteToken) {
+          console.log('Claiming invite for company ID:', inviteCompanyId);
+          try {
+            await apiService.claimInvite(inviteToken, {
+              name: displayName || matchedProfile.name,
+              username: session.user.email || matchedProfile.username
+            });
+            // Re-initialize to load the updated profile
+            initRef.current = false;
+            await initApp();
+            return;
+          } catch (e) {
+            console.warn('claimInvite failed:', e);
           }
-          // Re-initialize to load the updated profile
-          initRef.current = false;
-          await initApp();
-          return;
         }
-        
+
         setSessionUser(matchedProfile);
+        // No company and no usable invite — send them to registration rather
+        // than leaving them on an empty dashboard with no way forward.
+        // Super admins are exempt: they legitimately carry a null company_id
+        // and work from the platform panel, so prompting them to register a
+        // company would lock them out of their own admin view.
+        if (!matchedProfile.companyId && matchedProfile.role !== UserRole.SUPER_ADMIN) {
+          setShowCompanyRegistration(true);
+        }
         // Load Company Data - fetches the company associated with this user
         // The company name will be displayed in the top-left header (line 389)
         if (matchedProfile.companyId) {
@@ -263,26 +272,31 @@ const App: React.FC = () => {
         const companyNameMeta = meta.company_name;
         const displayName = typeof meta.display_name === 'string' && meta.display_name.trim() !== '' ? meta.display_name.trim() : undefined;
 
-        if (inviteCompanyId) {
-          // Invited user: create profile as CREW of the specified company
+        if (inviteCompanyId && inviteToken) {
+          // Invited user: claim_invite() creates the profile as CREW of the
+          // invite's company and consumes the token in one transaction.
           console.log('Creating new crew profile for invite company ID:', inviteCompanyId);
           if (!displayName) {
             console.error('Invite signup failed: display_name missing from user metadata');
             throw new Error('User name is missing from signup metadata. Please sign up again with your full name.');
           }
-          await apiService.addUser({ id: session.user.id, name: displayName, username: session.user.email || '', role: UserRole.CREW, companyId: inviteCompanyId });
-          if (inviteToken) { try { await apiService.markInviteUsed(inviteToken); } catch (e) { console.warn('markInviteUsed failed:', e); } }
+          await apiService.claimInvite(inviteToken, { name: displayName, username: session.user.email || '' });
           initRef.current = false;
           await initApp();
           return;
         } else if (companyNameMeta) {
-          // Crew signup: look up company by name and join as CREW
-          const found = await apiService.getCompanyByName(companyNameMeta);
-          if (found) {
-            await apiService.addUser({ id: session.user.id, name: displayName || DEFAULT_NEW_USER_NAME, username: session.user.email || '', role: UserRole.CREW, companyId: found.id });
+          // Crew signup: join_company_by_name() resolves the company and
+          // creates the profile as CREW, server-side.
+          try {
+            await apiService.joinCompanyByName(companyNameMeta, {
+              name: displayName || DEFAULT_NEW_USER_NAME,
+              username: session.user.email || ''
+            });
             initRef.current = false;
             await initApp();
             return;
+          } catch (e) {
+            console.warn('joinCompanyByName failed, falling back to company registration:', e);
           }
         }
         // Fallback: show company registration (bootstrap / first super-admin setup)
@@ -442,24 +456,13 @@ const App: React.FC = () => {
 
   const handleCompanyCreation = async (companyName: string, brandColor: string, city: string = '', state: string = '', phone: string = '') => {
     if (!sessionUser) return;
-    const newCompany: Company = {
-      id: crypto.randomUUID(),
-      name: companyName,
-      brandColor,
-      city,
-      state,
-      phone,
-      createdAt: Date.now()
-    };
-    const createdCompany = await apiService.createCompany(newCompany);
-    // Set user as ADMIN when they create a new company
-    await apiService.addUser({
-      id: sessionUser.id,
-      name: sessionUser.name,
-      username: sessionUser.username,
-      role: UserRole.ADMIN,
-      companyId: createdCompany.id
-    });
+    // create_company_and_claim_admin() creates the company and promotes the
+    // caller to its ADMIN in one transaction, after verifying they do not
+    // already belong to a company. The client cannot set its own role.
+    const createdCompany = await apiService.createCompanyAndClaimAdmin(
+      { name: companyName, brandColor, city, state, phone },
+      { name: sessionUser.name, username: sessionUser.username }
+    );
     setCompany(createdCompany);
     setSessionUser(prev => prev ? { ...prev, companyId: createdCompany.id, role: UserRole.ADMIN } : prev);
     if (createdCompany.brandColor) applyThemeColor(createdCompany.brandColor);
@@ -538,10 +541,8 @@ const App: React.FC = () => {
     if (!sessionUser?.companyId) {
       console.warn('Email alert skipped: no company ID on session user');
     } else if (ticket) {
-      const adminEmails = await apiService.getAlertEmails(sessionUser.companyId);
-      if (adminEmails.length > 0) {
-        apiService.sendAlertEmail('no_show', ticket, record.author, adminEmails, { utilities: record.utilities, notes: record.notes }).catch(err => console.warn('Email alert failed:', err));
-      }
+      // Recipients are resolved inside the edge function now.
+      apiService.sendAlertEmail('no_show', ticket, record.author, { utilities: record.utilities, notes: record.notes }).catch(err => console.warn('Email alert failed:', err));
     }
     initApp();
   };
@@ -560,9 +561,9 @@ const App: React.FC = () => {
 
   const handleTestEmail = async () => {
     if (!sessionUser?.notifyEmail) return;
-    const firstEmail = sessionUser.notifyEmail.split(',')[0].trim();
-    if (!firstEmail) return;
-    await apiService.testAlertEmail(firstEmail);
+    // The function mails the caller's own configured address; it no longer
+    // accepts a destination from the client.
+    await apiService.testAlertEmail();
   };
 
   const handleRefreshRequest = (ticket: DigTicket, e: React.MouseEvent) => {
@@ -592,13 +593,11 @@ const App: React.FC = () => {
       if (!sessionUser?.companyId) {
         console.warn('Email alert skipped: no company ID on session user');
       } else {
-        const adminEmails = await apiService.getAlertEmails(sessionUser.companyId);
-        if (adminEmails.length > 0) {
-          apiService.sendAlertEmail('refresh', ticket, sessionUser?.name || '', adminEmails, {
-            utilities: utilities.length > 0 ? utilities : undefined,
-            notes: notes.trim() || undefined,
-          }).catch(err => console.warn('Email alert failed:', err));
-        }
+        // Recipients are resolved inside the edge function now.
+        apiService.sendAlertEmail('refresh', ticket, sessionUser?.name || '', {
+          utilities: utilities.length > 0 ? utilities : undefined,
+          notes: notes.trim() || undefined,
+        }).catch(err => console.warn('Email alert failed:', err));
       }
       setRefreshTicket(null);
     } catch (error: any) {
@@ -1252,7 +1251,7 @@ const App: React.FC = () => {
               onViewMedia={(job: Job) => { setMediaFolderFilter(job.jobNumber); handleNavigate('photos'); }}
             />}
             {activeView === 'photos' && <PhotoManager photos={photos} jobs={jobs} tickets={tickets} isDarkMode={isDarkMode} isAdmin={isAdmin} companyId={sessionUser.companyId} onAddPhoto={(data, file) => apiService.addPhoto({ ...data, companyId: sessionUser.companyId }, file)} onDeletePhoto={(id: string) => apiService.deletePhoto(id)} onDeleteJob={async (id) => { await apiService.deleteJob(id); initApp(); }} initialSearch={mediaFolderFilter} />}
-            {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} company={company || undefined} isDarkMode={isDarkMode} isSuperAdmin={isSuperAdmin} allCompanies={allCompanies} onCompanyCreated={(co) => setAllCompanies(prev => [...prev, co])} onCompanyUpdated={handleUpdateCompany} onToggleCompanyActive={handleToggleCompanyActive} onToggleCompanyInbound={handleToggleCompanyInbound} onToggleCompanyScheduling={handleToggleCompanyScheduling} onToggleCompanyTimeTracking={handleToggleCompanyTimeTracking} onToggleCompanyInventory={handleToggleCompanyInventory} onAddUser={async (u) => { await apiService.addUser({ ...u, companyId: sessionUser.companyId }); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onToggleRole={async (u) => { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); initApp(); }} onUpdateUserName={async (id, name) => { await apiService.updateUserName(id, name); initApp(); }} onSendPasswordReset={async (email) => { await apiService.sendPasswordReset(email); }} onUpdateCurrentUserPassword={async (password) => { await apiService.updateCurrentUserPassword(password); }} onUpdateNotificationEmail={handleUpdateNotificationEmail} onUpdateUserNotificationEmail={handleUpdateUserNotificationEmail} onTestEmail={handleTestEmail} />}
+            {activeView === 'team' && <TeamManagement users={users} sessionUser={sessionUser} company={company || undefined} isDarkMode={isDarkMode} isSuperAdmin={isSuperAdmin} allCompanies={allCompanies} onCompanyCreated={(co) => setAllCompanies(prev => [...prev, co])} onCompanyUpdated={handleUpdateCompany} onToggleCompanyActive={handleToggleCompanyActive} onToggleCompanyInbound={handleToggleCompanyInbound} onToggleCompanyScheduling={handleToggleCompanyScheduling} onToggleCompanyTimeTracking={handleToggleCompanyTimeTracking} onToggleCompanyInventory={handleToggleCompanyInventory} onAddUser={async (u) => { await apiService.addUser({ ...u, companyId: sessionUser.companyId }); initApp(); }} onDeleteUser={async (id) => { await apiService.deleteUser(id); initApp(); }} onToggleRole={async (u) => { try { await apiService.updateUserRole(u.id, u.role === UserRole.ADMIN ? UserRole.CREW : UserRole.ADMIN); } catch (e: any) { alert(e?.message || 'Role change was refused.'); } initApp(); }} onUpdateUserName={async (id, name) => { await apiService.updateUserName(id, name); initApp(); }} onSendPasswordReset={async (email) => { await apiService.sendPasswordReset(email); }} onUpdateCurrentUserPassword={async (password) => { await apiService.updateCurrentUserPassword(password); }} onUpdateNotificationEmail={handleUpdateNotificationEmail} onUpdateUserNotificationEmail={handleUpdateUserNotificationEmail} onTestEmail={handleTestEmail} />}
             {activeView === 'schedule' && isSchedulingEnabled && <SchedulingView sessionUser={sessionUser} jobs={jobs} companyName={company?.name} isDarkMode={isDarkMode} />}
             {activeView === 'timetracking' && isTimeTrackingEnabled && <TimeTrackingView sessionUser={sessionUser} jobs={jobs} companyName={company?.name} company={company || undefined} isDarkMode={isDarkMode} />}
             {activeView === 'inventory' && isInventoryEnabled && <InventoryView sessionUser={sessionUser} users={users} jobs={jobs} isDarkMode={isDarkMode} isAdmin={isAdmin} />}
