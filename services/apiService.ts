@@ -50,7 +50,25 @@ const mapRole = (role: string | undefined): UserRole => {
   return UserRole.CREW;
 };
 
-export const SQL_SCHEMA = `-- 1. RESET SCHEMATIC
+/**
+ * @deprecated DO NOT RUN. Unused reference schema, kept only for history.
+ *
+ * This string still contains the policies that caused the privilege
+ * escalation fixed in
+ * supabase/migrations/20260807000000_lock_down_profile_roles.sql —
+ * `allow_own_profile` and `tenant_isolation_profiles`, both FOR ALL with no
+ * column restriction on `role`. Running it against a live database would
+ * drop the hardened policies and reopen self-promotion to SUPER_ADMIN.
+ *
+ * It is also out of sync with production, which has no `tenant_isolation_profiles`
+ * and a different policy set entirely. Treat supabase/migrations/ as the
+ * source of truth.
+ */
+export const SQL_SCHEMA = `-- ⚠️  DO NOT RUN — see the deprecation note in services/apiService.ts.
+-- These policies contain a known privilege-escalation vulnerability.
+-- Use supabase/migrations/ instead.
+
+-- 1. RESET SCHEMATIC
 DO $$ 
 DECLARE 
     r RECORD;

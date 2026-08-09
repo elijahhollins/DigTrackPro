@@ -246,7 +246,10 @@ const App: React.FC = () => {
         setSessionUser(matchedProfile);
         // No company and no usable invite — send them to registration rather
         // than leaving them on an empty dashboard with no way forward.
-        if (!matchedProfile.companyId) {
+        // Super admins are exempt: they legitimately carry a null company_id
+        // and work from the platform panel, so prompting them to register a
+        // company would lock them out of their own admin view.
+        if (!matchedProfile.companyId && matchedProfile.role !== UserRole.SUPER_ADMIN) {
           setShowCompanyRegistration(true);
         }
         // Load Company Data - fetches the company associated with this user
