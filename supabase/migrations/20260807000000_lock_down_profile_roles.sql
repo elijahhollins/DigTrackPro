@@ -3,10 +3,9 @@
 -- ================================================================
 -- PROBLEM
 -- -------
--- profiles carried two FOR ALL policies:
+-- profiles carried this FOR ALL policy:
 --
---   allow_own_profile          USING/WITH CHECK (id = auth.uid())
---   tenant_isolation_profiles  USING (company_id = get_user_company_id())
+--   allow_own_profile  FOR ALL  USING/WITH CHECK (id = auth.uid())
 --
 -- FOR ALL includes UPDATE, profiles.role was an unconstrained text
 -- column, and nothing guarded it. So any authenticated user could run
@@ -15,9 +14,17 @@
 --                            .eq('id', <their own uid>)
 --
 -- from the browser console and gain cross-tenant access to every
--- company. tenant_isolation_profiles had no WITH CHECK, so Postgres
--- reused its USING clause as the check and the same trick worked
--- against any teammate's row.
+-- company.
+--
+-- A second path existed for existing ADMINs: admin_manage_company_roles
+-- let a company admin set a teammate's role to anything, SUPER_ADMIN
+-- included.
+--
+-- (supabase/complete_rls_setup.sql in this repo describes a different and
+-- more exposed policy set than production actually ran -- it adds
+-- tenant_isolation_profiles as FOR ALL with no WITH CHECK. Production has
+-- no such policy. Do not read the loose supabase/*.sql scripts as a
+-- description of the database.)
 --
 -- FIX
 -- ---
@@ -26,7 +33,7 @@
 --    or company_id. RLS alone cannot do this — a WITH CHECK expression
 --    cannot reference the OLD row, so no policy can say "role must be
 --    unchanged".
--- 3. Replace the FOR ALL policies with per-command policies.
+-- 3. Replace the existing policies with per-command policies.
 -- 4. Route every legitimate role/membership change through SECURITY
 --    DEFINER functions that check the caller's authority first.
 --
