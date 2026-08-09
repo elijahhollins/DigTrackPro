@@ -197,6 +197,14 @@ These are pre-existing and out of scope for this fix, but worth a decision:
   original vulnerable code. It is not built by `vite.config.ts`, so it is not exploitable, but
   it will mislead the next person auditing this — including any grep-based review. Worth
   deleting.
+- **Duplicate edge function `Send-alert-email` (capital S).** The project has two deployed
+  functions whose names both resolve to "send-alert-email": slug `send-alert-email` (the one
+  `apiService.ts` invokes, fixed and redeployed) and slug `Send-alert-email`, a stale duplicate
+  still ACTIVE at `/functions/v1/Send-alert-email` running the original code. Slugs are
+  case-sensitive, so it remains a live authenticated open relay — attacker-supplied
+  `adminEmails`, unescaped HTML — regardless of the fix to the lowercase one. **It must be
+  deleted in the dashboard.** Nothing in the client calls it.
+
 - **`profiles.password :: text`.** Production has a `password` column that appears in no repo
   schema and that no current client code writes. Any teammate can read it through the
   profile-select policies. If it holds real credential material it should be dropped —
