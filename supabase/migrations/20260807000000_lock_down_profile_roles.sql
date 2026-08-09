@@ -63,63 +63,38 @@ alter table profiles
 
 
 -- ────────────────────────────────────────────────────────────────
--- 2. Helper predicates
+-- 2. Preconditions
 -- ────────────────────────────────────────────────────────────────
--- Redefined here rather than assumed, because the core schema lives in
--- hand-applied scripts under supabase/*.sql that have drifted from
--- supabase/migrations/. Every one of these also gains a fixed
--- search_path, which none of them had (Supabase lints this as
--- function_search_path_mutable).
+-- The policies below are built on helper predicates that already exist in
+-- this database. They are deliberately NOT redefined here: the core schema
+-- lives in hand-applied scripts under supabase/*.sql that have drifted
+-- badly from what production actually runs, so overwriting a live function
+-- body with repo text would be a guess. Fail loudly instead if one is
+-- missing. (Their search_path is hardened in section 7, which changes the
+-- setting without touching the body.)
 
-create or replace function public.is_super_admin()
-  returns boolean
-  language sql
-  security definer
-  stable
-  set search_path = public, pg_temp
-as $$
-  select exists (
-    select 1 from public.profiles
-    where id = auth.uid() and role = 'SUPER_ADMIN'
-  );
-$$;
+do $$
+declare
+  missing text[] := '{}';
+  required text[] := array[
+    'public.is_super_admin()',
+    'public.get_user_company_id()',
+    'public.is_admin_of_company(uuid)'
+  ];
+  fn text;
+begin
+  foreach fn in array required loop
+    if to_regprocedure(fn) is null then
+      missing := missing || fn;
+    end if;
+  end loop;
 
-create or replace function public.get_user_company_id()
-  returns uuid
-  language sql
-  security definer
-  stable
-  set search_path = public, pg_temp
-as $$
-  select company_id from public.profiles where id = auth.uid();
-$$;
-
-create or replace function public.is_company_admin()
-  returns boolean
-  language sql
-  security definer
-  stable
-  set search_path = public, pg_temp
-as $$
-  select exists (
-    select 1 from public.profiles
-    where id = auth.uid() and role in ('ADMIN', 'SUPER_ADMIN')
-  );
-$$;
-
-create or replace function public.is_admin_of_company(p_company_id uuid)
-  returns boolean
-  language sql
-  security definer
-  stable
-  set search_path = public, pg_temp
-as $$
-  select exists (
-    select 1 from public.profiles
-    where id = auth.uid()
-      and company_id = p_company_id
-      and role in ('ADMIN', 'SUPER_ADMIN')
-  );
+  if array_length(missing, 1) > 0 then
+    raise exception
+      'Missing helper function(s): %. Apply the base schema before this migration.',
+      array_to_string(missing, ', ');
+  end if;
+end;
 $$;
 
 
@@ -543,56 +518,42 @@ $$;
 
 
 -- ────────────────────────────────────────────────────────────────
--- 7. Harden the remaining SECURITY DEFINER functions
+-- 7. Harden every SECURITY DEFINER function
 -- ────────────────────────────────────────────────────────────────
--- These were already correct on authorization but had a mutable
--- search_path.
+-- A SECURITY DEFINER function with a mutable search_path can be steered
+-- into resolving an unqualified name against a schema the caller controls,
+-- and it runs with the owner's privileges when it gets there. Supabase
+-- lints this as function_search_path_mutable.
+--
+-- This pins the setting WITHOUT touching any function body. That matters:
+-- production carries SECURITY DEFINER functions that exist nowhere in this
+-- repo (handle_new_user, broadcast_ticket_alert, handle_notification_event),
+-- so rewriting bodies from repo text would be guesswork. ALTER FUNCTION
+-- changes only the setting, and the loop picks up functions added later
+-- that this file has never seen.
+--
+-- public, pg_temp is safe for all of them: every one references its tables
+-- schema-qualified (public.profiles, public.push_subscriptions) and reaches
+-- pg_net as net.http_post, which resolves independently of this setting.
 
-create or replace function public.validate_invite_token(p_token uuid)
-  returns table(company_id uuid, company_name text)
-  language sql
-  security definer
-  stable
-  set search_path = public, pg_temp
-as $$
-  select ci.company_id, c.name as company_name
-  from   public.company_invites ci
-  join   public.companies c on c.id = ci.company_id
-  where  ci.token = p_token
-    and  ci.used_at is null;
-$$;
-
-create or replace function public.get_company_by_name(p_name text)
-  returns table(company_id uuid, company_name text, brand_color text)
-  language sql
-  security definer
-  stable
-  set search_path = public, pg_temp
-as $$
-  select id, name, brand_color
-  from   public.companies
-  where  lower(name) = lower(p_name)
-  limit  1;
-$$;
-
-create or replace function public.get_alert_emails(p_company_id uuid)
-  returns table(notify_email text)
-  language plpgsql
-  security definer
-  set search_path = public, pg_temp
-as $$
+do $$
+declare
+  fn record;
 begin
-  if not (get_user_company_id() = p_company_id or is_super_admin()) then
-    raise exception 'Unauthorized' using errcode = '42501';
-  end if;
-
-  return query
-    select p.notify_email
-    from   public.profiles p
-    where  p.company_id = p_company_id
-      and  p.role in ('ADMIN', 'SUPER_ADMIN')
-      and  p.notify_email is not null
-      and  p.notify_email <> '';
+  for fn in
+    select p.oid::regprocedure::text as signature
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.prosecdef
+      and not exists (
+        select 1 from unnest(coalesce(p.proconfig, '{}')) cfg
+        where cfg like 'search\_path=%'
+      )
+  loop
+    execute format('alter function %s set search_path = public, pg_temp', fn.signature);
+    raise notice 'pinned search_path on %', fn.signature;
+  end loop;
 end;
 $$;
 

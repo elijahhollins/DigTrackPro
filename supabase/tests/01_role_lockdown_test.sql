@@ -2,22 +2,31 @@
 \pset pager off
 
 -- ── Seed: one company, an admin, a crew member, and a rival company ──
+-- Inserting into auth.users fires handle_new_user(), which creates each
+-- profile as CREW with no company. That is the real signup path, and it
+-- must survive the migration's guard trigger — if the trigger broke it,
+-- these inserts would fail here.
 set role none;
-insert into auth.users (id, email) values
-  ('11111111-1111-1111-1111-111111111111','admin@acme.test'),
-  ('22222222-2222-2222-2222-222222222222','crew@acme.test'),
-  ('33333333-3333-3333-3333-333333333333','boss@rival.test');
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('11111111-1111-1111-1111-111111111111','admin@acme.test', '{"name":"Ada Admin"}'),
+  ('22222222-2222-2222-2222-222222222222','crew@acme.test',  '{"name":"Cy Crew"}'),
+  ('33333333-3333-3333-3333-333333333333','boss@rival.test', '{"name":"Rex Rival"}');
+
+\echo '-- handle_new_user must have created three CREW profiles with no company'
+select name, role, company_id is null as no_company from profiles order by name;
 
 insert into companies (id, name) values
   ('aaaaaaaa-0000-0000-0000-000000000001','Acme Digging'),
   ('bbbbbbbb-0000-0000-0000-000000000002','Rival Boring');
 
--- Seed roles directly as superuser (RLS/trigger bypassed via the flag).
+-- Assign the seed roles as superuser (guard trigger bypassed via the flag).
 select set_config('app.privileged_profile_write','on', false);
-insert into profiles (id, company_id, name, username, role) values
-  ('11111111-1111-1111-1111-111111111111','aaaaaaaa-0000-0000-0000-000000000001','Ada Admin','admin@acme.test','ADMIN'),
-  ('22222222-2222-2222-2222-222222222222','aaaaaaaa-0000-0000-0000-000000000001','Cy Crew','crew@acme.test','CREW'),
-  ('33333333-3333-3333-3333-333333333333','bbbbbbbb-0000-0000-0000-000000000002','Rex Rival','boss@rival.test','SUPER_ADMIN');
+update profiles set company_id = 'aaaaaaaa-0000-0000-0000-000000000001', role = 'ADMIN'
+  where id = '11111111-1111-1111-1111-111111111111';
+update profiles set company_id = 'aaaaaaaa-0000-0000-0000-000000000001', role = 'CREW'
+  where id = '22222222-2222-2222-2222-222222222222';
+update profiles set company_id = 'bbbbbbbb-0000-0000-0000-000000000002', role = 'SUPER_ADMIN'
+  where id = '33333333-3333-3333-3333-333333333333';
 select set_config('app.privileged_profile_write','off', false);
 
 \echo ''

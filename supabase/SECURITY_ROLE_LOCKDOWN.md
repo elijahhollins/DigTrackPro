@@ -8,21 +8,25 @@ Any signed-in user could make themselves a super admin from the browser console:
 await supabase.from('profiles').update({ role: 'SUPER_ADMIN' }).eq('id', <their own uid>)
 ```
 
-`profiles` carried two `FOR ALL` RLS policies:
+`profiles` carried this `FOR ALL` policy:
 
 ```sql
-allow_own_profile          USING/WITH CHECK (id = auth.uid())
-tenant_isolation_profiles  USING (company_id = get_user_company_id())   -- no WITH CHECK
+allow_own_profile   FOR ALL   USING (id = auth.uid())   WITH CHECK (id = auth.uid())
 ```
 
 `FOR ALL` includes UPDATE, `profiles.role` was an unconstrained `text` column, and nothing
-guarded it. Three consequences:
+guarded it — so a crew member could write any value into their own `role`, become
+`SUPER_ADMIN`, and read and write every company's data.
 
-- **Self-escalation.** Write any value into your own `role`.
-- **Lateral escalation.** `tenant_isolation_profiles` had no `WITH CHECK`, so Postgres reused
-  its `USING` clause as the check — you could rewrite *any teammate's* role, including demoting
-  your company's real admin.
-- **Deletion.** The same `FOR ALL` grant let any crew member delete a teammate's profile.
+A second path existed for the ten existing ADMINs: `admin_manage_company_roles` let a company
+admin set a teammate's role to anything, `SUPER_ADMIN` included.
+
+> **On the repo's SQL vs. production.** `supabase/complete_rls_setup.sql` describes a different
+> and *more* exposed policy set than production actually runs — it adds
+> `tenant_isolation_profiles` as `FOR ALL` with no `WITH CHECK`, which would also allow
+> rewriting any teammate's role and deleting teammates. Production has no such policy, so those
+> two attacks were never live. Do not read the loose `supabase/*.sql` scripts as a description
+> of the database; see "Known weaknesses" on schema drift.
 
 Every authorization gate in the product reads that column — `is_super_admin()`,
 `is_company_admin()`, `is_admin_of_company()`, `get_alert_emails()`, and roughly fifteen inline
@@ -138,12 +142,32 @@ email; an admin edits a teammate's name and alert email.
 Finally re-run the security advisors — the `function_search_path_mutable` warnings should be
 gone.
 
+## Coexistence with `handle_new_user`
+
+Production creates the profile row from a trigger on `auth.users`:
+
+```sql
+insert into public.profiles (id, name, username, role)
+values (new.id, new.raw_user_meta_data->>'name', new.email, 'CREW');
+```
+
+That sets `role = 'CREW'` and no `company_id` — exactly what the guard trigger forces on
+INSERT, so the two agree and signup is unaffected. The regression test reproduces this trigger
+and asserts signup still produces a CREW profile after the migration.
+
+(Unrelated but worth knowing: the trigger reads `raw_user_meta_data->>'name'`, while
+`components/Login.tsx` writes `display_name`. So `profiles.name` lands NULL at signup and is
+backfilled by the client a moment later. Pre-existing, not touched here.)
+
 ## Also fixed
 
-- **Seven `SECURITY DEFINER` functions had a mutable `search_path`.** All now pin
-  `search_path = public, pg_temp`. `get_company_by_name` also lost its `anon` grant — it was an
-  unauthenticated oracle for whether a company name exists. `validate_invite_token` keeps `anon`
-  because the invite landing page resolves a token before sign-in.
+- **Every `SECURITY DEFINER` function had a mutable `search_path`.** Section 7 pins it in place
+  with `ALTER FUNCTION`, which changes the setting without rewriting the body — deliberately, so
+  it also covers the functions that exist only in production and nowhere in this repo
+  (`handle_new_user`, `broadcast_ticket_alert`, `handle_notification_event`), and any added
+  later. `get_company_by_name` also lost its `anon` grant — it was an unauthenticated oracle for
+  whether a company name exists. `validate_invite_token` keeps `anon` because the invite landing
+  page resolves a token before sign-in.
 - **`mark_invite_used` was `USING (used_at IS NULL) WITH CHECK (true)`** — any signed-in user
   could burn any outstanding invite for any company. The policy is dropped; `claim_invite()`
   consumes the token in the same transaction that grants membership.
@@ -173,7 +197,24 @@ These are pre-existing and out of scope for this fix, but worth a decision:
   original vulnerable code. It is not built by `vite.config.ts`, so it is not exploitable, but
   it will mislead the next person auditing this — including any grep-based review. Worth
   deleting.
+- **`profiles.password :: text`.** Production has a `password` column that appears in no repo
+  schema and that no current client code writes. Any teammate can read it through the
+  profile-select policies. If it holds real credential material it should be dropped —
+  authentication goes through Supabase Auth, so nothing needs it.
+
+- **Hardcoded anon JWT inside `broadcast_ticket_alert`.** The function body embeds the project's
+  anon key as a literal in its `net.http_post` Authorization header. The anon key is public by
+  design, so this is not a leak, but it means key rotation silently breaks the trigger.
+
+- **Three overlapping notification triggers on `tickets`** — `on_ticket_alert_request`
+  (`broadcast_ticket_alert`), `trigger_refresh_notification` (`handle_notification_event`), and
+  `send-push-on-update` (`http_request`). They appear to fire on the same refresh-request
+  transition, which would send duplicate pushes. Operational rather than security, but worth
+  untangling.
+
 - **Schema drift.** The core schema (`profiles`, `companies`, `jobs`, `tickets`, …) lives only
-  in hand-applied scripts at `supabase/*.sql`, not in `supabase/migrations/`. That means the
-  repo cannot answer "what does production have," which is part of why this went unnoticed.
-  Worth consolidating.
+  in hand-applied scripts at `supabase/*.sql`, not in `supabase/migrations/`, and those scripts
+  no longer match production — different policy names, different columns, and functions
+  (`handle_new_user`, `broadcast_ticket_alert`, `handle_notification_event`) that exist in the
+  database but nowhere in the repo. The repo cannot currently answer "what does production
+  have," which is part of why this went unnoticed. Worth consolidating.
