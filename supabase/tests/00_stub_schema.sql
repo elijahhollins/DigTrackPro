@@ -90,10 +90,16 @@ create or replace function is_company_admin() returns boolean
                    where id = auth.uid() and role in ('ADMIN','SUPER_ADMIN'));
 $$;
 
-create or replace function is_admin_of_company(p_company_id uuid) returns boolean
+-- NB: the parameter is named `company_uuid` in production, not
+-- `p_company_id`. Reproduced exactly, because CREATE OR REPLACE FUNCTION
+-- cannot rename an input parameter — an earlier draft of the migration
+-- redefined this helper with the repo's name and would have aborted the
+-- whole migration. Section 7 uses ALTER FUNCTION instead, which is
+-- parameter-name agnostic.
+create or replace function is_admin_of_company(company_uuid uuid) returns boolean
   language sql security definer stable as $$
     select exists (select 1 from public.profiles
-                   where id = auth.uid() and company_id = p_company_id
+                   where id = auth.uid() and company_id = company_uuid
                      and role in ('ADMIN','SUPER_ADMIN'));
 $$;
 
@@ -139,6 +145,24 @@ $$;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function handle_new_user();
+
+-- Two more trigger functions that exist in production and nowhere in this
+-- repo. Bodies are stubbed (the real ones POST to edge functions via
+-- pg_net); what matters here is that section 7 pins their search_path and
+-- section 8 revokes their RPC grants without erroring.
+create or replace function broadcast_ticket_alert() returns trigger
+  language plpgsql security definer as $$
+begin
+  return new;
+end;
+$$;
+
+create or replace function handle_notification_event() returns trigger
+  language plpgsql security definer as $$
+begin
+  return new;
+end;
+$$;
 
 -- ── Production's actual policies, including the vulnerable one ───────────
 -- The migration must remove these, so the test proves removal rather than

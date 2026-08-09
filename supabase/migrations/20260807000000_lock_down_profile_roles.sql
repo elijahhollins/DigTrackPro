@@ -594,6 +594,51 @@ grant  execute on function public.get_company_by_name(text) to authenticated;
 -- validate_invite_token keeps anon access: the invite landing page needs
 -- to resolve a token before the user has signed in.
 grant execute on function public.validate_invite_token(uuid) to anon, authenticated;
-grant execute on function public.get_alert_emails(uuid)      to authenticated;
+
+-- get_alert_emails is reachable at /rest/v1/rpc/get_alert_emails. Its own
+-- Unauthorized check already stops an anon caller (get_user_company_id()
+-- is null for them), but there is no reason to expose the endpoint at all.
+revoke execute on function public.get_alert_emails(uuid) from public, anon;
+grant  execute on function public.get_alert_emails(uuid) to authenticated;
+
+-- The role predicates are internal helpers for RLS, not app endpoints, yet
+-- PostgREST exposes each one at /rest/v1/rpc/<name> and Postgres's default
+-- PUBLIC grant leaves them callable by anon.
+--
+-- `authenticated` MUST keep EXECUTE: a policy expression is evaluated as
+-- the querying role, so revoking it there would break every policy that
+-- calls these. service_role is granted too, for edge functions that bypass
+-- RLS but may still call them.
+revoke execute on function public.is_super_admin()            from public, anon;
+revoke execute on function public.get_user_company_id()       from public, anon;
+revoke execute on function public.is_company_admin()          from public, anon;
+revoke execute on function public.is_admin_of_company(uuid)   from public, anon;
+
+grant execute on function public.is_super_admin()             to authenticated, service_role;
+grant execute on function public.get_user_company_id()        to authenticated, service_role;
+grant execute on function public.is_company_admin()           to authenticated, service_role;
+grant execute on function public.is_admin_of_company(uuid)    to authenticated, service_role;
+
+-- Trigger functions are not callable over RPC (Postgres rejects a direct
+-- call to a function returning `trigger`), so these are lint hygiene rather
+-- than an open door. Triggers fire regardless of EXECUTE grants.
+--
+-- Guarded by existence: these live in production but in no repo schema, so
+-- a database built purely from this repo will not have them.
+do $$
+declare
+  fn text;
+begin
+  foreach fn in array array[
+    'public.handle_new_user()',
+    'public.broadcast_ticket_alert()',
+    'public.handle_notification_event()'
+  ] loop
+    if to_regprocedure(fn) is not null then
+      execute format('revoke execute on function %s from public, anon, authenticated', fn);
+    end if;
+  end loop;
+end;
+$$;
 
 commit;

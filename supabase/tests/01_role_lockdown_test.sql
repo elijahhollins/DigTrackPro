@@ -198,10 +198,21 @@ select policyname, cmd from pg_policies
 where schemaname='public' and tablename='profiles' order by cmd, policyname;
 
 \echo ''
-\echo '-- get_company_by_name must no longer be callable by anon'
-select has_function_privilege('anon','get_company_by_name(text)','execute') as anon_can_call_get_company_by_name,
-       has_function_privilege('anon','validate_invite_token(uuid)','execute') as anon_can_call_validate_invite,
-       has_function_privilege('authenticated','set_super_admin(text)','execute') as authd_can_call_set_super_admin;
+\echo '-- anon must not reach any helper; authenticated must keep them (RLS needs it)'
+select f.sig,
+       has_function_privilege('anon', f.sig, 'execute')          as anon,
+       has_function_privilege('authenticated', f.sig, 'execute') as authd
+from (values
+  ('is_super_admin()'),
+  ('get_user_company_id()'),
+  ('is_company_admin()'),
+  ('is_admin_of_company(uuid)'),
+  ('get_alert_emails(uuid)'),
+  ('get_company_by_name(text)'),
+  ('validate_invite_token(uuid)'),   -- anon SHOULD keep this one
+  ('set_super_admin(text)'),         -- nobody
+  ('set_user_role(uuid,text)')
+) f(sig);
 
 \echo ''
 \echo '-- mark_invite_used policy must be gone'
