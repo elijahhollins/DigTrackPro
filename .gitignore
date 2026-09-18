@@ -8,3 +8,6 @@ package-lock.json
 preview-dist/
 DigTrackPro-Scheduler-Preview.html
 verify-harness/test.pdf
+
+# Supabase CLI scratch
+supabase/.temp/
