@@ -27,6 +27,9 @@ const initialTicket: DigTicket = {
   expires: '2026-03-16',
   siteContact: 'Pat Rivera',
   createdAt: Date.now() - 86400000,
+  // apiService always supplies this (`is_archived ?? false`), so the fixture
+  // must too — omitting it is what produced a phantom diff in an earlier run.
+  isArchived: false,
 };
 
 const params = new URLSearchParams(location.search);
@@ -48,7 +51,7 @@ const Harness: React.FC = () => {
     setLog(prev => [...prev, kind]);
   };
 
-  const menu = (testid: string) => (
+  const menu = () => (
     <TicketActionMenu
       ticket={ticket}
       isAdmin={isAdmin}
@@ -75,7 +78,7 @@ const Harness: React.FC = () => {
           <p className="text-xs font-bold" data-testid="ticket-no">#{ticket.ticketNo}</p>
           <p className={`text-[10px] ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`} data-testid="ticket-expires">Expires {ticket.expires}</p>
         </div>
-        {menu('top')}
+        {menu()}
       </div>
 
       <p className={`mt-6 text-[10px] ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`} data-testid="event-log">events: {log.join(',') || 'none'}</p>
@@ -90,7 +93,7 @@ const Harness: React.FC = () => {
             <p className="text-xs font-bold">#{ticket.ticketNo} (bottom row)</p>
             <p className={`text-[10px] ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`}>menu should open upward</p>
           </div>
-          {menu('bottom')}
+          {menu()}
         </div>
       </div>
 

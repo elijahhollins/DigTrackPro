@@ -217,6 +217,9 @@ export const TicketForm: React.FC<TicketFormProps> = ({ onSave, onDelete, onClos
       digByDate: formData.digByDate || undefined,
       lat: formData.lat !== '' && !isNaN(parseFloat(formData.lat)) ? parseFloat(formData.lat) : undefined,
       lng: formData.lng !== '' && !isNaN(parseFloat(formData.lng)) ? parseFloat(formData.lng) : undefined,
+      // Carry the existing archive state through an edit. Hard-coding false
+      // here would silently un-archive an archived ticket on every save.
+      isArchived: initialData?.isArchived ?? false,
     };
 
     try {

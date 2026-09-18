@@ -204,7 +204,8 @@ export interface DigTicket {
   createdAt: number;
   refreshRequested?: boolean;
   noShowRequested?: boolean;
-  isArchived?: boolean;
+  /** Always set by apiService (`is_archived ?? false`); never absent on a loaded ticket. */
+  isArchived: boolean;
   workBegun?: boolean;
   documentUrl?: string;
   lat?: number;

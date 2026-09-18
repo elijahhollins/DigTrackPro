@@ -1,4 +1,3 @@
-import React from 'react';
 import { createRoot } from 'react-dom/client';
 import PdfMarkupEditor from '../components/PdfMarkupEditor.tsx';
 import { JobPrint, User, UserRole } from '../types.ts';
