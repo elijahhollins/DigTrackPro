@@ -1,18 +1,25 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { DigTicket, JobNote } from '../types.ts';
+import { DigTicket, JobNote, TicketUpdate } from '../types.ts';
 import { apiService } from '../services/apiService.ts';
+import { describeTicketUpdate, summarizeChanges, ticketUpdateTone } from '../utils/ticketUpdateUtils.ts';
 
 interface TicketNotesModalProps {
   ticket: DigTicket;
   userName: string;
   isAdmin: boolean;
+  /** Which tab to open on. The dashboard's action menu uses this to jump
+   *  straight to the history when the user picks "Update History". */
+  initialTab?: 'notes' | 'history';
   onClose: () => void;
   isDarkMode?: boolean;
 }
 
-const TicketNotesModal: React.FC<TicketNotesModalProps> = ({ ticket, userName, isAdmin, onClose, isDarkMode }) => {
+const TicketNotesModal: React.FC<TicketNotesModalProps> = ({ ticket, userName, isAdmin, initialTab = 'notes', onClose, isDarkMode }) => {
+  const [tab, setTab] = useState<'notes' | 'history'>(initialTab);
   const [notes, setNotes] = useState<JobNote[]>([]);
+  const [updates, setUpdates] = useState<TicketUpdate[]>([]);
+  const [isLoadingUpdates, setIsLoadingUpdates] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [newNoteText, setNewNoteText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -30,8 +37,18 @@ const TicketNotesModal: React.FC<TicketNotesModalProps> = ({ ticket, userName, i
   }, [ticket.id]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [notes]);
+    let isMounted = true;
+    setIsLoadingUpdates(true);
+    apiService.getTicketUpdatesForTicket(ticket.id)
+      .then(data => { if (isMounted) setUpdates(data); })
+      .catch(() => {})
+      .finally(() => { if (isMounted) setIsLoadingUpdates(false); });
+    return () => { isMounted = false; };
+  }, [ticket.id]);
+
+  useEffect(() => {
+    if (tab === 'notes') bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [notes, tab]);
 
   const handleAddNote = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -84,7 +101,7 @@ const TicketNotesModal: React.FC<TicketNotesModalProps> = ({ ticket, userName, i
               </svg>
             </div>
             <div>
-              <h2 className={`text-sm font-black uppercase tracking-widest text-brand`}>Ticket Notes</h2>
+              <h2 className={`text-sm font-black uppercase tracking-widest text-brand`}>{tab === 'notes' ? 'Ticket Notes' : 'Update History'}</h2>
               <p className={`text-[9px] font-bold uppercase tracking-widest mt-0.5 ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>#{ticket.ticketNo} · {ticket.street}</p>
             </div>
           </div>
@@ -95,7 +112,28 @@ const TicketNotesModal: React.FC<TicketNotesModalProps> = ({ ticket, userName, i
           </button>
         </div>
 
+        {/* Tab strip */}
+        <div className={`px-5 pt-4 shrink-0 ${isDarkMode ? 'bg-white/[0.01]' : 'bg-white'}`}>
+          <div className={`flex rounded-xl border p-0.5 gap-0.5 ${isDarkMode ? 'bg-[#0b1629] border-white/[0.08]' : 'bg-slate-100 border-slate-200'}`}>
+            {([['notes', `Notes${notes.length ? ` (${notes.length})` : ''}`], ['history', `History${updates.length ? ` (${updates.length})` : ''}`]] as const).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setTab(key)}
+                className={`flex-1 px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                  tab === key
+                    ? isDarkMode ? 'bg-brand/20 text-brand border border-brand/25' : 'bg-white text-brand shadow-sm border border-slate-200'
+                    : isDarkMode ? 'text-slate-600 hover:text-slate-300' : 'text-slate-400 hover:text-slate-700'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Notes list */}
+        {tab === 'notes' && (
         <div className="flex-1 overflow-y-auto p-5 space-y-3 min-h-0">
           {isLoading ? (
             <div className="flex flex-col items-center justify-center py-12 gap-3">
@@ -149,8 +187,61 @@ const TicketNotesModal: React.FC<TicketNotesModalProps> = ({ ticket, userName, i
           )}
           <div ref={bottomRef} />
         </div>
+        )}
+
+        {/* Update history — append-only audit log, read-only by design. */}
+        {tab === 'history' && (
+        <div className="flex-1 overflow-y-auto p-5 space-y-3 min-h-0">
+          {isLoadingUpdates ? (
+            <div className="flex flex-col items-center justify-center py-12 gap-3">
+              <div className="w-6 h-6 border-2 border-brand border-t-transparent rounded-full animate-spin" />
+              <p className={`text-[9px] font-black uppercase tracking-widest ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>Loading History...</p>
+            </div>
+          ) : updates.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 gap-3">
+              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${isDarkMode ? 'bg-white/[0.04] border border-white/[0.05]' : 'bg-slate-100'}`}>
+                <svg className="w-6 h-6 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <p className={`text-[10px] font-black uppercase tracking-widest ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>No Updates Yet</p>
+              <p className={`text-[9px] ${isDarkMode ? 'text-slate-700' : 'text-slate-400'}`}>Edits, no shows, refreshes and archives will appear here.</p>
+            </div>
+          ) : (
+            updates.slice().reverse().map(update => {
+              const tone = ticketUpdateTone(update.kind);
+              const dot = tone === 'rose' ? 'bg-rose-500' : tone === 'amber' ? 'bg-amber-500' : tone === 'slate' ? 'bg-slate-400' : 'bg-brand';
+              return (
+                <div key={update.id} className={`rounded-xl border p-4 space-y-2 ${isDarkMode ? 'bg-white/[0.03] border-white/[0.06]' : 'bg-slate-50 border-slate-100'}`}>
+                  <div className="flex items-center gap-2">
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} />
+                    <p className={`text-[12px] font-bold leading-relaxed ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>{describeTicketUpdate(update)}</p>
+                  </div>
+                  {update.changes.length > 0 && (
+                    <ul className="space-y-1 pl-3.5">
+                      {summarizeChanges(update.changes).map((line, i) => (
+                        <li key={i} className={`text-[11px] font-semibold ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>{line}</li>
+                      ))}
+                    </ul>
+                  )}
+                  {update.reason && (
+                    <p className={`text-[11px] font-medium italic pl-3.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>“{update.reason}”</p>
+                  )}
+                  <div className={`pt-1 border-t ${isDarkMode ? 'border-white/[0.04]' : 'border-slate-100'}`}>
+                    <span className={`text-[8px] font-bold uppercase tracking-widest ${isDarkMode ? 'text-slate-700' : 'text-slate-400'}`}>
+                      {new Date(update.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}{' '}
+                      {new Date(update.timestamp).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+                    </span>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+        )}
 
         {/* Add note form */}
+        {tab === 'notes' && (
         <form onSubmit={handleAddNote} className={`shrink-0 border-t p-4 space-y-3 ${isDarkMode ? 'border-white/[0.06] bg-white/[0.02]' : 'border-slate-100 bg-slate-50/60'}`}>
           <textarea
             value={newNoteText}
@@ -178,6 +269,7 @@ const TicketNotesModal: React.FC<TicketNotesModalProps> = ({ ticket, userName, i
             </button>
           </div>
         </form>
+        )}
       </div>
     </div>
   );

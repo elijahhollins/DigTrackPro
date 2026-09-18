@@ -3,7 +3,8 @@ import {
   Search, Plus, FileText, Upload, Clock, Package, Users, Truck,
   CalendarDays, Activity, Trash2, Pencil, CheckCircle2, RotateCcw, X, Receipt, Eye,
 } from 'lucide-react';
-import { Job, DigTicket, TicketStatus, InventoryItem, InventoryItemType, InventoryMovement, JobPrint, User } from '../types.ts';
+import { Job, DigTicket, TicketStatus, InventoryItem, InventoryItemType, InventoryMovement, JobPrint, User, TicketUpdate } from '../types.ts';
+import { ticketUpdateOneLiner, ticketUpdateTone } from '../utils/ticketUpdateUtils.ts';
 import { getTicketStatus, getStatusColor, formatDateStr } from '../utils/dateUtils.ts';
 import { apiService } from '../services/apiService.ts';
 import { scheduleService } from '../services/scheduleService.ts';
@@ -19,6 +20,8 @@ import { supabase } from '../lib/supabaseClient.ts';
 interface JobHubProps {
   jobs: Job[];
   tickets: DigTicket[];
+  /** Append-only ticket audit log, rendered in the job's activity timeline. */
+  ticketUpdates?: TicketUpdate[];
   companyId: string;
   isAdmin: boolean;
   sessionUser: User;
@@ -65,7 +68,7 @@ const HEALTH_DOT: Record<string, string> = {
 };
 
 export const JobHub: React.FC<JobHubProps> = ({
-  jobs, tickets, companyId, isAdmin, sessionUser, isDarkMode,
+  jobs, tickets, ticketUpdates = [], companyId, isAdmin, sessionUser, isDarkMode,
   schedulingEnabled, timeTrackingEnabled, inventoryEnabled, refreshKey,
   onCreateJob, onEditJob, onDeleteJob, onToggleComplete, onUpdateJob, onViewDoc, onViewMedia,
 }) => {
@@ -290,13 +293,17 @@ export const JobHub: React.FC<JobHubProps> = ({
     jobMovements.forEach(m => acts.push({ ts: m.createdAt, kind: 'inventory', text: `${m.movementType.replace('_', ' ').toLowerCase()} — ${m.notes || m.performedByName || 'inventory'}` }));
     jobEntries.forEach(e => acts.push({ ts: new Date(e.clockedInAt).getTime(), kind: 'time', text: `${empById.get(e.employeeId)?.name ?? 'Crew'} clocked in` }));
     prints.forEach(p => acts.push({ ts: p.createdAt, kind: 'print', text: `Blueprint added — ${p.fileName}` }));
+    // Ticket audit log: admin edits, no shows, refresh requests, archive toggles.
+    ticketUpdates
+      .filter(u => u.jobNumber === job.jobNumber)
+      .forEach(u => acts.push({ ts: u.timestamp, kind: `update:${ticketUpdateTone(u.kind)}`, text: `#${u.ticketNo} — ${ticketUpdateOneLiner(u)}` }));
     acts.sort((a, b) => b.ts - a.ts);
 
     return {
       jobTickets, health, totalHours, laborCost, crewOnSite, jobEntries,
       materials, equipment, jobMovements, jobBlocks, assignedCodes, activity: acts.slice(0, 18),
     };
-  }, [selectedJob, ticketsByJob, timeEntries, empById, inventory, movements, blocks, costCodes, assignments, prints]);
+  }, [selectedJob, ticketsByJob, ticketUpdates, timeEntries, empById, inventory, movements, blocks, costCodes, assignments, prints]);
 
   // ── actions ─────────────────────────────────────────────────────────────────
   const handleUpload = async (file: File) => {
@@ -739,9 +746,17 @@ export const JobHub: React.FC<JobHubProps> = ({
                   <div className="space-y-2">
                     {detail.activity.map((a, i) => (
                       <div key={i} className="flex items-start gap-3">
-                        <span className={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${a.kind === 'ticket' ? 'bg-blue-500' : a.kind === 'time' ? 'bg-emerald-500' : a.kind === 'inventory' ? 'bg-amber-500' : 'bg-brand'}`} />
+                        <span className={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${
+                          a.kind === 'ticket' ? 'bg-blue-500'
+                          : a.kind === 'time' ? 'bg-emerald-500'
+                          : a.kind === 'inventory' ? 'bg-amber-500'
+                          : a.kind === 'update:rose' ? 'bg-rose-500'
+                          : a.kind === 'update:amber' ? 'bg-amber-500'
+                          : a.kind === 'update:slate' ? 'bg-slate-400'
+                          : 'bg-brand'}`} />
                         <div className="min-w-0 flex-1">
-                          <p className="text-[11px] font-semibold capitalize truncate">{a.text}</p>
+                          {/* Audit-log lines are already sentence-cased; don't re-capitalise them. */}
+                          <p className={`text-[11px] font-semibold truncate ${a.kind.startsWith('update:') ? '' : 'capitalize'}`} title={a.text}>{a.text}</p>
                           <p className={`text-[9px] font-bold uppercase ${subtle}`}>{new Date(a.ts).toLocaleString()}</p>
                         </div>
                       </div>
