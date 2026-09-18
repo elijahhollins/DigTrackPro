@@ -29,6 +29,10 @@ const initialTicket: DigTicket = {
   createdAt: Date.now() - 86400000,
 };
 
+const params = new URLSearchParams(location.search);
+const isAdmin = !params.has('crew');
+const isDarkMode = !params.has('light');
+
 const Harness: React.FC = () => {
   const [ticket, setTicket] = useState<DigTicket>(initialTicket);
   const [showUpdate, setShowUpdate] = useState(false);
@@ -44,35 +48,56 @@ const Harness: React.FC = () => {
     setLog(prev => [...prev, kind]);
   };
 
+  const menu = (testid: string) => (
+    <TicketActionMenu
+      ticket={ticket}
+      isAdmin={isAdmin}
+      isDarkMode={isDarkMode}
+      onNotes={() => { setNotesTab('notes'); setShowNotes(true); }}
+      onHistory={() => { setNotesTab('history'); setShowNotes(true); }}
+      onNoShow={() => logEvent(ticket, TicketUpdateKind.NO_SHOW_LOGGED, { reason: 'No show on GAS' })}
+      onRefresh={() => logEvent(ticket, TicketUpdateKind.REFRESH_REQUESTED, { reason: 'Refresh on ELECTRIC' })}
+      onUpdate={() => setShowUpdate(true)}
+      onArchive={() => { setTicket(p => ({ ...p, isArchived: true })); logEvent(ticket, TicketUpdateKind.ARCHIVED); }}
+    />
+  );
+
+  const rowCls = `flex items-center justify-between max-w-xl rounded-xl border px-5 py-4 ${
+    isDarkMode ? 'border-white/10 bg-white/[0.03]' : 'border-slate-200 bg-white shadow-sm'
+  }`;
+
   return (
-    <div className="min-h-screen bg-slate-950 p-10 text-white">
+    <div className={`min-h-screen p-10 ${isDarkMode ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-900'}`}>
       <h1 className="text-sm font-black uppercase tracking-widest text-brand mb-6">Ticket action menu harness</h1>
 
-      <div className="flex items-center justify-between max-w-xl rounded-xl border border-white/10 bg-white/[0.03] px-5 py-4">
+      <div className={rowCls} data-testid="row-top">
         <div>
           <p className="text-xs font-bold" data-testid="ticket-no">#{ticket.ticketNo}</p>
-          <p className="text-[10px] text-slate-500" data-testid="ticket-expires">Expires {ticket.expires}</p>
+          <p className={`text-[10px] ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`} data-testid="ticket-expires">Expires {ticket.expires}</p>
         </div>
-        <TicketActionMenu
-          ticket={ticket}
-          /* ?crew=1 drives the non-admin variant */
-          isAdmin={!new URLSearchParams(location.search).has('crew')}
-          isDarkMode
-          onNotes={() => { setNotesTab('notes'); setShowNotes(true); }}
-          onHistory={() => { setNotesTab('history'); setShowNotes(true); }}
-          onNoShow={() => logEvent(ticket, TicketUpdateKind.NO_SHOW_LOGGED, { reason: 'No show on GAS' })}
-          onRefresh={() => logEvent(ticket, TicketUpdateKind.REFRESH_REQUESTED, { reason: 'Refresh on ELECTRIC' })}
-          onUpdate={() => setShowUpdate(true)}
-          onArchive={() => { setTicket(p => ({ ...p, isArchived: true })); logEvent(ticket, TicketUpdateKind.ARCHIVED); }}
-        />
+        {menu('top')}
       </div>
 
-      <p className="mt-6 text-[10px] text-slate-500" data-testid="event-log">events: {log.join(',') || 'none'}</p>
+      <p className={`mt-6 text-[10px] ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`} data-testid="event-log">events: {log.join(',') || 'none'}</p>
+
+      {/* Anchored near the viewport floor so the menu has to flip above its
+          trigger. Inline styles, not Tailwind classes: verify-harness/ is
+          outside the content globs in tailwind.config.js, so utilities used
+          only here are never generated. */}
+      <div style={{ position: 'fixed', left: 40, right: 40, bottom: 16 }} data-testid="row-bottom-wrap">
+        <div className={rowCls}>
+          <div>
+            <p className="text-xs font-bold">#{ticket.ticketNo} (bottom row)</p>
+            <p className={`text-[10px] ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`}>menu should open upward</p>
+          </div>
+          {menu('bottom')}
+        </div>
+      </div>
 
       {showUpdate && (
         <TicketUpdateModal
           ticket={ticket}
-          isDarkMode
+          isDarkMode={isDarkMode}
           onSave={async (updated, changes, reason) => {
             setTicket(updated);
             await logEvent(updated, TicketUpdateKind.UPDATED, { changes, reason });
@@ -87,7 +112,7 @@ const Harness: React.FC = () => {
           userName="Dana Reyes"
           isAdmin
           initialTab={notesTab}
-          isDarkMode
+          isDarkMode={isDarkMode}
           onClose={() => setShowNotes(false)}
         />
       )}
