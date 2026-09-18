@@ -1,6 +1,20 @@
 
 import { supabase } from '../lib/supabaseClient.ts';
-import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job, NoShowRecord, JobPrint, PrintMarker, Company, PdfAnnotation, InventoryItem, InventoryItemType, InventoryLocation, InventoryMovement, InventoryMovementType } from '../types.ts';
+import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job, NoShowRecord, JobPrint, PrintMarker, Company, PdfAnnotation, InventoryItem, InventoryItemType, InventoryLocation, InventoryMovement, InventoryMovementType, TicketUpdate, TicketUpdateKind, TicketFieldChange } from '../types.ts';
+
+const mapTicketUpdate = (d: Record<string, unknown>): TicketUpdate => ({
+  id: d.id as string,
+  companyId: d.company_id as string,
+  ticketId: d.ticket_id as string,
+  jobNumber: (d.job_number as string) || '',
+  ticketNo: (d.ticket_no as string) || '',
+  kind: d.kind as TicketUpdateKind,
+  author: (d.author as string) || '',
+  authorId: (d.author_id as string) || undefined,
+  reason: (d.reason as string) || undefined,
+  changes: Array.isArray(d.changes) ? (d.changes as TicketFieldChange[]) : [],
+  timestamp: Number(d.timestamp),
+});
 
 const mapInvItem = (d: Record<string, unknown>): InventoryItem => ({
   id: d.id as string,
@@ -660,6 +674,56 @@ export const apiService = {
   async deleteNote(id: string): Promise<void> {
     const { error } = await supabase.from('notes').delete().eq('id', id);
     if (error) throw error;
+  },
+
+  // ── Ticket update log (append-only audit trail) ────────────────────────────
+  // Rows live in `ticket_updates`. The table has SELECT/INSERT policies only, so
+  // history cannot be edited or deleted from the client. Reads return [] and
+  // writes swallow their error when the migration hasn't been applied yet —
+  // logging must never block the action the user actually asked for.
+
+  async getTicketUpdates(): Promise<TicketUpdate[]> {
+    const { data, error } = await supabase.from('ticket_updates').select('*').order('timestamp', { ascending: false });
+    if (error) return [];
+    return (data || []).map(mapTicketUpdate);
+  },
+
+  async getTicketUpdatesForTicket(ticketId: string): Promise<TicketUpdate[]> {
+    const { data, error } = await supabase.from('ticket_updates').select('*').eq('ticket_id', ticketId).order('timestamp', { ascending: true });
+    if (error) return [];
+    return (data || []).map(mapTicketUpdate);
+  },
+
+  /**
+   * Append one entry to a ticket's history. Never throws: a failed log write is
+   * reported to the console but left to the caller's happy path, so a missing
+   * migration or a transient network blip can't strand a no-show or an edit.
+   */
+  async logTicketUpdate(entry: Omit<TicketUpdate, 'id' | 'timestamp'> & { id?: string; timestamp?: number }): Promise<TicketUpdate | null> {
+    const row: TicketUpdate = {
+      ...entry,
+      id: entry.id ?? generateUUID(),
+      timestamp: entry.timestamp ?? Date.now(),
+      changes: entry.changes ?? [],
+    };
+    const { error } = await supabase.from('ticket_updates').insert([{
+      id: row.id,
+      company_id: row.companyId,
+      ticket_id: row.ticketId,
+      job_number: row.jobNumber,
+      ticket_no: row.ticketNo,
+      kind: row.kind,
+      author: row.author,
+      author_id: row.authorId ?? null,
+      reason: row.reason ?? null,
+      changes: row.changes,
+      timestamp: row.timestamp,
+    }]);
+    if (error) {
+      console.warn('Ticket update log failed:', error.message);
+      return null;
+    }
+    return row;
   },
 
   async addTicketFile(jobNumber: string, file: File): Promise<string> {

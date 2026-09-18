@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, JobNote, User, UserRole, Job, UserRecord, Company, NoShowRecord } from './types.ts';
+import { DigTicket, SortField, SortOrder, TicketStatus, AppView, JobPhoto, JobNote, User, UserRole, Job, UserRecord, Company, NoShowRecord, TicketUpdate, TicketUpdateKind, TicketFieldChange } from './types.ts';
 import { getTicketStatus, getStatusColor, addDaysToDateStr, formatDateStr } from './utils/dateUtils.ts';
+import { diffTicket } from './utils/ticketUpdateUtils.ts';
 import { apiService } from './services/apiService.ts';
 import { supabase, isSupabaseConfigured } from './lib/supabaseClient.ts';
 import type { AuthChangeEvent } from '@supabase/supabase-js';
@@ -18,6 +19,8 @@ import NoShowForm from './components/NoShowForm.tsx';
 import RefreshRequestForm from './components/RefreshRequestForm.tsx';
 import ConfirmDialog from './components/ConfirmDialog.tsx';
 import TicketNotesModal from './components/TicketNotesModal.tsx';
+import TicketUpdateModal from './components/TicketUpdateModal.tsx';
+import TicketActionMenu from './components/TicketActionMenu.tsx';
 import Login from './components/Login.tsx';
 import CompanyRegistration from './components/CompanyRegistration.tsx';
 import MapView from './components/MapView.tsx';
@@ -98,6 +101,10 @@ const App: React.FC = () => {
   const [noShowTicket, setNoShowTicket] = useState<DigTicket | null>(null);
   const [refreshTicket, setRefreshTicket] = useState<DigTicket | null>(null);
   const [notesTicket, setNotesTicket] = useState<DigTicket | null>(null);
+  // When set, TicketNotesModal opens straight onto the update-history tab.
+  const [notesTicketTab, setNotesTicketTab] = useState<'notes' | 'history'>('notes');
+  const [updateTicket, setUpdateTicket] = useState<DigTicket | null>(null);
+  const [ticketUpdates, setTicketUpdates] = useState<TicketUpdate[]>([]);
   const [confirmDialog, setConfirmDialog] = useState<{ message: string; confirmLabel?: string; onConfirm: () => void | Promise<void> } | null>(null);
   const [digConfirmTicket, setDigConfirmTicket] = useState<DigTicket | null>(null);
   const [ticketMode, setTicketMode] = useState<'regular' | 'inbound' | 'equipment'>('regular');
@@ -306,17 +313,19 @@ const App: React.FC = () => {
       }
 
       // Fetch operational data - Supabase RLS handles the company filtering automatically now!
-      const [allTicketsRes, allJobsRes, allPhotosRes, allNotesRes] = await Promise.allSettled([
+      const [allTicketsRes, allJobsRes, allPhotosRes, allNotesRes, allUpdatesRes] = await Promise.allSettled([
         apiService.getTickets(),
         apiService.getJobs(),
         apiService.getPhotos(),
-        apiService.getNotes()
+        apiService.getNotes(),
+        apiService.getTicketUpdates()
       ]);
 
       setTickets(allTicketsRes.status === 'fulfilled' ? allTicketsRes.value : []);
       setJobs(allJobsRes.status === 'fulfilled' ? allJobsRes.value : []);
       setPhotos(allPhotosRes.status === 'fulfilled' ? allPhotosRes.value : []);
       setNotes(allNotesRes.status === 'fulfilled' ? allNotesRes.value : []);
+      setTicketUpdates(allUpdatesRes.status === 'fulfilled' ? allUpdatesRes.value : []);
 
     } catch (error) { 
       console.error("Critical Init Error:", error);
@@ -416,12 +425,47 @@ const App: React.FC = () => {
     return savedJob;
   };
 
+  /**
+   * Append one entry to a ticket's audit log and fold it into local state so the
+   * notes modal and Job Hub timeline update without a refetch. Never throws —
+   * apiService.logTicketUpdate swallows its own errors — so a logging problem
+   * can never strand the action the user actually performed.
+   */
+  const logTicketEvent = useCallback(async (
+    ticket: DigTicket,
+    kind: TicketUpdateKind,
+    options?: { reason?: string; changes?: TicketFieldChange[] },
+  ) => {
+    if (!ticket.companyId) return;
+    const saved = await apiService.logTicketUpdate({
+      companyId: ticket.companyId,
+      ticketId: ticket.id,
+      jobNumber: ticket.jobNumber,
+      ticketNo: ticket.ticketNo,
+      kind,
+      author: sessionUser?.name || '',
+      authorId: sessionUser?.id,
+      reason: options?.reason,
+      changes: options?.changes ?? [],
+    });
+    if (saved) setTicketUpdates(prev => [saved, ...prev]);
+  }, [sessionUser?.id, sessionUser?.name]);
+
+  /** Admin-only focused edit from the dashboard action menu. */
+  const handleUpdateTicket = async (updated: DigTicket, changes: TicketFieldChange[], reason: string) => {
+    const saved = await apiService.saveTicket(updated);
+    setTickets(prev => prev.map(t => t.id === saved.id ? saved : t));
+    await logTicketEvent(saved, TicketUpdateKind.UPDATED, { reason, changes });
+  };
+
   const handleSaveTicket = async (data: Omit<DigTicket, 'id' | 'createdAt' | 'companyId'>, archiveOld: boolean = false) => {
     if (!sessionUser?.companyId) { setShowCompanyRegistration(true); return; }
     try {
       const ticketData = { ...data, companyId: sessionUser.companyId };
       await ensureJobExists(ticketData);
       const ticket: DigTicket = (editingTicket && !archiveOld) ? { ...editingTicket, ...ticketData } : { ...ticketData, id: crypto.randomUUID(), createdAt: Date.now(), isArchived: false };
+      const isNewTicket = !editingTicket || archiveOld;
+      const previous = editingTicket;
       const saved = await apiService.saveTicket(ticket, archiveOld);
       setTickets(prev => {
         if (archiveOld) return [saved, ...prev.map(t => (t.ticketNo === saved.ticketNo && t.jobNumber === saved.jobNumber && t.id !== saved.id) ? { ...t, isArchived: true } : t)];
@@ -429,6 +473,14 @@ const App: React.FC = () => {
         if (index > -1) return prev.map(t => t.id === saved.id ? saved : t);
         return [saved, ...prev];
       });
+      if (isNewTicket) {
+        await logTicketEvent(saved, TicketUpdateKind.CREATED);
+      } else if (previous) {
+        // Full-form edit: log only the fields the audit log tracks, and skip the
+        // entry entirely when none of them moved.
+        const changes = diffTicket(previous, saved);
+        if (changes.length) await logTicketEvent(saved, TicketUpdateKind.UPDATED, { changes });
+      }
     } catch (error: any) {
       alert(error.message);
     }
@@ -512,6 +564,7 @@ const App: React.FC = () => {
     const updated = { ...ticket, isArchived: willArchive };
     const saved = await apiService.saveTicket(updated);
     setTickets(prev => prev.map(t => t.id === saved.id ? saved : t));
+    await logTicketEvent(saved, willArchive ? TicketUpdateKind.ARCHIVED : TicketUpdateKind.UNARCHIVED);
   };
 
   const handleToggleArchive = (ticket: DigTicket, e: React.MouseEvent) => {
@@ -538,6 +591,12 @@ const App: React.FC = () => {
   const handleSaveNoShow = async (record: NoShowRecord) => {
     await apiService.addNoShow(record);
     const ticket = tickets.find(t => t.id === record.ticketId);
+    if (ticket) {
+      const utilities = record.utilities.length ? `No show on ${record.utilities.join(', ')}` : undefined;
+      await logTicketEvent(ticket, TicketUpdateKind.NO_SHOW_LOGGED, {
+        reason: [utilities, record.notes?.trim()].filter(Boolean).join(' — ') || undefined,
+      });
+    }
     if (!sessionUser?.companyId) {
       console.warn('Email alert skipped: no company ID on session user');
     } else if (ticket) {
@@ -576,6 +635,7 @@ const App: React.FC = () => {
         onConfirm: async () => {
           const saved = await apiService.saveTicket({ ...ticket, refreshRequested: false });
           setTickets(prev => prev.map(t => t.id === saved.id ? saved : t));
+          await logTicketEvent(saved, TicketUpdateKind.REFRESH_CLEARED);
         },
       });
       return;
@@ -590,6 +650,9 @@ const App: React.FC = () => {
     try {
       const saved = await apiService.saveTicket({ ...ticket, refreshRequested: true });
       setTickets(prev => prev.map(t => t.id === saved.id ? saved : t));
+      await logTicketEvent(saved, TicketUpdateKind.REFRESH_REQUESTED, {
+        reason: [utilities.length ? `Refresh on ${utilities.join(', ')}` : '', notes.trim()].filter(Boolean).join(' — ') || undefined,
+      });
       if (!sessionUser?.companyId) {
         console.warn('Email alert skipped: no company ID on session user');
       } else {
@@ -1113,19 +1176,18 @@ const App: React.FC = () => {
                                       {formatDateStr(ticket.expires)}
                                     </td>
                                     <td className="px-5 py-3 text-right">
-                                      <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                                        <button onClick={(e) => { e.stopPropagation(); setNotesTicket(ticket); }} className={`p-1.5 rounded-lg transition-all ${isDarkMode ? 'text-slate-500 hover:text-brand hover:bg-brand/10' : 'text-slate-400 hover:text-brand hover:bg-brand/10'}`} title="Notes">
-                                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 8h10M7 12h6m-6 4h10M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z" /></svg>
-                                        </button>
-                                        <button onClick={(e) => { e.stopPropagation(); setNoShowTicket(ticket); }} className={`p-1.5 rounded-lg transition-all ${isDarkMode ? 'text-rose-600 hover:text-rose-400 hover:bg-rose-500/10' : 'text-rose-400 hover:text-rose-600 hover:bg-rose-50'}`} title="Log No Show">
-                                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
-                                        </button>
-                                        <button onClick={(e) => handleRefreshRequest(ticket, e)} title={ticket.refreshRequested ? "Clear Refresh" : "Request Refresh"} className={`p-1.5 rounded-lg transition-all ${ticket.refreshRequested ? 'text-amber-400 bg-amber-500/10 hover:bg-amber-500 hover:text-white' : isDarkMode ? 'text-amber-600 hover:text-amber-400 hover:bg-amber-500/10' : 'text-amber-500 hover:bg-amber-50'}`}>
-                                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-                                        </button>
-                                        {isAdmin && <button onClick={(e) => { e.stopPropagation(); handleToggleArchive(ticket, e); }} className={`p-1.5 rounded-lg transition-all ${isDarkMode ? 'text-slate-700 hover:text-brand hover:bg-brand/10' : 'text-slate-400 hover:text-brand hover:bg-brand/10'}`} title="Archive">
-                                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>
-                                        </button>}
+                                      <div className="flex items-center justify-end">
+                                        <TicketActionMenu
+                                          ticket={ticket}
+                                          isAdmin={isAdmin}
+                                          isDarkMode={isDarkMode}
+                                          onNotes={() => { setNotesTicketTab('notes'); setNotesTicket(ticket); }}
+                                          onHistory={() => { setNotesTicketTab('history'); setNotesTicket(ticket); }}
+                                          onNoShow={() => setNoShowTicket(ticket)}
+                                          onRefresh={(e) => handleRefreshRequest(ticket, e)}
+                                          onUpdate={() => setUpdateTicket(ticket)}
+                                          onArchive={(e) => handleToggleArchive(ticket, e)}
+                                        />
                                       </div>
                                     </td>
                                   </tr>
@@ -1233,6 +1295,7 @@ const App: React.FC = () => {
             )}
             {activeView === 'jobs' && <JobHub
               tickets={tickets}
+              ticketUpdates={ticketUpdates}
               jobs={jobs}
               companyId={sessionUser.companyId}
               isAdmin={isAdmin}
@@ -1330,10 +1393,11 @@ const App: React.FC = () => {
       {(showJobForm || editingJob) && <JobForm onSave={async (data) => { const job: Job = editingJob ? { ...editingJob, ...data } : { ...data, id: crypto.randomUUID(), companyId: sessionUser.companyId, createdAt: Date.now(), isComplete: false }; const saved = await apiService.saveJob(job); setJobs(prev => [...prev.filter(j => j.id !== saved.id), saved]); setShowJobForm(false); setEditingJob(null); setJobFormVersion(v => v + 1); }} onClose={() => { setShowJobForm(false); setEditingJob(null); setJobFormVersion(v => v + 1); }} initialData={editingJob || undefined} isDarkMode={isDarkMode} companyId={sessionUser.companyId} timeTrackingEnabled={isTimeTrackingEnabled} />}
       {selectedJobSummary && <JobSummaryModal job={selectedJobSummary} onClose={() => setSelectedJobSummary(null)} onEdit={() => { setEditingJob(selectedJobSummary); setShowJobForm(true); setSelectedJobSummary(null); }} onDelete={() => { apiService.deleteJob(selectedJobSummary.id).then(() => initApp()); setSelectedJobSummary(null); }} onToggleComplete={async () => { await apiService.saveJob({ ...selectedJobSummary, isComplete: !selectedJobSummary.isComplete }); initApp(); }} onViewMedia={() => { setMediaFolderFilter(selectedJobSummary.jobNumber); handleNavigate('photos'); }} onViewMarkup={() => { setShowMarkup(selectedJobSummary); setSelectedJobSummary(null); }} isDarkMode={isDarkMode} />}
       {showMarkup && <JobPrintMarkup job={showMarkup} isAdmin={isAdmin} sessionUser={sessionUser} onClose={() => setShowMarkup(null)} isDarkMode={isDarkMode} />}
-      {noShowTicket && <NoShowForm ticket={noShowTicket} userName={sessionUser?.name || ''} onSave={handleSaveNoShow} onDelete={async () => { await apiService.deleteNoShow(noShowTicket.id); initApp(); return true; }} onClose={() => setNoShowTicket(null)} isDarkMode={isDarkMode} />}
+      {noShowTicket && <NoShowForm ticket={noShowTicket} userName={sessionUser?.name || ''} onSave={handleSaveNoShow} onDelete={async () => { await apiService.deleteNoShow(noShowTicket.id); await logTicketEvent(noShowTicket, TicketUpdateKind.NO_SHOW_CLEARED); initApp(); return true; }} onClose={() => setNoShowTicket(null)} isDarkMode={isDarkMode} />}
       {refreshTicket && <RefreshRequestForm ticket={refreshTicket} onSubmit={handleSubmitRefreshRequest} onClose={() => setRefreshTicket(null)} isDarkMode={isDarkMode} />}
       {confirmDialog && <ConfirmDialog message={confirmDialog.message} confirmLabel={confirmDialog.confirmLabel} onConfirm={confirmDialog.onConfirm} onClose={() => setConfirmDialog(null)} isDarkMode={isDarkMode} />}
-      {notesTicket && <TicketNotesModal ticket={notesTicket} userName={sessionUser?.name || ''} isAdmin={isAdmin} onClose={() => { setNotesTicket(null); apiService.getNotes().then(setNotes).catch((err) => console.error('Failed to refresh notes:', err)); }} isDarkMode={isDarkMode} />}
+      {notesTicket && <TicketNotesModal ticket={notesTicket} userName={sessionUser?.name || ''} isAdmin={isAdmin} initialTab={notesTicketTab} onClose={() => { setNotesTicket(null); apiService.getNotes().then(setNotes).catch((err) => console.error('Failed to refresh notes:', err)); }} isDarkMode={isDarkMode} />}
+      {updateTicket && <TicketUpdateModal ticket={updateTicket} onSave={handleUpdateTicket} onClose={() => setUpdateTicket(null)} isDarkMode={isDarkMode} />}
       {digConfirmTicket && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[200] flex items-center justify-center p-4">
           <div className={`w-full max-w-sm rounded-[2rem] shadow-2xl border p-8 space-y-6 ${isDarkMode ? 'bg-[#1e293b] border-white/10' : 'bg-white border-slate-200'}`}>

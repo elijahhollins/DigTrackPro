@@ -204,7 +204,8 @@ export interface DigTicket {
   createdAt: number;
   refreshRequested?: boolean;
   noShowRequested?: boolean;
-  isArchived?: boolean;
+  /** Always set by apiService (`is_archived ?? false`); never absent on a loaded ticket. */
+  isArchived: boolean;
   workBegun?: boolean;
   documentUrl?: string;
   lat?: number;
@@ -246,3 +247,45 @@ export interface JobNote {
 export type SortField = keyof DigTicket | 'status';
 export type SortOrder = 'asc' | 'desc';
 export type AppView = 'dashboard' | 'calendar' | 'jobs' | 'photos' | 'team' | 'map' | 'schedule' | 'inventory' | 'timetracking';
+
+/**
+ * Kinds of events recorded in the ticket audit log (`ticket_updates`).
+ * These rows are append-only: nothing in the app updates or deletes them.
+ */
+export enum TicketUpdateKind {
+  CREATED = 'CREATED',
+  UPDATED = 'UPDATED',
+  NO_SHOW_LOGGED = 'NO_SHOW_LOGGED',
+  NO_SHOW_CLEARED = 'NO_SHOW_CLEARED',
+  REFRESH_REQUESTED = 'REFRESH_REQUESTED',
+  REFRESH_CLEARED = 'REFRESH_CLEARED',
+  ARCHIVED = 'ARCHIVED',
+  UNARCHIVED = 'UNARCHIVED',
+}
+
+/** A single before/after pair captured on an UPDATED event. */
+export interface TicketFieldChange {
+  /** Field key on DigTicket, e.g. 'expires'. */
+  field: string;
+  /** Human label shown in the log, e.g. 'Expires'. */
+  label: string;
+  before: string;
+  after: string;
+}
+
+/** One append-only entry in a ticket's update history. */
+export interface TicketUpdate {
+  id: string;
+  companyId: string;
+  ticketId: string;
+  jobNumber: string;
+  ticketNo: string;
+  kind: TicketUpdateKind;
+  /** Who performed the action (display name captured at write time). */
+  author: string;
+  authorId?: string;
+  /** Admin-supplied reason; required on UPDATED, optional elsewhere. */
+  reason?: string;
+  changes: TicketFieldChange[];
+  timestamp: number;
+}
