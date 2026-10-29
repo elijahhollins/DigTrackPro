@@ -40,6 +40,11 @@ This guide shows you:
 ### Run the SQL Setup
 → **[complete_rls_setup.sql](complete_rls_setup.sql)** ⭐ **START HERE** - Main setup file
 
+### Refresh or Rebuild the Demo Account
+→ **[DEMO_DATA.md](DEMO_DATA.md)** - Example Excavating Inc. demo data  
+→ **[refresh_demo_dates.sql](refresh_demo_dates.sql)** - Slide every demo date to today (run when the demo looks stale)  
+→ **[dump_demo_seed.sql](dump_demo_seed.sql)** - Generate a restore file from the live account
+
 ### Learn the System
 → **[ARCHITECTURE.md](ARCHITECTURE.md)** - Visual diagrams and system design  
 → **[README.md](README.md)** - Architecture section
