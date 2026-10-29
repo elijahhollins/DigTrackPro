@@ -1,5 +1,6 @@
 
 import { supabase } from '../lib/supabaseClient.ts';
+import { selectAll } from '../lib/selectAll.ts';
 import { DigTicket, JobPhoto, JobNote, UserRecord, UserRole, Job, NoShowRecord, JobPrint, PrintMarker, Company, PdfAnnotation, InventoryItem, InventoryItemType, InventoryLocation, InventoryMovement, InventoryMovementType, TicketUpdate, TicketUpdateKind, TicketFieldChange } from '../types.ts';
 
 const mapTicketUpdate = (d: Record<string, unknown>): TicketUpdate => ({
@@ -372,7 +373,7 @@ export const apiService = {
   },
 
   async getUsers(): Promise<UserRecord[]> {
-    const { data, error } = await supabase.from('profiles').select('*');
+    const { data, error } = await selectAll((from, to) => supabase.from('profiles').select('*').order('id').range(from, to));
     if (error) return [];
     return (data || []).map(u => ({ 
       ...u, 
@@ -468,7 +469,7 @@ export const apiService = {
   },
 
   async getJobs(): Promise<Job[]> {
-    const { data, error } = await supabase.from('jobs').select('*');
+    const { data, error } = await selectAll((from, to) => supabase.from('jobs').select('*').order('id').range(from, to));
     if (error) return [];
     return (data || []).map(mapJob);
   },
@@ -497,7 +498,7 @@ export const apiService = {
   },
 
   async getTickets(): Promise<DigTicket[]> {
-    const { data, error } = await supabase.from('tickets').select('*');
+    const { data, error } = await selectAll((from, to) => supabase.from('tickets').select('*').order('id').range(from, to));
     if (error) return [];
     return (data || []).map(t => ({
         id: t.id,
@@ -631,7 +632,7 @@ export const apiService = {
   },
 
   async getPhotos(): Promise<JobPhoto[]> {
-    const { data, error } = await supabase.from('photos').select('*');
+    const { data, error } = await selectAll((from, to) => supabase.from('photos').select('*').order('id').range(from, to));
     if (error) return [];
     return (data || []).map(p => ({ ...p, jobNumber: p.job_number, companyId: p.company_id, dataUrl: p.data_url, timestamp: new Date(p.created_at).getTime() }));
   },
@@ -654,7 +655,7 @@ export const apiService = {
   },
 
   async getNotes(): Promise<JobNote[]> {
-    const { data, error } = await supabase.from('notes').select('*').order('timestamp', { ascending: true });
+    const { data, error } = await selectAll((from, to) => supabase.from('notes').select('*').order('timestamp', { ascending: true }).order('id').range(from, to));
     if (error) return [];
     return (data || []).map(n => ({ ...n, jobNumber: n.job_number, companyId: n.company_id, ticketId: n.ticket_id || '' }));
   },
@@ -683,7 +684,7 @@ export const apiService = {
   // logging must never block the action the user actually asked for.
 
   async getTicketUpdates(): Promise<TicketUpdate[]> {
-    const { data, error } = await supabase.from('ticket_updates').select('*').order('timestamp', { ascending: false });
+    const { data, error } = await selectAll((from, to) => supabase.from('ticket_updates').select('*').order('timestamp', { ascending: false }).order('id').range(from, to));
     if (error) return [];
     return (data || []).map(mapTicketUpdate);
   },
@@ -745,7 +746,7 @@ export const apiService = {
   },
 
   async getNoShows(): Promise<NoShowRecord[]> {
-    const { data, error } = await supabase.from('no_shows').select('*');
+    const { data, error } = await selectAll((from, to) => supabase.from('no_shows').select('*').order('id').range(from, to));
     if (error) return [];
     return (data || []).map(n => ({ id: n.id, ticketId: n.ticket_id, companyId: n.company_id, jobNumber: n.job_number, utilities: n.utilities || [], companies: n.companies || '', notes: n.notes || undefined, author: n.author || '', timestamp: Number(n.timestamp) }));
   },
@@ -1047,7 +1048,7 @@ export const apiService = {
   // ── Inventory Items ──────────────────────────────────────────────────────
 
   async getInventoryItems(): Promise<InventoryItem[]> {
-    const { data, error } = await supabase.from('inventory_items').select('*').order('name');
+    const { data, error } = await selectAll((from, to) => supabase.from('inventory_items').select('*').order('name').order('id').range(from, to));
     if (error) throw error;
     return (data || []).map((d: Record<string, unknown>) => mapInvItem(d));
   },
@@ -1096,9 +1097,11 @@ export const apiService = {
   // ── Inventory Movements ──────────────────────────────────────────────────
 
   async getInventoryMovements(itemId?: string): Promise<InventoryMovement[]> {
-    let q = supabase.from('inventory_movements').select('*').order('created_at', { ascending: false });
-    if (itemId) q = q.eq('item_id', itemId);
-    const { data, error } = await q;
+    const { data, error } = await selectAll((from, to) => {
+      let q = supabase.from('inventory_movements').select('*');
+      if (itemId) q = q.eq('item_id', itemId);
+      return q.order('created_at', { ascending: false }).order('id').range(from, to);
+    });
     if (error) throw error;
     return (data || []).map((d: Record<string, unknown>) => ({
       id: d.id as string,
